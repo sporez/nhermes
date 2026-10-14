@@ -1,0 +1,35 @@
+{
+  "name": "neil-hermes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small self-hosted personal agent platform on Pi Durable, speaking the Hermes protocol for Vory.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "nhermes": "./bin/nhermes"
+  },
+  "scripts": {
+    "start": "node src/cli.ts serve",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 'test/**/*.test.ts'",
+    "test:upstream": "node --test 'test/upstream/*.test.ts'"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@earendil-works/chord": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-durable": "1.2.0",
+    "@earendil-works/pi-env": "1.2.0",
+    "croner": "10.0.1",
+    "ws": "8.22.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "typescript": "7.0.2"
+  }
+}

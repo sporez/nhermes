@@ -1,0 +1,43 @@
+# Backlog
+
+Phases follow the brief. Each item lands as a tested commit; `docs/COMPATIBILITY.md` and `docs/STATUS.md`
+are updated with it.
+
+## Findings that shaped the plan (Phase 0)
+
+- Pi Durable 1.2.0 already provides: durable conversations and runs, idempotent submissions
+  (`requestId`), tool tasks with replay rules, async `beforeTool` hooks that run before intent (so an
+  approval wait survives a restart without the tool running), inbox follow-up/steer, abort, compaction,
+  per-conversation agent config (model, thinking, extensions, tools, instructions, cwd), task-owned child
+  conversations (delegation), `watchEvents` for live streaming, SQLite storage on `node:sqlite`.
+- It does not provide: bots/identities, session catalogue and titles, approvals UI/protocol, memory,
+  scheduling, notifications, a network API. These are ours.
+- Pi's `ModelRuntime` (coding-agent package) reads the same `auth.json`/`models.json` as the Pi CLI,
+  including OAuth subscriptions (openai-codex, xai) and custom OpenAI-compatible providers (Neuralwatt,
+  Synthetic, omlx); verified live on 2026-10-14. Shared use with a running Pi CLI is safe (file lock).
+- `pi-env` provides SSH remote execution (Mode A) with host-key pinning and a self-deploying daemon.
+- Vory's own E2E suite runs against any gateway URL + session token: it is our acceptance test.
+- Vory needs `/api/config`, `/api/config/schema` (`approvals.mode`), `/api/tools/toolsets`, `/api/env`
+  to be non-empty for its REST E2E test; we serve real values for those.
+
+## Needs from the owner (not blocking Phase 1)
+
+1. A Debian host for deployment tests (candidates in the homelab: the stopped `agent` LXC 104, or a new VM).
+2. A remote VM the second bot may administer over SSH (any non-critical guest).
+3. A Linux desktop for the remote-desktop workflow (the `hermes` VM has XFCE; a fresh VM is cleaner).
+4. Pushover user key and app token.
+5. Optional: a dashboard token for the existing Hermes on 192.168.1.17 to capture real fixtures.
+
+## Phases
+
+- [ ] **1. Vory connection**: config, app DB, engine boundary, bots, sessions, events, Hermes REST + WS,
+  approvals, CLI `serve`/`token`, Vory E2E suite green against a real model, restart recovery.
+- [ ] **2. Agents and remote execution**: second bot with its own model/skills/memory, SSH host (pi-env),
+  `delegate` tool (local), peer agent mode + registration.
+- [ ] **3. Skills and memory**: SKILL.md loading per bot and per job, `skill` tool, memory tools + FTS5,
+  shared spaces, pinned memory in the prompt.
+- [ ] **4. Scheduling and notifications**: scheduler, job sessions, run history, missed/overlap rules,
+  Pushover, Hermes cron endpoints, `schedule_*` tools.
+- [ ] **5. Computer use**: Playwright browser tools + E2E; Linux desktop tools over SSH + E2E.
+- [ ] **6. Reliability and polish**: backup/restore, systemd/Podman, upgrade/migrations, Vory UI pass,
+  security review, docs.

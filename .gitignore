@@ -1,0 +1,9 @@
+node_modules/
+reference/
+data/
+*.sqlite
+*.sqlite-*
+secrets.env
+.env
+coverage/
+/tmp/
