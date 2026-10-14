@@ -233,6 +233,6 @@ delegating the task to it. Bot rooms remain out of scope.
 - [x] F1 private bots · `3d172d0`
 - [x] F2 runtime configuration · `9c57770`
 - [x] F3 membership · `c639105`
-- [ ] F4 roster sync and delegation
+- [x] F4 roster sync and delegation · `678860c`
 - [ ] F5 remote bots in Vory
 - [ ] F6 web control panel
