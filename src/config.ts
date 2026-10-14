@@ -69,6 +69,8 @@ export type Config = {
 	browserExecutable?: string;
 	/** This gateway as a network member: its name (default: the host name) and the URL members use. */
 	node: { name?: string; url?: string };
+	/** The web control panel at /panel (on by default; its password, if any, is set with `nhermes panel password`). */
+	panel: { enabled: boolean };
 };
 
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -249,7 +251,8 @@ export function loadConfig(configPath: string): Config {
 		configDir,
 		dataDir: expandPath(str(doc.dataDir, "dataDir") ?? "data", configDir),
 		server: {
-			host: str(server.host, "server.host") ?? "127.0.0.1",
+			// All interfaces by default, so a headless machine is reachable on the LAN; 127.0.0.1 keeps it local.
+			host: str(server.host, "server.host") ?? "0.0.0.0",
 			port: typeof server.port === "number" ? server.port : 9119,
 			publicName: str(server.name, "server.name") ?? "Neil Hermes",
 		},
@@ -270,5 +273,6 @@ export function loadConfig(configPath: string): Config {
 		pushover: pushUser && pushToken ? { user: pushUser, token: pushToken } : undefined,
 		browserExecutable: str(doc.browserExecutable, "browserExecutable"),
 		node: { name: nodeName, url: str(node.url, "node.url") },
+		panel: { enabled: asRecord(doc.panel, "panel").enabled !== false },
 	};
 }

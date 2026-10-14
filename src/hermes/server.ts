@@ -9,6 +9,7 @@ import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import { type MemberRow, NODE_HEADER, SECRET_HEADER } from "../federation/members.ts";
 import { federationRoutes, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
+import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
 import { HttpError, readJson, type Router, sendJson } from "./http.ts";
 import { restRoutes } from "./rest.ts";
@@ -43,11 +44,18 @@ export type HermesServer = { server: Server; port: number; close(): Promise<void
 /** Extra route sets (the admin API) mounted before the Hermes routes. */
 export async function startHermesServer(core: Core, opts: { host: string; port: number; extraRouters?: Router[] }): Promise<HermesServer> {
 	const federation = federationRoutes(core);
+	const panel = new Panel(core);
 	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 	const server = createServer(async (req, res) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const method = req.method ?? "GET";
+		// The web control panel has its own access rules (src/panel/panel.ts).
+		if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) return panel.handle(req, res, url);
+		if (url.pathname === "/" && method === "GET" && core.config.panel.enabled) {
+			res.writeHead(302, { location: "/panel/" });
+			return void res.end();
+		}
 		try {
 			// Members reach only /federation/*, with their pair secret; everything else takes the gateway token.
 			let member: MemberRow | undefined;

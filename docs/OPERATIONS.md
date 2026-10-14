@@ -70,6 +70,15 @@ configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gate
 and keeps the file's comments.
 From Vory you can edit a bot's instructions, description, default model, skills and scheduled tasks.
 
+## Web control panel
+
+Every gateway serves a control panel at `http://<machine>:<port>/panel/` (the root URL redirects there):
+bots and their settings, the network (invite, join, remove), sessions, memory, pending approvals,
+scheduled jobs and gateway settings. It is open to anyone on the LAN until you set a password with
+`nhermes panel password` (or on its Gateway screen); `nhermes panel password --clear` removes it. Set
+`panel: { enabled: false }` to turn it off, or `server.host: 127.0.0.1` to keep the whole gateway on the
+machine. The panel never shows or needs the gateway token.
+
 ## Network of gateways
 
 Every machine runs the same gateway; together they form one network of equals (`docs/FEDERATION.md`).

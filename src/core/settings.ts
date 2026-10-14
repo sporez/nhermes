@@ -43,6 +43,7 @@ const RESTART_ONLY: [string, (c: Config) => unknown][] = [
 	["browserExecutable", (c) => c.browserExecutable],
 	["pushover", (c) => c.pushover],
 	["node", (c) => c.node],
+	["panel", (c) => c.panel],
 ];
 
 export type SettingsDeps = {

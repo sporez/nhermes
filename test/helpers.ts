@@ -29,6 +29,7 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		skillsDir: join(dir, "skills"),
 		timezone: "America/New_York",
 		node: {},
+		panel: { enabled: true },
 		bots: bots ?? [
 			{ name: "main", displayName: "Main", default: true, instructions: "You are the main test bot." },
 			{ name: "ops", displayName: "Ops", instructions: "You are the ops test bot.", trusted: true },

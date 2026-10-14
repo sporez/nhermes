@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Core } from "./app.ts";
 import { type BotConfig, ConfigError } from "./config.ts";
 import type { BotPatch, GatewayPatch } from "./core/settings.ts";
+import { PanelAuth } from "./panel/auth.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
 import { logger } from "./log.ts";
 
@@ -144,6 +145,15 @@ export function adminRoutes(core: Core): Router {
 	r.on("PATCH", "/admin/bots/:name", (q) => settingsCall(() => core.settings.editBot(q.params.name!, botFields(obj(q.body), false))));
 	r.on("DELETE", "/admin/bots/:name", (q) => settingsCall(() => core.settings.removeBot(q.params.name!)));
 	r.on("PATCH", "/admin/gateway", (q) => settingsCall(() => core.settings.setGateway(obj(q.body) as GatewayPatch)));
+	r.on("POST", "/admin/panel/password", (q) => {
+		const p = obj(q.body).password;
+		try {
+			new PanelAuth(core.db).setPassword(typeof p === "string" && p ? p : null);
+		} catch (error) {
+			throw new HttpError(400, error instanceof Error ? error.message : String(error));
+		}
+		return { ok: true, passwordSet: typeof p === "string" && p !== "" };
+	});
 	return r;
 }
 

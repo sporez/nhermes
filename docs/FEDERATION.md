@@ -163,40 +163,47 @@ static files: no framework, no build step, no new dependencies. Works on a phone
 
 Listening and access:
 
-- `server.host` defaults to `0.0.0.0` (change in `src/config.ts:241`), so a fresh headless install is
-  reachable on the LAN; `nhermes init` writes it explicitly. `server.host: 127.0.0.1` keeps everything,
-  panel included, on the machine.
+- `server.host` defaults to `0.0.0.0`, so a fresh headless install is reachable on the LAN; `nhermes
+  init` writes it explicitly. `server.host: 127.0.0.1` keeps everything, panel included, on the machine.
+  `GET /` redirects to `/panel/`.
 - `panel.enabled` (default `true`) turns the panel off entirely.
-- **No password by default.** `panel.password` (or `panel.passwordEnv`) turns on a login page; a
-  successful login sets an HttpOnly, SameSite=Strict session cookie, signed with a key kept in
-  `app.sqlite`. `nhermes panel password` sets or clears it without editing files.
-- The page calls its own endpoints under `/panel/api/*`, which call the admin services in-process. The
-  gateway token is never sent to the browser or shown in the panel.
-- Even without a password, every state-changing request must be JSON with an `Origin` matching the
-  gateway's own host. This stops a web page open in a browser on the LAN from changing settings
-  through the panel (cross-site requests), at no cost to the owner.
+- **No password by default.** `nhermes panel password` (or the Gateway screen) sets one; it is stored
+  as a scrypt hash in `app.sqlite` (`settings`), not in config.yaml. With a password, a login sets an
+  HttpOnly, SameSite=Strict cookie for 30 days, signed with a key in `app.sqlite`; changing the password
+  signs every browser out. `nhermes panel password --clear` removes it.
+- The page calls its own endpoints under `/panel/api/*` (`src/panel/panel.ts`), which call the gateway's
+  services in-process. The gateway token is never sent to the browser or shown in the panel.
+- Even without a password, every change must come from the panel's own page: a custom
+  `x-nhermes-panel` header (a cross-site page cannot send it without a CORS preflight, which is never
+  granted), an `Origin` matching the gateway's host when present, a JSON body, and a `Host` that is an IP
+  address, `localhost`, a single-label or `.local`/`.lan`/`.home.arpa`/`.internal`/`.ts.net` name, or
+  `node.url`'s host (against DNS rebinding). The static files are served with a strict CSP.
 - `/api/*` (Vory) and `/admin/*` (CLI) keep requiring the gateway token.
 
 Screens:
 
-- **Network**: members with reachability and last seen; invite (shows the code), join, remove, leave.
-- **Bots**: local and remote bots in one list, grouped by machine. For a local bot: display name,
-  description, model and thinking (from the model list), tool groups, private, approval mode, trusted,
-  instructions (editor), skills on/off, shared memory spaces. Create and remove bots. Remote bots are
-  read-only unless the owning member allows remote edits.
-- **Gateway**: node name, listen address, default model, time zone, approval timeout, notifications.
-- **Status**: active runs, pending approvals, scheduled jobs and their last results, recent errors.
-- **Sessions** (minimal, local bots): list by bot with title, last active and running state; stop a run,
-  rename, archive, delete. Reading or continuing a chat stays in Vory.
+- **Bots**: local bots (default, private, trusted badges) with an editor for display name, description,
+  model and thinking, tool groups, approval mode, private, trusted, default, shared memory spaces and
+  instructions; create and remove bots; reload config.yaml. Members' bots are listed per machine,
+  read-only, with an offline mark.
+- **Network**: this machine and the members with reachability and last seen; invite (shows the code),
+  join (preview, then confirm), remove, leave, refresh.
+- **Sessions** (minimal): list by bot and archive state with title, last active and running state;
+  rename, archive, stop a run, delete. Reading or continuing a chat stays in Vory.
 - **Memory** (minimal, local bots and shared spaces): search, view, add, edit, pin/unpin, delete,
   through the same store the `memory` tools and `nhermes memory` use.
+- **Status**: running count, pending approvals (answerable from the panel), scheduled jobs with their
+  last result, pause/resume.
+- **Gateway**: node name and URL, defaults (model, thinking, approvals, approval timeout), time zone,
+  listen address; the panel password.
 
-Remote editing: off by default. A member can allow listed members to edit its bots
-(`federation.allowRemoteEdits: [nodes]`). Edits are recorded in the gateway log with the editing member.
+Not done in this phase (follow-ups): editing a member's bots from another member's panel
+(`allowRemoteEdits`), per-bot skill toggles in the panel (Vory has them), a "recent errors" view (the
+gateway keeps no log store), and a browser smoke test of the page.
 
-Tests: admin service coverage for every panel action; panel endpoints with and without a password
-(login, cookie, logout); cross-origin and non-JSON writes refused; a Playwright smoke test (already a
-dependency) that loads each screen against an in-process gateway.
+Tests: `test/panel/panel.test.ts` covers the panel API with and without a password (login, cookie,
+logout, password change), refused writes (no header, foreign Origin, non-JSON, foreign Host), bots,
+sessions, memory and approvals.
 
 ## Security notes
 
@@ -209,7 +216,7 @@ dependency) that loads each screen against an in-process gateway.
 - Member secrets never reach prompts, logs or tool environments (the existing secret scrubbing and
   shell environment stripping apply).
 - With no panel password, anyone on the LAN can change bots, invite machines and remove members. That is
-  the owner's choice for a household LAN; set `panel.password` or `server.host: 127.0.0.1` on any
+  the owner's choice for a household LAN; set a panel password or `server.host: 127.0.0.1` on any
   machine reachable from a less trusted network.
 
 ## What `@` does in Vory today

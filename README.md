@@ -10,7 +10,9 @@ runs the agents; the gateway speaks the Hermes dashboard protocol, so the stock
 - **Approvals** enforced on the server for high-impact actions, answered from Vory.
 - **Skills** (standard `SKILL.md`), **memory** (per bot, explicit shared spaces, SQLite FTS5),
   **scheduled tasks** with history and Pushover notifications, **delegation** between bots.
-- **Remote hosts** over SSH (pi-env) and **independent peer agents** on other machines.
+- **Remote hosts** over SSH (pi-env), and a **network of gateways**: machines join with a one-time code,
+  every bot on every machine can delegate to the others, and Vory on any machine lists them all.
+- **Web control panel** at `/panel` on every gateway: bots, network, sessions, memory, approvals.
 - **Computer use**: Playwright browser, X11 desktop control.
 
 ```sh
@@ -22,9 +24,11 @@ npm ci && bin/nhermes init . && $EDITOR config.yaml secrets.env && bin/nhermes s
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Design and trade-offs |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Install, service, Vory, backup/restore, upgrade |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Hermes/Vory feature matrix |
+| [docs/FEDERATION.md](docs/FEDERATION.md) | Network of gateways and the web panel |
 | [docs/COMPUTER_USE.md](docs/COMPUTER_USE.md) | Browser and desktop automation |
 | [docs/STATUS.md](docs/STATUS.md) | What is verified, and how |
 | [UPSTREAM.md](UPSTREAM.md) | Pinned upstream versions |
 
 Tests: `npm test` (faux model, no network), `npm run typecheck`. Live checks: `scripts/smoke.ts`,
-`scripts/approval-smoke.ts`, `scripts/vory-e2e.sh` (stock Vory's own E2E suite).
+`scripts/approval-smoke.ts`, `scripts/vory-e2e.sh` (stock Vory's own E2E suite). Panel work:
+`scripts/panel-dev.ts` (two local gateways with a fake model).

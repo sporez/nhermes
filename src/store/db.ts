@@ -171,6 +171,13 @@ const MIGRATIONS: readonly string[] = [
 	`
 	ALTER TABLE sessions ADD COLUMN remote_node TEXT;
 	`,
+	// 8: small gateway settings kept out of config.yaml (the panel password hash and cookie key)
+	`
+	CREATE TABLE settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

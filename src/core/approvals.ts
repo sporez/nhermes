@@ -75,6 +75,11 @@ export class Approvals {
 		return true;
 	}
 
+	/** Every request still waiting, oldest first. */
+	allPending(): ApprovalRequest[] {
+		return [...this.pending.values()].map((p) => p.request).sort((a, b) => a.createdAt - b.createdAt);
+	}
+
 	pendingFor(sessionId: string): ApprovalRequest[] {
 		return [...this.pending.values()].filter((p) => p.request.sessionId === sessionId).map((p) => p.request);
 	}

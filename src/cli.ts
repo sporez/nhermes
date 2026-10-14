@@ -27,6 +27,7 @@ Commands:
   members                     This machine and the other members, with reachability
   members remove <name>       Remove a member from the whole network
   leave                       Leave the network
+  panel password [--clear]    Set (or remove) the web panel's password; without one it is open on the LAN
   host trust <bot>            Show a bot's SSH host key fingerprints and trust them after you confirm
   memory <bot> [search text]  List or search a bot's memories
   memory <bot> add <text>     Save a memory for a bot (source: owner)
@@ -39,7 +40,7 @@ Options:
 
 const SAMPLE_CONFIG = `# Neil Hermes configuration. Secrets go in secrets.env, not here.
 server:
-  host: 127.0.0.1        # use 0.0.0.0 (or the Tailscale address) to reach it from Vory
+  host: 0.0.0.0          # all interfaces (Vory, other machines, the panel); 127.0.0.1 keeps it on this machine
   port: 9119
   name: Neil Hermes
 dataDir: data
@@ -147,6 +148,7 @@ async function main(): Promise<void> {
 			secrets: { type: "boolean" },
 			"with-config": { type: "boolean" },
 			url: { type: "string" },
+			clear: { type: "boolean" },
 		},
 	});
 	const [command, ...rest] = positionals;
@@ -208,6 +210,18 @@ async function main(): Promise<void> {
 			for (const m of r.members) process.stdout.write(`${m.name} ${m.url} ${m.reachable ? "reachable" : `unreachable${m.last_error ? `: ${m.last_error}` : ""}`}\n`);
 			if (r.members.length === 0) process.stdout.write("No other members. Add one with nhermes invite.\n");
 			return;
+		}
+		case "panel": {
+			if (rest[0] !== "password") throw new ConfigError("usage: nhermes panel password [--clear]");
+			if (values.clear) {
+				await admin(configPath, "POST", "/admin/panel/password", { password: null });
+				return void process.stdout.write("The panel no longer asks for a password.\n");
+			}
+			const rl = createInterface({ input: process.stdin, output: process.stdout });
+			const password = await rl.question("New panel password (shown as you type): ");
+			rl.close();
+			await admin(configPath, "POST", "/admin/panel/password", { password });
+			return void process.stdout.write("Panel password set; browsers sign in again.\n");
 		}
 		case "leave": {
 			await admin(configPath, "POST", "/admin/federation/leave");
