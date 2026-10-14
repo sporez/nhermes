@@ -1,6 +1,6 @@
 # Federation and control panel (plan)
 
-Status: proposed, 2026-10-14. Nothing here is implemented yet.
+Status: in progress (see Progress at the end).
 
 ## Goal
 
@@ -85,13 +85,18 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 
 - Each gateway has a `node` name (default: the host name) and a random node id, created at first start
   and kept in `app.sqlite`.
-- `members` table: node id, name, URL, pairwise secret (ours and theirs), joined/last-seen times, state.
-- `nhermes invite` on any member prints a join code: the member's URL plus a single-use secret, valid for
-  10 minutes.
-- `nhermes join <code>` on the new machine: it connects to the URL, proves the code, and both sides show
-  each other's node name and fingerprint for confirmation. On confirmation they exchange pairwise
-  secrets. The inviting member then introduces the newcomer to every other member: it generates a secret
-  for each new pair and delivers it to both ends over the links it already trusts.
+- `members` table: node id, name, URL, the pair's shared secret, joined/last-seen times, last error.
+  `invites` keeps only a hash of each code's secret. Backups made without `--secrets` blank the pair
+  secrets, so a restored machine joins again.
+- `nhermes invite` on any member prints a join code (`nh1.…`): the member's URL plus a single-use secret,
+  valid for 10 minutes. The URL is `node.url`, else the machine's LAN address (Tailscale's if it has no
+  LAN address) and the listening port; `--url` overrides it.
+- `nhermes join <code>` on the new machine first shows the inviting member's name, URL and member count
+  and asks for confirmation (there are no keys to compare: the single-use code is the proof). Then it
+  proves the code and receives the pair secret. The inviting member introduces the newcomer to every
+  other member: it generates a secret for each new pair and delivers it to both ends, the old member over
+  the link it already has (queued in `member_outbox` and retried when that member is offline).
+- A gateway that is already in a network cannot join another one (networks are not merged); leave first.
 - `nhermes members` lists members and their reachability. `nhermes members remove <name>` revokes the
   member everywhere (each member deletes its secret for it). `nhermes leave` does the same from the
   leaving side.
@@ -99,8 +104,9 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
   `X-Hermes-Session-Token`, so a member's credential cannot open the admin API.
 - Transport: plain HTTP/WS. Members are on the owner's LAN, and away from home the owner reaches it over
   Tailscale (which encrypts). TLS is not built in and not planned.
-- Migration: an existing `peer:` bot entry keeps working until its gateway joins; then `nhermes
-  migrate-peers` replaces it with the discovered bot and the entry and its `tokenEnv` can be removed.
+- Migration: an existing `peer:` bot entry keeps working unchanged. Once its gateway joins, its bots
+  also appear as discovered remote bots (F4); remove the old entry and its `tokenEnv` in the panel or
+  config.yaml when convenient.
 - Tests: two and three in-process gateways joining, introduction, removal, expired and reused codes,
   wrong secret.
 
@@ -191,8 +197,9 @@ dependency) that loads each screen against an in-process gateway.
 ## Security notes
 
 - A member can drive any non-private bot on every other member, subject to that bot's own approval
-  mode; approvals for a delegated run are still asked in the chat that started it. Join confirms both
-  fingerprints for this reason, and `members remove` must work from any member.
+  mode; approvals for a delegated run are still asked in the chat that started it. Joining needs a
+  single-use code made on a member and a confirmation on the joining machine for this reason, and
+  `members remove` works from any member.
 - Trust does not cross machines: a run started by a member is never treated as `trusted` on the owning
   gateway, whatever the caller's chain was.
 - Member secrets never reach prompts, logs or tool environments (the existing secret scrubbing and
@@ -225,7 +232,7 @@ delegating the task to it. Bot rooms remain out of scope.
 
 - [x] F1 private bots · `3d172d0`
 - [x] F2 runtime configuration · `9c57770`
-- [ ] F3 membership
+- [x] F3 membership · `c639105`
 - [ ] F4 roster sync and delegation
 - [ ] F5 remote bots in Vory
 - [ ] F6 web control panel
