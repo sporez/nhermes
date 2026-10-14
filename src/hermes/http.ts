@@ -1,5 +1,6 @@
 // Minimal HTTP plumbing for the Hermes REST surface: JSON bodies, errors, a tiny router.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { MemberRow } from "../federation/members.ts";
 
 export class HttpError extends Error {
 	readonly status: number;
@@ -16,6 +17,8 @@ export type Req = {
 	params: Record<string, string>;
 	body: unknown;
 	raw: IncomingMessage;
+	/** The network member a `/federation/*` request comes from (checked by the server). */
+	member?: MemberRow;
 };
 
 export type Handler = (req: Req) => unknown | Promise<unknown>;

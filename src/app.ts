@@ -11,6 +11,7 @@ import { Hub } from "./core/events.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
 import { Settings } from "./core/settings.ts";
+import { Members, type MembersOptions } from "./federation/members.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
@@ -48,6 +49,7 @@ export type Core = {
 	notifier: Notifier;
 	browsers: Browsers;
 	settings: Settings;
+	members: Members;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -73,6 +75,8 @@ export type CoreOptions = {
 	notifier?: Notifier;
 	browserHeadless?: boolean;
 	browserExecutable?: string;
+	/** Membership clock/transport overrides (tests). */
+	members?: MembersOptions;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -201,6 +205,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	});
 
 	const settings = new Settings({ config, bots, toolGroups: () => [...toolGroups.keys()], botChanged: (name) => hosts.reset(name) });
+	const members = new Members(db, config, options.members);
 
 	engine.resume();
 	const reattached = await sessions.attachBusy();
@@ -224,8 +229,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		notifier,
 		browsers,
 		settings,
+		members,
 		agentFor,
 		close: async () => {
+			members.stop();
 			await scheduler!.stop();
 			await browsers.close();
 			await engine.close();

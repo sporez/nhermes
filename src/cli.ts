@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { adminRoutes, restoreBackup } from "./admin.ts";
 import { createCore } from "./app.ts";
 import { ConfigError, loadConfig } from "./config.ts";
+import { federationAdminRoutes } from "./federation/routes.ts";
 import { startHermesServer } from "./hermes/server.ts";
 import { logger } from "./log.ts";
 
@@ -21,6 +22,11 @@ Commands:
   reload                      Re-read config.yaml (bots and defaults apply at once; also on SIGHUP)
   backup [--out f] [--secrets]  Consistent backup (.tar.gz) made by the running gateway
   restore <file> [--with-config]  Restore a backup; the gateway must be stopped
+  invite [--url u]            A one-time code (10 minutes) for another machine to join this network
+  join <code>                 Join the network a code comes from (asks you to confirm first)
+  members                     This machine and the other members, with reachability
+  members remove <name>       Remove a member from the whole network
+  leave                       Leave the network
   host trust <bot>            Show a bot's SSH host key fingerprints and trust them after you confirm
   memory <bot> [search text]  List or search a bot's memories
   memory <bot> add <text>     Save a memory for a bot (source: owner)
@@ -63,8 +69,9 @@ async function serve(configPath: string): Promise<void> {
 	const config = loadConfig(configPath);
 	mkdirSync(config.dataDir, { recursive: true });
 	const core = await createCore(config);
-	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, extraRouters: [adminRoutes(core)] });
+	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
+	core.members.start();
 	log.info("gateway ready", { bots: core.bots.names(), port: server.port, dataDir: config.dataDir });
 	let stopping = false;
 	const stop = async (signal: string) => {
@@ -139,6 +146,7 @@ async function main(): Promise<void> {
 			out: { type: "string" },
 			secrets: { type: "boolean" },
 			"with-config": { type: "boolean" },
+			url: { type: "string" },
 		},
 	});
 	const [command, ...rest] = positionals;
@@ -172,6 +180,38 @@ async function main(): Promise<void> {
 			const r = restoreBackup(resolve(file), config.dataDir, config.configDir, values["with-config"] === true);
 			process.stdout.write(`Restored into ${config.dataDir}${r.previous ? `; the previous data is in ${r.previous}` : ""}. Start the gateway again.\n`);
 			return;
+		}
+		case "invite": {
+			const r = (await admin(configPath, "POST", "/admin/federation/invite", { url: values.url })) as { code: string; expiresAt: number };
+			process.stdout.write(`On the machine that should join, run:\n\n  nhermes join ${r.code}\n\nThe code works once, until ${new Date(r.expiresAt * 1000).toLocaleTimeString()}.\n`);
+			return;
+		}
+		case "join": {
+			const code = rest[0];
+			if (!code) throw new ConfigError("usage: nhermes join <code>");
+			const p = (await admin(configPath, "POST", "/admin/federation/preview", { code })) as { name: string; url: string; members: number };
+			const rl = createInterface({ input: process.stdin, output: process.stdout });
+			const answer = (await rl.question(`Join the network of "${p.name}" (${p.url}, ${p.members} member${p.members === 1 ? "" : "s"})? Its members will be able to use this machine's bots, and this machine theirs. [y/N] `)).trim().toLowerCase();
+			rl.close();
+			if (answer !== "y" && answer !== "yes") return void process.stdout.write("Not joined.\n");
+			const r = (await admin(configPath, "POST", "/admin/federation/join", { code })) as { members: string[] };
+			return void process.stdout.write(`Joined. Members: ${r.members.join(", ")}\n`);
+		}
+		case "members": {
+			if (rest[0] === "remove") {
+				if (!rest[1]) throw new ConfigError("usage: nhermes members remove <name>");
+				await admin(configPath, "DELETE", `/admin/members/${encodeURIComponent(rest[1])}`);
+				return void process.stdout.write(`Removed ${rest[1]} from the network.\n`);
+			}
+			const r = (await admin(configPath, "GET", "/admin/members")) as { self: { name: string; url: string }; members: { name: string; url: string; reachable: boolean; last_error: string | null }[] };
+			process.stdout.write(`${r.self.name} (this machine) ${r.self.url}\n`);
+			for (const m of r.members) process.stdout.write(`${m.name} ${m.url} ${m.reachable ? "reachable" : `unreachable${m.last_error ? `: ${m.last_error}` : ""}`}\n`);
+			if (r.members.length === 0) process.stdout.write("No other members. Add one with nhermes invite.\n");
+			return;
+		}
+		case "leave": {
+			await admin(configPath, "POST", "/admin/federation/leave");
+			return void process.stdout.write("Left the network.\n");
 		}
 		case "host": {
 			const [sub, bot] = rest;

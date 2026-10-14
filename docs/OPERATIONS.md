@@ -70,6 +70,18 @@ configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gate
 and keeps the file's comments.
 From Vory you can edit a bot's instructions, description, default model, skills and scheduled tasks.
 
+## Network of gateways
+
+Every machine runs the same gateway; together they form one network of equals (`docs/FEDERATION.md`).
+
+- Add a machine: on any member run `nhermes invite`, then on the new machine `nhermes join <code>` and
+  confirm. The code works once, for ten minutes. The new machine is introduced to every other member.
+- `nhermes members` lists the members and whether they answer; `nhermes members remove <name>` removes
+  one from the whole network; `nhermes leave` takes this machine out.
+- Members find each other at `node.url` (config) or, without it, the machine's LAN address and port.
+  Set `node.url` when that guess is wrong (several interfaces, Tailscale only). `node.name` defaults to
+  the host name.
+
 ## Data
 
 `dataDir` (default `data/` next to the config; the VM uses `~/.local/share/nhermes`):

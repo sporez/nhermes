@@ -28,6 +28,7 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		defaults: { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30 },
 		skillsDir: join(dir, "skills"),
 		timezone: "America/New_York",
+		node: {},
 		bots: bots ?? [
 			{ name: "main", displayName: "Main", default: true, instructions: "You are the main test bot." },
 			{ name: "ops", displayName: "Ops", instructions: "You are the ops test bot.", trusted: true },

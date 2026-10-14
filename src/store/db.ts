@@ -123,6 +123,37 @@ const MIGRATIONS: readonly string[] = [
 	ALTER TABLE sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE sessions ADD COLUMN thinking_override INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 5: federation: this gateway's identity, the other members, open invites, and messages to members
+	// that could not be delivered yet
+	`
+	CREATE TABLE node (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		created_at REAL NOT NULL
+	);
+	CREATE TABLE members (
+		node_id TEXT PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		url TEXT NOT NULL,
+		secret TEXT NOT NULL,
+		joined_at REAL NOT NULL,
+		last_seen REAL,
+		last_error TEXT
+	);
+	CREATE TABLE invites (
+		secret_hash TEXT PRIMARY KEY,
+		expires_at REAL NOT NULL,
+		used_by TEXT
+	);
+	CREATE TABLE member_outbox (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		node_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		body TEXT NOT NULL,
+		created_at REAL NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0
+	);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

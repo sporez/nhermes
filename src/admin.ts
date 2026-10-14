@@ -31,6 +31,15 @@ export function makeBackup(core: Core, out: string, includeSecrets: boolean): { 
 		mkdirSync(data, { recursive: true });
 		snapshotSqlite(join(core.config.dataDir, "durable.sqlite"), join(data, "durable.sqlite"));
 		core.db.vacuumInto(join(data, "app.sqlite"));
+		if (!includeSecrets) {
+			// Member pair secrets are credentials: without --secrets a restored machine joins again.
+			const copy = new DatabaseSync(join(data, "app.sqlite"));
+			try {
+				copy.exec("UPDATE members SET secret = ''; DELETE FROM invites;");
+			} finally {
+				copy.close();
+			}
+		}
 		for (const sub of ["workspaces", "ssh", "browser"]) {
 			const from = join(core.config.dataDir, sub);
 			if (existsSync(from)) cpSync(from, join(data, sub), { recursive: true, filter: (p) => !/\/(Cache|Code Cache|GPUCache|Service Worker\/CacheStorage)(\/|$)/.test(p) && !/Singleton(Lock|Socket|Cookie)$/.test(p) });

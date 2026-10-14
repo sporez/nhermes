@@ -42,6 +42,7 @@ const RESTART_ONLY: [string, (c: Config) => unknown][] = [
 	["defaults.approvalTimeoutS", (c) => c.defaults.approvalTimeoutS],
 	["browserExecutable", (c) => c.browserExecutable],
 	["pushover", (c) => c.pushover],
+	["node", (c) => c.node],
 ];
 
 export type SettingsDeps = {

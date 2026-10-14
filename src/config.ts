@@ -67,7 +67,11 @@ export type Config = {
 	pushover?: { user: string; token: string };
 	/** Chrome/Chromium binary for Playwright (e.g. /usr/bin/google-chrome); default: Playwright's own. */
 	browserExecutable?: string;
+	/** This gateway as a network member: its name (default: the host name) and the URL members use. */
+	node: { name?: string; url?: string };
 };
+
+export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
 const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
@@ -231,6 +235,10 @@ export function loadConfig(configPath: string): Config {
 	const thinking = (str(defaults.thinking, "defaults.thinking") ?? "medium") as ThinkingLevel;
 	if (!THINKING_LEVELS.includes(thinking)) throw new ConfigError("defaults.thinking is invalid");
 
+	const node = asRecord(doc.node, "node");
+	const nodeName = str(node.name, "node.name");
+	if (nodeName !== undefined && !NODE_NAME.test(nodeName)) throw new ConfigError(`node.name must match ${NODE_NAME}`);
+
 	const pushUser = process.env.PUSHOVER_USER_KEY;
 	const pushToken = process.env.PUSHOVER_APP_TOKEN;
 	registerSecret(pushToken);
@@ -261,5 +269,6 @@ export function loadConfig(configPath: string): Config {
 		bots,
 		pushover: pushUser && pushToken ? { user: pushUser, token: pushToken } : undefined,
 		browserExecutable: str(doc.browserExecutable, "browserExecutable"),
+		node: { name: nodeName, url: str(node.url, "node.url") },
 	};
 }
