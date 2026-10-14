@@ -12,6 +12,7 @@ import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
+import { ProxySessions } from "./federation/proxy.ts";
 import { Roster } from "./federation/roster.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
@@ -52,6 +53,7 @@ export type Core = {
 	settings: Settings;
 	members: Members;
 	roster: Roster;
+	proxy: ProxySessions;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -205,6 +207,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		extensions,
 	);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor);
+	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub });
+	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });
 	scheduler = new Scheduler({
 		db,
 		engine,
@@ -245,9 +249,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		settings,
 		members,
 		roster,
+		proxy,
 		agentFor,
 		close: async () => {
 			members.stop();
+			proxy.close();
 			await scheduler!.stop();
 			await browsers.close();
 			await engine.close();

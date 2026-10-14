@@ -36,7 +36,12 @@ export type SessionRow = {
 	skills: string;
 	model_override: number;
 	thinking_override: number;
+	/** Node id of the member that holds this chat's conversation (a chat with a member's bot). */
+	remote_node: string | null;
 };
+
+/** How chats with a member's bot are run (src/federation/proxy.ts). */
+export type RemoteSessionHooks = { running: (id: string) => boolean; deleted: (row: SessionRow) => Promise<void> };
 
 export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; search?: string };
 
@@ -78,6 +83,7 @@ export class Sessions {
 	private readonly hub: Hub;
 	private readonly approvals: Approvals;
 	private readonly agentFor: (bot: Bot) => AgentChange;
+	private remote: RemoteSessionHooks | undefined;
 
 	constructor(engine: Engine, db: AppDb, bots: Bots, hub: Hub, approvals: Approvals, agentFor: (bot: Bot) => AgentChange) {
 		this.agentFor = agentFor;
@@ -115,6 +121,40 @@ export class Sessions {
 		if (bot.isPeer) throw new Error(`${bot.name} is an agent on another machine; delegate to it instead`);
 		const convId = await this.engine.create(this.agentFor(bot));
 		return this.register(convId, bot.name, opts);
+	}
+
+	setRemoteHooks(hooks: RemoteSessionHooks): void {
+		this.remote = hooks;
+	}
+
+	/** Catalogues a chat whose conversation lives on a member, under the id it has there. */
+	registerRemote(id: string, botName: string, nodeId: string, opts: { source?: string; title?: string } = {}): SessionRow {
+		const existing = this.get(id);
+		if (existing) return existing;
+		const now = Date.now() / 1000;
+		const placeholder = Math.min(0, this.db.get<{ m: number | null }>("SELECT MIN(conversation_id) AS m FROM sessions")?.m ?? 0) - 1;
+		this.db.run(
+			`INSERT INTO sessions (id, conversation_id, bot, kind, title, title_source, source, created_at, last_active, remote_node)
+			 VALUES (?, ?, ?, 'chat', ?, ?, ?, ?, ?, ?)`,
+			id,
+			placeholder,
+			botName,
+			opts.title ?? "",
+			opts.title ? "given" : "auto",
+			opts.source ?? "ios",
+			now,
+			now,
+			nodeId,
+		);
+		this.hub.publishGlobal({ type: "sessions.changed", bot: botName });
+		return this.require(id);
+	}
+
+	/** Keeps a member chat's catalogue row current from what passes through (prompts, answers, titles). */
+	recordRemote(id: string, e: { prompt?: string; answer?: string; title?: string }): void {
+		if (e.prompt !== undefined) this.onUserPlaced(id, e.prompt, false);
+		if (e.answer !== undefined) this.onRunFinished(id, e.answer);
+		if (e.title !== undefined && e.title.trim()) this.db.run("UPDATE sessions SET title = ? WHERE id = ?", e.title.trim(), id);
 	}
 
 	/** Records a conversation created elsewhere (a delegation's child) as a session of `botName`. */
@@ -181,6 +221,13 @@ export class Sessions {
 	async delete(id: string): Promise<boolean> {
 		const row = this.get(id);
 		if (!row) return false;
+		if (row.remote_node) {
+			this.approvals.cancelSession(id);
+			this.db.run("UPDATE sessions SET deleted = 1 WHERE id = ?", id);
+			this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+			await this.remote?.deleted(row);
+			return true;
+		}
 		if (await this.engine.isBusy(row.conversation_id)) {
 			this.approvals.cancelSession(id);
 			await this.engine.abort(row.conversation_id);
@@ -194,6 +241,7 @@ export class Sessions {
 
 	/** Whether a run is going (from the live projection; every running session has one attached). */
 	isRunning(id: string): boolean {
+		if (this.remote && this.get(id)?.remote_node) return this.remote.running(id);
 		return this.lives.get(id)?.running ?? false;
 	}
 
@@ -333,7 +381,7 @@ export class Sessions {
 		};
 	}
 
-	private onUserPlaced(id: string, text: string): void {
+	private onUserPlaced(id: string, text: string, announceTitle = true): void {
 		const row = this.get(id);
 		if (!row) return;
 		const now = Date.now() / 1000;
@@ -341,7 +389,7 @@ export class Sessions {
 		if (!row.title && row.title_source === "auto" && text.trim()) {
 			const title = autoTitle(text);
 			this.db.run("UPDATE sessions SET title = ? WHERE id = ?", title, id);
-			this.hub.publish(id, { type: "title", title });
+			if (announceTitle) this.hub.publish(id, { type: "title", title });
 		}
 		if (!row.preview) this.db.run("UPDATE sessions SET preview = ? WHERE id = ?", text.replace(/\s+/g, " ").slice(0, 200), id);
 	}

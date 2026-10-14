@@ -7,6 +7,7 @@ import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
 import type { SessionEvent } from "../core/events.ts";
 import { UnknownSession } from "../core/sessions.ts";
+import { LinkError } from "../federation/link.ts";
 import type { MemberRow } from "../federation/members.ts";
 import { shareable } from "../federation/roster.ts";
 import { logger, redact } from "../log.ts";
@@ -60,6 +61,22 @@ const MEMBER_METHODS = new Set([
 	"slash.exec",
 	"command.dispatch",
 	"model.options",
+]);
+
+/** Calls about a chat with a member's bot that the member answers (approvals and the catalogue stay here). */
+const PROXIED = new Set([
+	"session.resume",
+	"session.activate",
+	"prompt.submit",
+	"session.steer",
+	"session.interrupt",
+	"session.title",
+	"session.usage",
+	"session.context_breakdown",
+	"config.set",
+	"commands.catalog",
+	"slash.exec",
+	"command.dispatch",
 ]);
 
 /** The session source that marks a chat a member started (it is never trusted, see guardExtension). */
@@ -131,7 +148,7 @@ export class Connection {
 			const result = await this.dispatch(msg.method, params);
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, result });
 		} catch (error) {
-			const code = error instanceof RpcError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
+			const code = error instanceof RpcError || error instanceof LinkError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
 			const message = error instanceof Error ? error.message : String(error);
 			if (code === -32000) log.warn("rpc failed", { method: msg.method, error: message });
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -151,8 +168,24 @@ export class Connection {
 		const name = typeof p.profile === "string" && p.profile && p.profile !== "default" ? p.profile : undefined;
 		if (!name) return this.core.bots.defaultBot();
 		const bot = this.core.bots.get(name);
-		if (!bot || bot.isPeer || (this.member && bot.private)) throw new RpcError(4004, `profile not found: ${name}`);
+		// The owner's client also reaches members' bots (through the proxy); a member reaches only local ones.
+		const reachable = bot && (!bot.isPeer || (bot.remote && !this.member)) && !(this.member && bot.private);
+		if (!reachable) throw new RpcError(4004, `profile not found: ${name}`);
 		return bot;
+	}
+
+	/** A call for a chat with a member's bot, answered by the member. */
+	private async proxied(sessionId: string, method: string, p: Params): Promise<unknown> {
+		this.attach(sessionId);
+		const r = await this.core.proxy.forward(sessionId, method, p);
+		if (method === "session.resume" || method === "session.activate") {
+			// Approvals for this chat are asked here, under this gateway's request ids.
+			const pending = this.core.approvals.pendingFor(sessionId);
+			r.open_requests = pending.map((a) => ({ id: srqId(a.requestId), method: "approval", params: approvalParams(a) }));
+			r.pending_approval = pending[0] ? approvalParams(pending[0]) : null;
+			for (const a of pending) this.sentRequests.add(a.requestId);
+		}
+		return r;
 	}
 
 	/** A member reaches only the methods above, and only sessions it created; it cannot switch approvals off. */
@@ -219,7 +252,11 @@ export class Connection {
 
 	private attach(sessionId: string): void {
 		if (this.attached.has(sessionId)) return;
-		this.attached.set(sessionId, this.core.hub.subscribe(sessionId, (sid, e) => this.onSessionEvent(sid, e)));
+		const offHub = this.core.hub.subscribe(sessionId, (sid, e) => this.onSessionEvent(sid, e));
+		if (!this.core.proxy.isProxy(sessionId)) return void this.attached.set(sessionId, offHub);
+		// A member chat: its events come from the member; only approvals come from the hub.
+		const offProxy = this.core.proxy.subscribe(sessionId, (e) => this.event(e.type, e.session_id, e.payload as Record<string, Json>));
+		this.attached.set(sessionId, () => (offHub(), offProxy()));
 	}
 
 	private onSessionEvent(sid: string, e: SessionEvent): void {
@@ -270,6 +307,8 @@ export class Connection {
 	private async dispatch(method: string, p: Params): Promise<unknown> {
 		const { sessions, approvals, engine, bots } = this.core;
 		if (this.member) this.checkMember(this.member, method, p);
+		const sid = typeof p.session_id === "string" ? p.session_id : "";
+		if (sid && PROXIED.has(method) && this.core.proxy.isProxy(sid)) return this.proxied(sid, method, p);
 		switch (method) {
 			case "ping":
 				return { pong: true };
@@ -279,10 +318,11 @@ export class Connection {
 			case "gateway.capabilities":
 				return { per_session_exclusive_submit: true };
 			case "profiles.list":
-				return { profiles: (this.member ? shareable(bots.list()) : bots.list().filter((b) => !b.isPeer)).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
+				return { profiles: (this.member ? shareable(bots.list()) : bots.list().filter((b) => !b.isPeer || b.remote)).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
 			case "config.get": {
 				const key = str(p, "key");
 				const bot = this.botOf(p);
+				if (bot.remote) return this.core.proxy.forBot(bot, method, { key });
 				if (key === "profile") return { home: bot.workspace, display: bot.name };
 				if (key === "project") return { cwd: bot.workspace, branch: null };
 				if (key === "provider") return { model: bot.model.modelId, provider: bot.model.provider };
@@ -290,6 +330,11 @@ export class Connection {
 			}
 			case "session.create": {
 				const bot = this.botOf(p);
+				if (bot.remote) {
+					const r = await this.core.proxy.create(bot, { source: typeof p.source === "string" ? p.source : "ios", title: typeof p.title === "string" ? p.title : undefined });
+					this.attach(String(r.session_id));
+					return r;
+				}
 				const source = this.member ? memberSource(this.member.node_id) : typeof p.source === "string" ? p.source : "ios";
 				const row = await sessions.create(bot.name, { kind: "chat", source, title: typeof p.title === "string" ? p.title : undefined });
 				await sessions.live(row.id);
@@ -384,6 +429,7 @@ export class Connection {
 			case "commands.catalog": {
 				const id = str(p, "session_id", false);
 				const bot = id ? this.core.bots.require(sessions.require(id).bot) : this.botOf(p);
+				if (bot.remote) return this.core.proxy.forBot(bot, method, {});
 				const usage = this.core.skills.usage(bot.name);
 				const skills = this.core.skills.active(bot).filter((s) => s.modelInvocable);
 				return {
@@ -404,8 +450,10 @@ export class Connection {
 				const output = await this.slash(id, command);
 				return method === "slash.exec" ? { output } : { type: "exec", output };
 			}
-			case "model.options":
-				return modelOptions(this.core, this.botOf(p).model);
+			case "model.options": {
+				const bot = this.botOf(p);
+				return bot.remote ? this.core.proxy.forBot(bot, method, {}) : modelOptions(this.core, bot.model);
+			}
 			default:
 				throw new RpcError(-32601, `unknown method: ${method}`);
 		}

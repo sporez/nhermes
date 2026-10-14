@@ -166,6 +166,11 @@ const MIGRATIONS: readonly string[] = [
 		PRIMARY KEY (node_id, bot)
 	);
 	`,
+	// 7: chats with a member's bot: catalogued here, the conversation lives on the member (same id there).
+	// Their conversation_id is a negative placeholder; they have no Durable conversation on this gateway.
+	`
+	ALTER TABLE sessions ADD COLUMN remote_node TEXT;
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

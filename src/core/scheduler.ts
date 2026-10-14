@@ -157,6 +157,7 @@ export class Scheduler {
 
 	private validate(input: Partial<JobInput>): void {
 		if (input.bot !== undefined && !this.d.bots.get(input.bot)) throw new JobError(400, `unknown bot "${input.bot}"`);
+		if (input.bot !== undefined && this.d.bots.get(input.bot)!.isPeer) throw new JobError(400, `${input.bot} is on another machine; schedule the task there`);
 		if (input.notify !== undefined && !NOTIFY.includes(input.notify)) throw new JobError(400, `notify must be one of ${NOTIFY.join(", ")}`);
 		if (input.deliver !== undefined && !["session", "chat"].includes(input.deliver)) throw new JobError(400, "deliver must be session or chat");
 		if (input.approvals !== undefined && !["deny", "allow", "ask"].includes(input.approvals)) throw new JobError(400, "approvals must be deny, allow or ask");

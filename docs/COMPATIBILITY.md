@@ -52,6 +52,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides; create/delete bots is CLI-only |
 | Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
 | Create / delete / rename bots | `POST/DELETE/PATCH /api/profiles` | Deferred | | CLI manages bots |
+| Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Instructions, description, model and skills of such a bot answer 409 (change them on its machine); skills and toolsets list empty |
 
 ## Sessions and chat
 

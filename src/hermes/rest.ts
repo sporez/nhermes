@@ -1,8 +1,10 @@
 // Hermes-compatible REST endpoints, translated onto the core services. Routes we do not implement are
 // absent (404), so Vory's own capability checks hide those features.
 import type { Core } from "../app.ts";
+import type { Bot } from "../core/bots.ts";
 import { THINKING_LEVELS } from "../config.ts";
 import { GROUP_LABELS } from "../tools/index.ts";
+import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
 import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
@@ -10,8 +12,23 @@ import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from ".
 function botFor(core: Core, profile: string | null | undefined) {
 	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();
 	const bot = core.bots.get(profile);
-	if (!bot || bot.isPeer) throw new HttpError(404, `Profile '${profile}' not found`);
+	if (!bot || (bot.isPeer && !bot.remote)) throw new HttpError(404, `Profile '${profile}' not found`);
 	return bot;
+}
+
+/** A member's bot is changed on its own machine. */
+function localOnly(bot: Bot): void {
+	if (bot.remote) throw new HttpError(409, `${bot.displayName} belongs to ${bot.remote.node}; change it there`);
+}
+
+/** A member that cannot be reached answers 502 with the reason. */
+async function proxyCall<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (error) {
+		if (error instanceof LinkError) throw new HttpError(error.code === 4004 ? 404 : 502, error.message);
+		throw error;
+	}
 }
 
 function intParam(q: URLSearchParams, key: string, def: number, max: number): number {
@@ -74,22 +91,29 @@ export function restRoutes(core: Core): Router {
 	r.on("GET", "/api/health", () => ({ ok: true, version: VERSION, auth_required: false }));
 
 	// Bots (profiles)
-	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().filter((b) => !b.isPeer).map((b) => profileJson(b, core.skills.catalog(b).filter((s) => s.active).length)) }));
+	r.on("GET", "/api/profiles", () => ({
+		profiles: bots
+			.list()
+			.filter((b) => !b.isPeer || b.remote)
+			.map((b) => profileJson(b, b.remote ? 0 : core.skills.catalog(b).filter((s) => s.active).length)),
+	}));
 	r.on("GET", "/api/profiles/active", () => ({ active: bots.defaultBot().name, current: bots.defaultBot().name }));
 	r.on("GET", "/api/profiles/:name/soul", (q) => {
 		const bot = botFor(core, q.params.name);
-		return { content: bot.instructions, exists: true };
+		return { content: bot.instructions, exists: !bot.remote };
 	});
 	r.on("PUT", "/api/profiles/:name/soul", (q) => {
 		const content = obj(q.body).content;
 		if (typeof content !== "string") throw new HttpError(422, "content is required");
 		const bot = botFor(core, q.params.name);
+		localOnly(bot);
 		bots.setOverrides(bot.name, { instructions: content });
 		return { ok: true };
 	});
 	r.on("PUT", "/api/profiles/:name/description", (q) => {
 		const d = obj(q.body).description;
 		const bot = botFor(core, q.params.name);
+		localOnly(bot);
 		bots.setOverrides(bot.name, { description: typeof d === "string" ? d : "" });
 		return { ok: true };
 	});
@@ -97,8 +121,9 @@ export function restRoutes(core: Core): Router {
 		const b = obj(q.body);
 		const provider = typeof b.provider === "string" ? b.provider : "";
 		const model = typeof b.model === "string" ? b.model : "";
-		if (!core.models.getModel(provider, model)) throw new HttpError(400, `Unknown model ${provider}/${model}`);
 		const bot = botFor(core, q.params.name);
+		localOnly(bot);
+		if (!core.models.getModel(provider, model)) throw new HttpError(400, `Unknown model ${provider}/${model}`);
 		bots.setOverrides(bot.name, { model: `${provider}/${model}` });
 		return { ok: true, provider, model };
 	});
@@ -139,7 +164,7 @@ export function restRoutes(core: Core): Router {
 	});
 	r.on("GET", "/api/sessions/:id/messages", async (q) => {
 		const row = owned(q);
-		const all = await sessions.rows(row.id);
+		const all = row.remote_node ? await proxyCall(() => core.proxy.messages(row)) : await sessions.rows(row.id);
 		const limit = Math.min(intParam(q.query, "limit", 500, 100_000), 500);
 		const offset = intParam(q.query, "offset", 0, 1_000_000);
 		const order = q.query.get("order") ?? (q.query.has("limit") ? "oldest" : "latest");
@@ -169,6 +194,7 @@ export function restRoutes(core: Core): Router {
 	// Skills: per bot, `enabled` means active for that bot.
 	r.on("GET", "/api/skills", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
+		if (bot.remote) return [];
 		const usage = core.skills.usage(bot.name);
 		return core.skills.catalog(bot).map((s) => ({
 			name: s.name,
@@ -182,6 +208,7 @@ export function restRoutes(core: Core): Router {
 	r.on("PUT", "/api/skills/toggle", (q) => {
 		const b = obj(q.body);
 		const bot = botFor(core, (typeof b.profile === "string" && b.profile) || q.query.get("profile"));
+		localOnly(bot);
 		const name = typeof b.name === "string" ? b.name : "";
 		const skill = core.skills.catalog(bot).find((s) => s.name === name);
 		if (!skill) throw new HttpError(404, `Skill '${name}' not found`);
@@ -275,6 +302,7 @@ export function restRoutes(core: Core): Router {
 	// Models
 	r.on("GET", "/api/model/options", async (q) => {
 		const bot = botFor(core, q.query.get("profile"));
+		if (bot.remote) return proxyCall(() => core.proxy.forBot(bot, "model.options", {}));
 		return modelOptions(core, bot.model);
 	});
 
@@ -326,6 +354,7 @@ export function restRoutes(core: Core): Router {
 	});
 	r.on("GET", "/api/tools/toolsets", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
+		if (bot.remote) return [];
 		return [...core.toolGroups.entries()].map(([name, tools]) => ({
 			name,
 			label: GROUP_LABELS[name]?.label ?? name,
