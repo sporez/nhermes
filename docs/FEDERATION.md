@@ -1,6 +1,6 @@
 # Federation and control panel (plan)
 
-Status: in progress (see Progress at the end).
+Status: implemented (F1–F6); see Progress for what is still open.
 
 ## Goal
 
@@ -246,4 +246,4 @@ delegating the task to it. Bot rooms remain out of scope.
 - [x] F3 membership · `c639105`
 - [x] F4 roster sync and delegation · `678860c`
 - [x] F5 remote bots in Vory · `5041f9b` (Vory E2E + UI pass not run yet)
-- [ ] F6 web control panel
+- [x] F6 web control panel · `c4eade4`
