@@ -10,7 +10,7 @@ pi:
   authPath: /home/YOU/.config/nhermes/auth.json
   modelsPath: /home/YOU/.config/nhermes/models.json
 defaults:
-  model: cerebras/gpt-oss-120b
+  model: neuralwatt/deepseek-v4.1-flash
   thinking: medium
   approvals: smart
   approvalTimeoutS: 600

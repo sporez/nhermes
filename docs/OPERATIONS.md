@@ -25,7 +25,10 @@ $EDITOR ~/.config/nhermes/secrets.env    # NHERMES_TOKEN (generated), provider k
 
 Model credentials: put provider keys in `secrets.env` (`CEREBRAS_API_KEY=…`, `OPENROUTER_API_KEY=…`), or
 point `pi.authPath` / `pi.modelsPath` at a Pi `auth.json` / `models.json` (subscriptions and custom
-OpenAI-compatible endpoints such as Neuralwatt or a local server). Sharing them with a running Pi CLI is
+OpenAI-compatible endpoints such as Neuralwatt or a local server). For Neuralwatt's whole library:
+`NEURALWATT_API_KEY=… node scripts/neuralwatt-models.ts > ~/.config/nhermes/models.json` (rerun when they
+add models; the file holds `$NEURALWATT_API_KEY`, not the key). A bot's `model:` in config is its default;
+its chats follow it unless one was switched in Vory. Sharing them with a running Pi CLI is
 safe: Pi's credential store locks the file during OAuth refresh.
 
 ## Run as a service

@@ -1,7 +1,7 @@
 # Status (2026-10-14)
 
 "Automated" = our suite (`npm test`, 38 tests, faux model, no network). "Live" = exercised against a real
-model (`cerebras/gpt-oss-120b` via Pi's provider layer) and/or the stock Vory client.
+model (now `neuralwatt/deepseek-v4.1-flash`; earlier runs used `cerebras/gpt-oss-120b`, both via Pi's provider layer) and/or the stock Vory client.
 
 Deployment under test: the **hermes VM** (Debian 13, 192.168.1.17), `nhermes` as a systemd user service on
 port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (trusted, SSH host),
@@ -33,6 +33,18 @@ port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (tr
 - Untrusted bots could `sudo apt-get install` without asking → installs and `sudo` now ask.
 - A remembered "always" answer for one pattern could cover another pattern in the same command → every
   matching pattern must be allowed on its own (`test/core/policy.test.ts`).
+
+- Bots' shells inherited the gateway's environment, including provider keys and the gateway token →
+  shells now get a scrubbed environment and known secret values are redacted from tool output, transcript
+  rows and events (`test/core/web.test.ts`). Redaction of streamed text works per delta, so a secret split
+  across two deltas would not be caught there (the stored transcript row is still redacted).
+
+## Models
+
+All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own
+`models.json` listing Neuralwatt's full library (27 models), generated with `scripts/neuralwatt-models.ts`;
+the key is read from `NEURALWATT_API_KEY` in `secrets.env`. Sessions follow their bot's model unless a
+chat picked its own in Vory.
 
 ## Open items
 
