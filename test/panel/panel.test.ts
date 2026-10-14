@@ -43,6 +43,10 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal(page.status, 200);
 		assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'self'/);
 		assert.equal((await fetch(`${base}/panel/panel.js`)).status, 200);
+		assert.match(await page.text(), /src="\/panel\/panel\.js"/, "absolute paths: the page also works at /panel");
+		const bare = await fetch(`${base}/panel`, { redirect: "manual" });
+		assert.equal(bare.status, 301);
+		assert.equal(bare.headers.get("location"), "/panel/");
 		assert.equal((await fetch(`${base}/panel/config.yaml`)).status, 404);
 		assert.equal((await fetch(`${base}/panel/%2e%2e%2fconfig.yaml`)).status, 404);
 		const root = await fetch(`${base}/`, { redirect: "manual" });

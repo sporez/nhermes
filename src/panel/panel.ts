@@ -56,6 +56,10 @@ export class Panel {
 		try {
 			if (!this.core.config.panel.enabled) throw new HttpError(404, "Not Found");
 			if (!localHost(req.headers.host, this.core.config.node.url)) throw new HttpError(403, "open the panel by this machine's address or local name");
+			if (url.pathname === "/panel") {
+				res.writeHead(301, { location: "/panel/" });
+				return void res.end();
+			}
 			if (!url.pathname.startsWith("/panel/api/")) return this.file(res, url.pathname);
 			if (method !== "GET") this.checkWrite(req);
 			if (!OPEN.has(url.pathname) && !this.auth.allowed(req.headers.cookie)) throw new HttpError(401, "sign in to the panel");
