@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { type AgentDeps, guardExtension, personaExtension } from "./agent/extensions.ts";
+import { type AgentDeps, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
 import type { Config } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { type Bot, Bots } from "./core/bots.ts";
@@ -11,7 +11,9 @@ import { Hub } from "./core/events.ts";
 import { Sessions } from "./core/sessions.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
+import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
+import { delegateExtension } from "./tools/delegate.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
 const log = logger("app");
@@ -27,7 +29,16 @@ export type Core = {
 	models: Models;
 	toolGroups: ToolGroups;
 	deps: AgentDeps;
+	hosts: HostEnvs;
+	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
+};
+
+/** A feature module: tool groups, Durable extensions and prompt parts it contributes. */
+export type Feature = {
+	groups?: ToolGroups;
+	extensions?: Extension[];
+	promptParts?: PromptPart[];
 };
 
 export type CoreOptions = {
@@ -36,14 +47,29 @@ export type CoreOptions = {
 	/** Durable DB path override (":memory:" for tests). */
 	durablePath?: string;
 	appDbPath?: string;
-	/** Extra tool groups and extensions contributed by features. */
-	extraGroups?: ToolGroups;
-	extraExtensions?: Extension[];
+	/** Replaces SSH for remote hosts (tests connect to a local pi-env daemon). */
+	connectHost?: ConstructorParameters<typeof HostEnvs>[1];
+	/** Feature modules built once the late-bound services exist. */
+	features?: (late: LateServices) => Feature[];
 };
+
+/** Services features may reach at call time (they are created after the engine opens). */
+export type LateServices = { sessions: () => Sessions; bots: () => Bots; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub };
 
 export async function loadModels(config: Config): Promise<Models> {
 	const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
 	return (await ModelRuntime.create({ authPath: config.pi.authPath, modelsPath: config.pi.modelsPath })) as unknown as Models;
+}
+
+/** The root session a run belongs to: where its owner is attending (delegations route approvals there). */
+function rootSession(sessions: Sessions, id: string): string {
+	let row = sessions.get(id);
+	for (let i = 0; row?.parent_id && i < 20; i++) {
+		const parent = sessions.get(row.parent_id);
+		if (!parent) break;
+		row = parent;
+	}
+	return row?.id ?? id;
 }
 
 export async function createCore(config: Config, options: CoreOptions = {}): Promise<Core> {
@@ -52,42 +78,61 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const bots = new Bots(config, db);
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
 	const models = options.models ?? (await loadModels(config));
-
-	const toolGroups = coreToolGroups();
-	for (const [k, v] of options.extraGroups ?? []) toolGroups.set(k, v);
-	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
+	const hosts = new HostEnvs(config.dataDir, options.connectHost);
 
 	let sessions: Sessions | undefined;
+	const toolGroups = coreToolGroups();
+	const agentFor = (bot: Bot): AgentChange => ({
+		model: bot.model,
+		thinkingLevel: bot.thinking as AgentChange["thinkingLevel"],
+		cwd: HostEnvs.isRemote(bot) ? undefined : bot.workspace,
+		tools: toolsFor(toolGroups, bot.toolGroups),
+	});
+	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub };
+
+	const delegation = delegateExtension({ sessions: late.sessions, bots: late.bots, agentFor, maxDepth: 2 });
+	toolGroups.set("delegate", delegation.tools);
+	const features = options.features?.(late) ?? [];
+	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
+
+	const promptParts: PromptPart[] = [
+		(bot) => {
+			if (!bot.toolGroups.includes("delegate")) return undefined;
+			const others = bots.list().filter((b) => b.name !== bot.name);
+			if (others.length === 0) return undefined;
+			return `Other bots you can ask with the delegate tool:\n${others.map((b) => `- ${b.name}: ${b.description || b.displayName}`).join("\n")}`;
+		},
+		...features.flatMap((f) => f.promptParts ?? []),
+	];
 	const deps: AgentDeps = {
-		sessions: () => sessions!,
+		sessions: late.sessions,
 		approvals: () => approvals,
 		timezone: config.timezone,
-		promptParts: [],
+		promptParts,
+		attentionSession: (id) => rootSession(sessions!, id),
 		unattendedPolicy: () => "ask",
 	};
+	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
 		personaExtension(deps),
 		defineExtension({ name: "tools", tools: allTools }),
-		...(options.extraExtensions ?? []),
+		delegation.extension,
+		hostsExtension((convId) => sessions?.botOf(convId)),
+		...features.flatMap((f) => f.extensions ?? []),
 		guardExtension(deps),
 	];
 	const engine = await Engine.open(
 		{
 			dbPath: options.durablePath ?? join(config.dataDir, "durable.sqlite"),
 			models,
-			env: (convId, cwd) => {
+			env: async (convId, cwd) => {
 				const bot = sessions?.botOf(convId);
+				if (bot && HostEnvs.isRemote(bot)) return hosts.env(bot);
 				return new NodeExecutionEnv({ cwd: cwd ?? bot?.workspace ?? config.dataDir });
 			},
 		},
 		extensions,
 	);
-	const agentFor = (bot: Bot): AgentChange => ({
-		model: bot.model,
-		thinkingLevel: bot.thinking as AgentChange["thinkingLevel"],
-		cwd: bot.workspace,
-		tools: toolsFor(toolGroups, bot.toolGroups),
-	});
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor);
 
 	engine.resume();
@@ -105,8 +150,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		models,
 		toolGroups,
 		deps,
+		hosts,
+		agentFor,
 		close: async () => {
 			await engine.close();
+			hosts.close();
 			db.close();
 		},
 	};

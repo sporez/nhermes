@@ -19,6 +19,8 @@ export type AgentDeps = {
 	approvals: () => Approvals;
 	timezone: string;
 	promptParts: PromptPart[];
+	/** The session whose clients are asked for a session's approvals (a delegation's root chat). */
+	attentionSession: (sessionId: string) => string;
 	/** Session kinds with no client to ask (jobs): how a needed approval is answered. */
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
 };
@@ -63,19 +65,28 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const bot = sessions.botOf(api.conversationId as number);
 					if (!row || !bot) return { block: "this conversation has no bot" };
 					const approvals = deps.approvals();
+					const attention = deps.attentionSession(row.id);
+					const sessionRules = [...new Set([...approvals.rules(`session:${row.id}`), ...approvals.rules(`session:${attention}`)])];
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
-						{ bot, sessionRules: approvals.rules(`session:${row.id}`), botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(row.id) },
+						{ bot, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention) },
 					);
 					if (decision.action === "allow") return undefined;
 					if (decision.action === "deny") return { block: decision.description };
-					const unattended = deps.unattendedPolicy(row.id);
+					const unattended = deps.unattendedPolicy(attention);
 					if (unattended === "allow") return undefined;
 					if (unattended === "deny") return { block: `needs the owner's approval (${decision.description}) and nobody is attending this run` };
 					const controller = new AbortController();
 					context.abortSignal?.addEventListener("abort", () => controller.abort(), { once: true });
 					const choice = await approvals.ask(
-						{ sessionId: row.id, bot: bot.name, toolName: call.name, command: decision.command, description: decision.description, patternKey: decision.patternKey },
+						{
+							sessionId: attention,
+							bot: bot.name,
+							toolName: call.name,
+							command: decision.command,
+							description: attention === row.id ? decision.description : `${decision.description} (asked by ${bot.displayName} in a delegated task)`,
+							patternKey: decision.patternKey,
+						},
 						controller.signal,
 					);
 					log.info("approval", { session: row.id, tool: call.name, pattern: decision.patternKey, choice });
