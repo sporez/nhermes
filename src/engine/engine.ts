@@ -142,6 +142,24 @@ export class Engine {
 		return sub ? sub.status(ctx) : undefined;
 	}
 
+	/** Starts a fresh model context (older entries stay in the transcript). Queued like a write while busy. */
+	async reset(id: ConvId, handoff?: string): Promise<void> {
+		await (await this.conv(id)).reset(handoff, ctx);
+	}
+
+	/** Appends an entry the model does not see (a notice shown to clients). */
+	async writeNotice(id: ConvId, text: string, data: Record<string, string> = {}): Promise<void> {
+		await (await this.conv(id)).submit({ type: "write", entry: { kind: "nh.notice", data: { text, ...data } } }, ctx);
+	}
+
+	/** The text of an answer entry (the `answer` of a settled input). */
+	async answerText(id: ConvId, entryId: number): Promise<string> {
+		const conv = await this.conv(id);
+		const page = await conv.entries({ minEntryId: entryId as EntryRecord["id"], maxEntryId: entryId as EntryRecord["id"] }, 1, undefined, ctx);
+		const msg = page.items[0]?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
+		return (msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+	}
+
 	async abort(id: ConvId): Promise<void> {
 		await (await this.conv(id)).abort(ctx);
 	}

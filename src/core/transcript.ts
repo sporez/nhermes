@@ -58,6 +58,11 @@ export function projectTranscript(entries: readonly EntryRecord[]): TranscriptRo
 			rows.push({ role: "system", text: "Earlier messages were summarized to save context.", timestamp: Date.now() / 1000, row_id: ordinal });
 			continue;
 		}
+		if (entry.kind === "nh.notice") {
+			const d = (entry.data ?? {}) as { text?: string; at?: string };
+			if (d.text) rows.push({ role: "system", text: d.text, timestamp: d.at ? Number(d.at) : Date.now() / 1000, row_id: ordinal });
+			continue;
+		}
 		if (!msg) continue;
 		const ts = (msg.timestamp ?? Date.now()) / 1000;
 		if (msg.role === "user") {

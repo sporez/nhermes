@@ -63,7 +63,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Rename / pin / archive | `PATCH /api/sessions/{id}`, `session.title` | Partial | | `title`, `pinned`, `archived` work; `hidden` and `unread` are accepted and ignored |
 | Delete | `DELETE /api/sessions/{id}`, `session.delete` | Tested | E2E cleanup test | Bot identity and memory untouched |
 | Search | `GET /api/sessions/search?q=` | Partial | | Title and preview match only (no transcript full-text yet) |
-| Create | `session.create` | Tested | E2E, UI new chat | Runtime id == stored id |
+| Create | `session.create` | Tested | E2E, UI new chat | Vory does not create jobs; the agent's `schedule_create` tool and the REST/CLI do |
 | Resume snapshot | `session.resume` | Tested | E2E two-device test | `messages`, `running`, `inflight`, `turn_started_at`, `open_requests`, `info` |
 | Close | `session.close` | Tested | | Detaches the socket; the run continues |
 | Send prompt | `prompt.submit` | Tested | E2E, UI composer | `status: streaming`; while busy: `queued` (Durable follow-up) |
@@ -104,8 +104,8 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| List skills | `GET /api/skills?profile=` | Planned | | `enabled` = active for that bot |
-| Toggle skill | `PUT /api/skills/toggle` | Planned | | Per bot |
+| List skills | `GET /api/skills?profile=` | Tested | | `enabled` = active for that bot; per-bot skills are always listed, global ones when opted in |
+| Toggle skill | `PUT /api/skills/toggle` | Tested | | Stored as a bot override |
 | Slash command catalog | `commands.catalog` | Tested | E2E | Built-ins we really run + skills |
 | Slash execution | `slash.exec`, `command.dispatch` | Partial | | `/compact`, `/usage`, `/status`; others return error 4018 |
 | Config read | `GET /api/config`, `/api/config/schema` | Tested | E2E, UI Config page | Real settings only (approvals mode, default model, reasoning) |
@@ -118,14 +118,14 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| List jobs | `GET /api/cron/jobs` | Planned | | `job_id,name,schedule,prompt,deliver,enabled,state,next_run_at,last_run_at,last_status,profile` |
-| One job / runs | `GET /api/cron/jobs/{id}`, `/runs` | Planned | | |
-| Edit | `PUT /api/cron/jobs/{id}` `{updates}` | Planned | | |
-| Pause / resume | `POST .../pause`, `.../resume` | Planned | | |
-| Run now | `POST .../trigger` | Planned | | Held until the run ends, as Hermes does; 409 if running |
+| List jobs | `GET /api/cron/jobs` | Tested | | All bots by default, `?profile=` filters |
+| One job / runs | `GET /api/cron/jobs/{id}`, `/runs` | Tested | | `/runs` returns `{runs:[{run_id,status,trigger,started_at,finished_at,summary,error}]}` |
+| Edit | `PUT /api/cron/jobs/{id}` `{updates}` | Tested | | `{updates:{…}}`; unknown/read-only keys from Vory's raw editor are ignored; invalid schedule → 400 |
+| Pause / resume | `POST .../pause`, `.../resume` | Tested | | Resume computes the next run from now (no catch-up of paused time) |
+| Run now | `POST .../trigger` | Tested | | Held up to 25 s, then answers with `state: running`; 409 while a run is going |
 | Delete | `DELETE /api/cron/jobs/{id}` | Tested | E2E cleanup test | |
-| Create | `POST /api/cron/jobs` | Tested | E2E, UI new chat | Vory does not create jobs; the agent's `schedule_create` tool and the CLI do |
-| Change notice | `cron.changed` event | Planned | | |
+| Create | `POST /api/cron/jobs` | Tested | E2E, UI new chat | Vory does not create jobs; the agent's `schedule_create` tool and the REST/CLI do |
+| Change notice | `cron.changed` event | Tested | | Sent on every job or run change |
 
 ## Other Vory features
 

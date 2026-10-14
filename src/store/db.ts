@@ -80,6 +80,44 @@ const MIGRATIONS: readonly string[] = [
 	);
 	ALTER TABLE sessions ADD COLUMN skills TEXT NOT NULL DEFAULT '[]';
 	`,
+	// 3: scheduled jobs and their run history
+	`
+	CREATE TABLE jobs (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		bot TEXT NOT NULL,
+		prompt TEXT NOT NULL,
+		schedule_kind TEXT NOT NULL,
+		schedule TEXT NOT NULL,
+		timezone TEXT NOT NULL,
+		model TEXT,
+		skills TEXT NOT NULL DEFAULT '[]',
+		notify TEXT NOT NULL DEFAULT 'on_error',
+		deliver TEXT NOT NULL DEFAULT 'session',
+		approvals TEXT NOT NULL DEFAULT 'deny',
+		catch_up_s INTEGER NOT NULL DEFAULT 21600,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		session_id TEXT,
+		next_run_at REAL,
+		created_at REAL NOT NULL,
+		updated_at REAL NOT NULL
+	);
+	CREATE TABLE job_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		job_id TEXT NOT NULL,
+		occurrence TEXT NOT NULL,
+		trigger TEXT NOT NULL,
+		status TEXT NOT NULL,
+		started_at REAL NOT NULL,
+		finished_at REAL,
+		submission_id INTEGER,
+		summary TEXT NOT NULL DEFAULT '',
+		error TEXT NOT NULL DEFAULT '',
+		notified INTEGER NOT NULL DEFAULT 0,
+		UNIQUE (job_id, occurrence)
+	);
+	CREATE INDEX job_runs_job ON job_runs(job_id, id DESC);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

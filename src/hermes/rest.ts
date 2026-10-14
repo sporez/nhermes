@@ -4,7 +4,8 @@ import type { Core } from "../app.ts";
 import { THINKING_LEVELS } from "../config.ts";
 import { GROUP_LABELS } from "../tools/index.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
-import { profileJson, storedSession, VERSION } from "./shapes.ts";
+import { JobError, type JobInput } from "../core/scheduler.ts";
+import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
 
 function botFor(core: Core, profile: string | null | undefined) {
 	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();
@@ -197,6 +198,79 @@ export function restRoutes(core: Core): Router {
 		core.bots.setOverrides(bot.name, { disabledSkills: [...disabled], enabledSkills: [...enabled] });
 		return { ok: true, name, enabled: b.enabled === true };
 	});
+
+	// Scheduled tasks (Vory's cron screens). The job reply after "trigger" is held while the run goes, as
+	// Hermes does, up to 25 s (Vory's request timeout is 30 s); a longer run answers with state "running".
+	const { scheduler } = core;
+	const jobJson = (id: string) => {
+		const job = scheduler.require(id);
+		return cronJobJson(job, scheduler.lastRun(job.id), scheduler.isRunning(job.id));
+	};
+	const jobErrors = <T>(fn: () => T): T => {
+		try {
+			return fn();
+		} catch (error) {
+			if (error instanceof JobError) throw new HttpError(error.status, error.message);
+			throw error;
+		}
+	};
+	const jobPatch = (raw: Record<string, unknown>): Partial<JobInput> => {
+		const p: Partial<JobInput> = {};
+		const s = (k: string) => (typeof raw[k] === "string" ? (raw[k] as string) : undefined);
+		if (s("name") !== undefined) p.name = s("name");
+		if (s("prompt") !== undefined) p.prompt = s("prompt");
+		if (s("schedule") !== undefined) p.schedule = s("schedule");
+		if (s("timezone") !== undefined) p.timezone = s("timezone");
+		if (s("profile") !== undefined || s("bot") !== undefined) p.bot = s("bot") ?? s("profile");
+		if (s("notify") !== undefined) p.notify = s("notify") as JobInput["notify"];
+		if (s("deliver") !== undefined && ["session", "chat"].includes(s("deliver")!)) p.deliver = s("deliver") as JobInput["deliver"];
+		if (s("approvals") !== undefined) p.approvals = s("approvals") as JobInput["approvals"];
+		if ("model" in raw && (raw.model === null || typeof raw.model === "string")) p.model = (raw.model as string | null) || null;
+		if (Array.isArray(raw.skills)) p.skills = raw.skills.filter((x): x is string => typeof x === "string");
+		if (typeof raw.enabled === "boolean") p.enabled = raw.enabled;
+		return p;
+	};
+	r.on("GET", "/api/cron/jobs", (q) => {
+		const profile = q.query.get("profile");
+		const jobs = scheduler.list(profile && profile !== "all" ? botFor(core, profile).name : undefined);
+		return { jobs: jobs.map((j) => jobJson(j.id)), count: jobs.length };
+	});
+	r.on("POST", "/api/cron/jobs", (q) => {
+		const b = obj(q.body);
+		const patch = jobPatch(b);
+		const bot = patch.bot ?? botFor(core, q.query.get("profile")).name;
+		const job = jobErrors(() =>
+			scheduler.create({ ...patch, bot, name: patch.name ?? "", prompt: patch.prompt ?? "", schedule: patch.schedule ?? "" } as JobInput),
+		);
+		return jobJson(job.id);
+	});
+	r.on("GET", "/api/cron/jobs/:id", (q) => jobErrors(() => jobJson(q.params.id!)));
+	r.on("GET", "/api/cron/jobs/:id/runs", (q) => {
+		const job = jobErrors(() => scheduler.require(q.params.id!));
+		const limit = intParam(q.query, "limit", 20, 200);
+		return { runs: scheduler.runs(job.id, limit).map((run) => cronRunJson(run, job)) };
+	});
+	r.on("PUT", "/api/cron/jobs/:id", (q) => {
+		const b = obj(q.body);
+		const updates = obj(b.updates ?? b);
+		jobErrors(() => scheduler.update(q.params.id!, jobPatch(updates)));
+		return jobJson(q.params.id!);
+	});
+	r.on("POST", "/api/cron/jobs/:id/pause", (q) => (jobErrors(() => scheduler.setEnabled(q.params.id!, false)), jobJson(q.params.id!)));
+	r.on("POST", "/api/cron/jobs/:id/resume", (q) => (jobErrors(() => scheduler.setEnabled(q.params.id!, true)), jobJson(q.params.id!)));
+	r.on("POST", "/api/cron/jobs/:id/trigger", async (q) => {
+		const run = await (async () => {
+			try {
+				return await scheduler.trigger(q.params.id!);
+			} catch (error) {
+				if (error instanceof JobError) throw new HttpError(error.status, error.message);
+				throw error;
+			}
+		})();
+		await scheduler.waitRun(run.id, 25_000);
+		return jobJson(q.params.id!);
+	});
+	r.on("DELETE", "/api/cron/jobs/:id", (q) => (jobErrors(() => scheduler.delete(q.params.id!)), { ok: true }));
 
 	// Models
 	r.on("GET", "/api/model/options", async (q) => {

@@ -54,6 +54,7 @@ async function serve(configPath: string): Promise<void> {
 	mkdirSync(config.dataDir, { recursive: true });
 	const core = await createCore(config);
 	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port });
+	await core.scheduler.start();
 	log.info("gateway ready", { bots: core.bots.names(), port: server.port, dataDir: config.dataDir });
 	let stopping = false;
 	const stop = async (signal: string) => {
