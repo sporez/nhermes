@@ -97,8 +97,8 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
   leaving side.
 - Member-to-member calls authenticate with the pairwise secret, in a header distinct from Vory's
   `X-Hermes-Session-Token`, so a member's credential cannot open the admin API.
-- Transport: members talk over plain HTTP/WS on the LAN today. The join code carries a secret, so
-  `join` warns when the URL is not `https://` or a Tailscale/loopback address. TLS is not built in.
+- Transport: plain HTTP/WS. Members are on the owner's LAN, and away from home the owner reaches it over
+  Tailscale (which encrypts). TLS is not built in and not planned.
 - Migration: an existing `peer:` bot entry keeps working until its gateway joins; then `nhermes
   migrate-peers` replaces it with the discovered bot and the entry and its `tokenEnv` can be removed.
 - Tests: two and three in-process gateways joining, introduction, removal, expired and reused codes,
@@ -111,9 +111,19 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 - Each member polls every other member's roster at start and every few minutes, and immediately after a
   join or leave notice. Last-known rosters are kept in `app.sqlite`, so a down member's bots stay listed
   as unreachable rather than vanishing.
-- Remote bots enter `Bots` as runtime entries named `<bot>@<node>` (for example `macbot@mac`). Local
-  names stay bare. The name format must be checked against what Vory accepts as a profile name; if `@`
-  is rejected, use `<node>-<bot>`.
+- Remote bots enter `Bots` as runtime entries named `<bot>-<node>` (for example `macbot-mac`), with a
+  display name of `<Display> (<node>)`. Local names stay bare; a remote name that collides with a local
+  one is skipped and reported in the panel. Why `-` (checked in Vory `d99369b`, `reference/vory/`):
+  - Hermes profile names are `[a-z0-9][a-z0-9_-]{0,63}`, and Vory's transcript parsers assume that set
+    (`Packages/VoryCore/Sources/VoryCore/Chat/TranscriptItem.swift:72,84,123`).
+  - Vory's `@` highlighter reads letters, digits, `_`, `.` and `-` after the `@` and stops at a second
+    `@` (`Vory/Chat/Mentions.swift`, `find`), so `@macbot@mac` would never be recognised as a mention.
+  - Bot-room mentions match `@([A-Za-z0-9][A-Za-z0-9._:-]*)` (`Vory/Chat/GroupChat.swift:51`): no `@`
+    or `/`.
+  - `TranscriptItem.key` turns `scribe@laptop` and `peer/scribe` into `scribe`, which would merge a
+    remote bot with a local one of the same name.
+  - Bot first, so typing `@research` in the composer lists `research` and `research-mac` together (the
+    picker matches name or display-name prefixes, `Vory/Chat/ComposerView.swift:62-65`).
 - `delegate` reaches remote bots the way peer bots are reached today (`runOnPeer`), authenticated with
   the member secret. Delegating to an unreachable member fails with a clear "mac is offline" answer.
 - Remote descriptions are text from another machine inserted into prompts: they are capped in length,
@@ -166,6 +176,10 @@ Screens:
   read-only unless the owning member allows remote edits.
 - **Gateway**: node name, listen address, default model, time zone, approval timeout, notifications.
 - **Status**: active runs, pending approvals, scheduled jobs and their last results, recent errors.
+- **Sessions** (minimal, local bots): list by bot with title, last active and running state; stop a run,
+  rename, archive, delete. Reading or continuing a chat stays in Vory.
+- **Memory** (minimal, local bots and shared spaces): search, view, add, edit, pin/unpin, delete,
+  through the same store the `memory` tools and `nhermes memory` use.
 
 Remote editing: off by default. A member can allow listed members to edit its bots
 (`federation.allowRemoteEdits: [nodes]`). Edits are recorded in the gateway log with the editing member.
@@ -187,9 +201,22 @@ dependency) that loads each screen against an in-process gateway.
   the owner's choice for a household LAN; set `panel.password` or `server.host: 127.0.0.1` on any
   machine reachable from a less trusted network.
 
-## Open questions
+## What `@` does in Vory today
 
-1. Profile name format Vory accepts (`@`, `-`, length).
-2. Whether the panel should also manage sessions and memory, or stay with network, bots and gateway
-   settings at first.
-3. Built-in TLS or relying on Tailscale for members outside the LAN.
+Checked in Vory `d99369b`. In an ordinary chat, `@` in the composer opens a picker over the gateway's
+profiles (`/api/profiles`) and inserts `@name` as plain text (`Vory/Chat/ComposerView.swift:56-70`);
+nothing is routed by the app. Replies that mention a known bot are drawn in that bot's colour as a link
+to its card (`Vory/Chat/Mentions.swift`). Routing a message to the mentioned bots only happens in bot
+rooms (Bot Mode), where the gateway resolves the handles; our gateway answers `groups.capabilities` with
+-32601, so Bot Mode is hidden (`docs/COMPATIBILITY.md`).
+
+So F5 makes remote bots appear in the picker and in mention links, and lets the owner open a chat with
+them. For `@macbot-mac do X` inside another bot's chat to reach that bot, the bot has to act on it: F4
+adds a line to the roster prompt section saying that an `@name` addressed to another bot means
+delegating the task to it. Bot rooms remain out of scope.
+
+## Resolved
+
+- Profile names for remote bots: `<bot>-<node>` (see F4).
+- The panel manages sessions and memory minimally (see F6).
+- No built-in TLS; Tailscale covers access away from home.
