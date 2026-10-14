@@ -138,16 +138,20 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 
 ### F5. Remote bots in Vory
 
-- `/api/profiles` and the WS profile list include remote bots, marked in `description` with their
-  machine. `session.create` for a remote profile creates a local **proxy session**: the catalogue row is
-  ours (title, preview, pins, unread), the conversation lives on the owning member.
-- The proxy forwards `prompt.submit`, interrupt, steer and approval answers to the owning member over a
-  member-authenticated WebSocket, and relays its event stream to Vory unchanged apart from session ids.
-  Message history for a proxy session is fetched from the owning member.
-- Reconnects resume the remote session (`session.resume`), as `runOnPeer` does. While the member is
-  offline the session opens read-only with the last known title and a clear status.
-- Model and skill edits for a remote profile are forwarded to its owner (they are the owner's settings),
-  or refused when the panel's remote-edit permission (F6) is off.
+- `/api/profiles` and the WS profile list include remote bots, with the machine in the display name
+  (`Nasbot (beta)`). `session.create` for a remote profile creates a local **proxy session**
+  (`src/federation/proxy.ts`): the catalogue row is ours (title, preview, pins, archive), under the same
+  id the conversation has on the owning member (`sessions.remote_node`; no Durable conversation here).
+- One lasting member-authenticated WebSocket per member (`src/federation/link.ts`) carries the chat
+  calls (`session.resume`, `prompt.submit`, steer, interrupt, title, usage, context, per-chat
+  `config.set`, commands) and brings the member's events back, unchanged apart from the bot's name.
+  Message history is read from the member. The member's approval requests are asked through this
+  gateway's own approvals, so Vory, push and the approval card work as for a local bot.
+- After a dropped connection the link reconnects and resumes the chats being watched. While the member
+  is offline, opening or starting a chat answers "<node> is offline" (decision: an error rather than a
+  read-only view; the chat list still shows the last known titles).
+- Instructions, description, model and skill edits for a remote profile answer 409 ("change it on its
+  machine"); per-chat model and reasoning switches go to the member.
 - Acceptance: Vory's E2E suite run against a gateway with a remote profile selected; a manual pass in the
   Vory UI for streaming, an approval card and a reconnect.
 
@@ -234,5 +238,5 @@ delegating the task to it. Bot rooms remain out of scope.
 - [x] F2 runtime configuration · `9c57770`
 - [x] F3 membership · `c639105`
 - [x] F4 roster sync and delegation · `678860c`
-- [ ] F5 remote bots in Vory
+- [x] F5 remote bots in Vory · `5041f9b` (Vory E2E + UI pass not run yet)
 - [ ] F6 web control panel
