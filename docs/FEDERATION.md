@@ -220,3 +220,12 @@ delegating the task to it. Bot rooms remain out of scope.
 - Profile names for remote bots: `<bot>-<node>` (see F4).
 - The panel manages sessions and memory minimally (see F6).
 - No built-in TLS; Tailscale covers access away from home.
+
+## Progress
+
+- [x] F1 private bots · `3d172d0`
+- [x] F2 runtime configuration · `9c57770`
+- [ ] F3 membership
+- [ ] F4 roster sync and delegation
+- [ ] F5 remote bots in Vory
+- [ ] F6 web control panel
