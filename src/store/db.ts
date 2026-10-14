@@ -154,6 +154,18 @@ const MIGRATIONS: readonly string[] = [
 		attempts INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	// 6: the last known bots of each member (kept while a member is offline)
+	`
+	CREATE TABLE remote_bots (
+		node_id TEXT NOT NULL,
+		bot TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		description TEXT NOT NULL,
+		model TEXT NOT NULL,
+		updated_at REAL NOT NULL,
+		PRIMARY KEY (node_id, bot)
+	);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

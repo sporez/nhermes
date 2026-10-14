@@ -86,7 +86,9 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const chain = deps.delegationChain(row.id);
 					const order = { manual: 0, smart: 1, off: 2 } as const;
 					const mode = [bot, ...chain].map((b) => b.approvals.mode).reduce((a, m) => (order[m] < order[a] ? m : a));
-					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted), approvals: { ...bot.approvals, mode } };
+					// Trust does not cross machines: work a network member started is never trusted here.
+					const fromMember = sessions.get(attention)?.source.startsWith("member:") === true;
+					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted) && !fromMember, approvals: { ...bot.approvals, mode } };
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
 						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention) },

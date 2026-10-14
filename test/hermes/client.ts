@@ -28,10 +28,10 @@ export class HermesClient {
 	}
 
 	/** `where`: a port on 127.0.0.1, or "host:port". */
-	static async connect(where: number | string, token: string | undefined): Promise<HermesClient> {
+	static async connect(where: number | string, token: string | undefined, headers?: Record<string, string>): Promise<HermesClient> {
 		const q = token === undefined ? "" : `?token=${encodeURIComponent(token)}`;
 		const hostPort = /^\d+$/.test(String(where)) ? `127.0.0.1:${where}` : String(where);
-		const ws = new WebSocket(`ws://${hostPort}/api/ws${q}`);
+		const ws = new WebSocket(`ws://${hostPort}/api/ws${q}`, { headers });
 		const c = new HermesClient(ws);
 		await new Promise<void>((resolve, reject) => {
 			ws.once("open", () => resolve());

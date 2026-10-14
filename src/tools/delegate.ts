@@ -20,7 +20,8 @@ import {
 import type { Approvals } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Sessions } from "../core/sessions.ts";
-import { runOnPeer } from "../remote/peer.ts";
+import type { Members } from "../federation/members.ts";
+import { type PeerTarget, runOnPeer } from "../remote/peer.ts";
 
 export type DelegateDeps = {
 	sessions: () => Sessions;
@@ -30,7 +31,21 @@ export type DelegateDeps = {
 	approvals: () => Approvals;
 	/** The root chat a session's approvals are asked in. */
 	attentionSession: (sessionId: string) => string;
+	members: () => Members;
 };
+
+/** Where a bot on another machine is reached: a network member (pair secret) or a configured peer (token). */
+function peerTarget(deps: DelegateDeps, target: Bot): PeerTarget {
+	if (target.remote) {
+		const m = deps.members().get(target.remote.nodeId);
+		if (!m) throw new Error(`${target.remote.node} is no longer a member of the network`);
+		return { url: m.url, headers: deps.members().headersFor(m), profile: target.remote.bot };
+	}
+	const peer = target.config.peer!;
+	const token = process.env[peer.tokenEnv];
+	if (!token) throw new Error(`the token for ${target.name} (${peer.tokenEnv}) is not set on this gateway`);
+	return { url: peer.url, token, profile: peer.profile };
+}
 
 function textOf(message: AssistantMessage | undefined): string {
 	return (message?.content ?? []).flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
@@ -114,16 +129,15 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 			if (target.name === caller.bot) throw new Error("delegate to a different bot; you can do your own work directly");
 			if (depth(sessions, caller.id) >= deps.maxDepth) throw new Error(`delegation depth limit (${deps.maxDepth}) reached`);
 			if (target.isPeer) {
-				const peer = target.config.peer!;
-				const token = process.env[peer.tokenEnv];
-				if (!token) throw new Error(`the token for ${target.name} (${peer.tokenEnv}) is not set on this gateway`);
 				if (args.wait === false) throw new Error(`${target.name} is on another machine; delegate to it with wait: true`);
+				const where = peerTarget(deps, target);
 				// The remote session survives a rerun of this call (memo), and the submission key deduplicates it there.
 				const remembered = await api.memo<string>("peer-session", ctx);
 				const attention = deps.attentionSession(caller.id);
-				const r = await runOnPeer({ url: peer.url, token, profile: peer.profile }, args.task, {
+				const r = await runOnPeer(where, args.task, {
 					key: `delegate:${api.taskId}`,
 					sessionId: remembered,
+					failFast: target.remote ? `${target.remote.node} is offline (its bots cannot be reached right now)` : undefined,
 					onSession: async (id) => void (await api.memo("peer-session", id, ctx)),
 					onApproval: (p) =>
 						deps.approvals().ask(
@@ -140,7 +154,8 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 					signal: ctx.abortSignal,
 				});
 				await api.details({ peer: target.name, remoteSession: r.sessionId }, ctx);
-				return { output: [{ type: "text", text: `${target.name} answered (on ${new URL(peer.url).host}, session ${r.sessionId}):\n\n${r.text}` }] };
+				const on = target.remote?.node ?? new URL(where.url).host;
+				return { output: [{ type: "text", text: `${target.name} answered (on ${on}, session ${r.sessionId}):\n\n${r.text}` }] };
 			}
 			const change = deps.agentFor(target);
 			const title = `From ${caller.bot}: ${args.task.replace(/\s+/g, " ").slice(0, 60)}`;

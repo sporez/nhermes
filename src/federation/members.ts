@@ -96,6 +96,7 @@ export class Members {
 	private port = 0;
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private flushing: Promise<void> | undefined;
+	private changed: () => void = () => {};
 
 	constructor(db: AppDb, config: Config, opts: MembersOptions = {}) {
 		this.db = db;
@@ -103,6 +104,11 @@ export class Members {
 		this.fetch = opts.fetch ?? fetch;
 		this.now = opts.now ?? Date.now;
 		for (const m of this.rows()) registerSecret(m.secret);
+	}
+
+	/** Called after the member list changes (the roster refreshes). */
+	onChange(fn: () => void): void {
+		this.changed = fn;
 	}
 
 	/** The port the gateway listens on (known once the server is up). */
@@ -184,6 +190,7 @@ export class Members {
 		});
 		for (const m of this.rows()) this.seen(m.node_id);
 		log.info("joined the network", { via: r.node.name, members: this.rows().map((m) => m.name) });
+		this.changed();
 		return this.rows().map((m) => m.name);
 	}
 
@@ -209,6 +216,7 @@ export class Members {
 		});
 		log.info("member joined", { name, url });
 		void this.flush();
+		this.changed();
 		return { node: { node_id: me.id, name: me.name, url: me.url }, secret, members: others };
 	}
 
@@ -220,6 +228,7 @@ export class Members {
 		if (this.byName(name)) throw new FederationError(409, `a member is already named "${name}"`);
 		this.insert({ node_id, name, url, secret });
 		log.info("member introduced", { name, by: from.name });
+		this.changed();
 	}
 
 	/** Removes a member from the whole network (any member can). */
@@ -231,6 +240,7 @@ export class Members {
 			this.forgetRow(target.node_id);
 			for (const m of this.rows()) this.enqueue(m.node_id, "/federation/forget", { node_id: target.node_id });
 		});
+		this.changed();
 		await this.flush();
 	}
 
@@ -243,6 +253,7 @@ export class Members {
 			this.db.run("DELETE FROM members");
 		});
 		log.info("left the network");
+		this.changed();
 	}
 
 	/** A member says another member (or itself) is gone. */
@@ -251,6 +262,7 @@ export class Members {
 		const gone = this.get(body.node_id);
 		this.forgetRow(body.node_id);
 		if (gone) log.info("member removed", { name: gone.name, by: from.name });
+		this.changed();
 	}
 
 	/** This gateway was removed from the network by `from`: drop every link. */
@@ -260,6 +272,7 @@ export class Members {
 			this.db.run("DELETE FROM members");
 		});
 		log.warn("this gateway was removed from the network", { by: from.name });
+		this.changed();
 	}
 
 	hello(): { node_id: string; name: string; members: number } {
@@ -267,10 +280,15 @@ export class Members {
 		return { node_id: me.id, name: me.name, members: this.rows().length + 1 };
 	}
 
+	/** Headers that identify this gateway to `m` (HTTP and the WebSocket). */
+	headersFor(m: MemberRow): Record<string, string> {
+		return { [NODE_HEADER]: this.self().id, [SECRET_HEADER]: m.secret };
+	}
+
 	/** Calls a member's federation API, signed with the pair's secret. */
 	async call<T = unknown>(m: MemberRow, path: string, body?: unknown, method = "POST"): Promise<T> {
 		try {
-			const r = await this.request<T>(m.url, method, path, body, { [NODE_HEADER]: this.self().id, [SECRET_HEADER]: m.secret });
+			const r = await this.request<T>(m.url, method, path, body, this.headersFor(m));
 			this.seen(m.node_id);
 			return r;
 		} catch (error) {

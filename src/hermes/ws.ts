@@ -7,6 +7,8 @@ import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
 import type { SessionEvent } from "../core/events.ts";
 import { UnknownSession } from "../core/sessions.ts";
+import type { MemberRow } from "../federation/members.ts";
+import { shareable } from "../federation/roster.ts";
 import { logger, redact } from "../log.ts";
 import { modelOptions } from "./rest.ts";
 import { approvalParams, type Json, sessionInfo, srqId, thinkingOf, usageJson } from "./shapes.ts";
@@ -33,6 +35,38 @@ function str(p: Params, key: string, required = true): string {
 
 const RESULT_TEXT_LIMIT = 4000;
 
+/** What a network member may call: chats it started with this gateway's shareable bots. */
+const MEMBER_METHODS = new Set([
+	"ping",
+	"client.capabilities",
+	"gateway.capabilities",
+	"profiles.list",
+	"session.create",
+	"session.resume",
+	"session.activate",
+	"session.close",
+	"session.delete",
+	"session.title",
+	"session.usage",
+	"session.context_breakdown",
+	"prompt.submit",
+	"session.steer",
+	"session.interrupt",
+	"approval.pending",
+	"approval.received",
+	"approval.respond",
+	"config.set",
+	"commands.catalog",
+	"slash.exec",
+	"command.dispatch",
+	"model.options",
+]);
+
+/** The session source that marks a chat a member started (it is never trusted, see guardExtension). */
+export function memberSource(nodeId: string): string {
+	return `member:${nodeId}`;
+}
+
 export class Connection {
 	private readonly ws: WebSocket;
 	private readonly core: Core;
@@ -42,10 +76,13 @@ export class Connection {
 	private answersRequests = false;
 	private readonly offGlobal: () => void;
 	private closed = false;
+	/** Set when the other end is a network member rather than the owner's client. */
+	private readonly member: MemberRow | undefined;
 
-	constructor(ws: WebSocket, core: Core) {
+	constructor(ws: WebSocket, core: Core, member?: MemberRow) {
 		this.ws = ws;
 		this.core = core;
+		this.member = member;
 		this.offGlobal = core.hub.onGlobal((e) => this.event(e.type, "", {}));
 		ws.on("message", (data) => {
 			for (const line of data.toString().split("\n")) {
@@ -114,8 +151,21 @@ export class Connection {
 		const name = typeof p.profile === "string" && p.profile && p.profile !== "default" ? p.profile : undefined;
 		if (!name) return this.core.bots.defaultBot();
 		const bot = this.core.bots.get(name);
-		if (!bot || bot.isPeer) throw new RpcError(4004, `profile not found: ${name}`);
+		if (!bot || bot.isPeer || (this.member && bot.private)) throw new RpcError(4004, `profile not found: ${name}`);
 		return bot;
+	}
+
+	/** A member reaches only the methods above, and only sessions it created; it cannot switch approvals off. */
+	private checkMember(member: MemberRow, method: string, p: Params): void {
+		if (!MEMBER_METHODS.has(method)) throw new RpcError(-32601, `unknown method: ${method}`);
+		if (typeof p.session_id === "string" && p.session_id) {
+			const row = this.core.sessions.get(p.session_id);
+			if (row && row.source !== memberSource(member.node_id)) throw new RpcError(4006, `session not found: ${p.session_id}`);
+		}
+		if (method === "config.set" && p.key === "yolo") throw new RpcError(4003, "a network member cannot switch approvals off");
+		if (method === "session.create" && (typeof p.profile !== "string" || !p.profile || p.profile === "default")) {
+			if (this.core.bots.defaultBot().private) throw new RpcError(4004, "profile not found: default");
+		}
 	}
 
 	private async info(sessionId: string) {
@@ -219,6 +269,7 @@ export class Connection {
 
 	private async dispatch(method: string, p: Params): Promise<unknown> {
 		const { sessions, approvals, engine, bots } = this.core;
+		if (this.member) this.checkMember(this.member, method, p);
 		switch (method) {
 			case "ping":
 				return { pong: true };
@@ -228,7 +279,7 @@ export class Connection {
 			case "gateway.capabilities":
 				return { per_session_exclusive_submit: true };
 			case "profiles.list":
-				return { profiles: bots.list().filter((b) => !b.isPeer).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
+				return { profiles: (this.member ? shareable(bots.list()) : bots.list().filter((b) => !b.isPeer)).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
 			case "config.get": {
 				const key = str(p, "key");
 				const bot = this.botOf(p);
@@ -239,7 +290,8 @@ export class Connection {
 			}
 			case "session.create": {
 				const bot = this.botOf(p);
-				const row = await sessions.create(bot.name, { kind: "chat", source: typeof p.source === "string" ? p.source : "ios", title: typeof p.title === "string" ? p.title : undefined });
+				const source = this.member ? memberSource(this.member.node_id) : typeof p.source === "string" ? p.source : "ios";
+				const row = await sessions.create(bot.name, { kind: "chat", source, title: typeof p.title === "string" ? p.title : undefined });
 				await sessions.live(row.id);
 				this.attach(row.id);
 				return { session_id: row.id, stored_session_id: row.id, message_count: 0, messages: [], info: await this.info(row.id) };

@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { type ApprovalMode, type BotConfig, type Config, splitModel, type ThinkingLevel } from "../config.ts";
+import type { RemoteBot } from "../federation/roster.ts";
 import type { AppDb } from "../store/db.ts";
 
 export type BotOverrides = {
@@ -33,8 +34,10 @@ export type Bot = {
 	trusted: boolean;
 	/** Hidden from other bots' rosters and refused as a delegation target; never shared with members. */
 	private: boolean;
-	/** Mode B: an independent agent on another machine, reached by delegation. */
+	/** Mode B: an independent agent on another machine, reached by delegation (configured peers and network members' bots). */
 	isPeer: boolean;
+	/** A network member's bot, discovered from its roster (named `<bot>-<node>` here). */
+	remote?: { nodeId: string; node: string; bot: string; reachable: boolean };
 	/** Local working directory (also the Hermes "profile home"). */
 	workspace: string;
 	/** Per-bot skills directory. */
@@ -48,26 +51,72 @@ const DEFAULT_INSTRUCTIONS =
 	"You are a capable personal assistant running on the owner's own server. Be direct and concise. " +
 	"Use your tools to check facts instead of guessing, and say plainly when something failed.";
 
+/** A member's bot as a local Bot: reached only by delegation, so it has no tools, workspace or skills here. */
+function remoteBot(r: RemoteBot, config: Config): Bot {
+	const name = `${r.bot}-${r.node}`;
+	let model: Bot["model"];
+	try {
+		model = splitModel(r.model);
+	} catch {
+		model = { provider: "remote", modelId: r.model || "unknown" };
+	}
+	return {
+		name,
+		displayName: `${r.displayName} (${r.node})`,
+		description: r.description,
+		isDefault: false,
+		instructions: "",
+		model,
+		thinking: config.defaults.thinking,
+		toolGroups: [],
+		globalSkills: [],
+		disabledSkills: [],
+		sharedMemory: [],
+		approvals: { mode: config.defaults.approvals, ask: [], deny: [], allow: [] },
+		trusted: false,
+		private: false,
+		isPeer: true,
+		remote: { nodeId: r.nodeId, node: r.node, bot: r.bot, reachable: r.reachable },
+		workspace: "",
+		skillsDir: "",
+		config: { name, displayName: r.displayName, description: r.description },
+	};
+}
+
 export class Bots {
 	private readonly config: Config;
 	private readonly db: AppDb;
+	private remoteSource: () => RemoteBot[] = () => [];
 
 	constructor(config: Config, db: AppDb) {
 		this.config = config;
 		this.db = db;
 	}
 
-	names(): string[] {
-		return this.config.bots.map((b) => b.name);
+	/** Supplies the network members' bots (set once membership exists). */
+	setRemote(source: () => RemoteBot[]): void {
+		this.remoteSource = source;
 	}
 
+	names(): string[] {
+		return this.list().map((b) => b.name);
+	}
+
+	/** Local bots from config, then the members' bots (a remote name that clashes with a local one is left out). */
 	list(): Bot[] {
-		return this.config.bots.map((b) => this.resolve(b));
+		const local = this.config.bots.map((b) => this.resolve(b));
+		const taken = new Set(local.map((b) => b.name));
+		return [...local, ...this.remotes().filter((b) => !taken.has(b.name))];
 	}
 
 	get(name: string): Bot | undefined {
 		const b = this.config.bots.find((x) => x.name === name);
-		return b ? this.resolve(b) : undefined;
+		if (b) return this.resolve(b);
+		return this.remotes().find((r) => r.name === name);
+	}
+
+	private remotes(): Bot[] {
+		return this.remoteSource().map((r) => remoteBot(r, this.config));
 	}
 
 	require(name: string): Bot {

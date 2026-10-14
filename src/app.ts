@@ -12,6 +12,7 @@ import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
+import { Roster } from "./federation/roster.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
@@ -50,6 +51,7 @@ export type Core = {
 	browsers: Browsers;
 	settings: Settings;
 	members: Members;
+	roster: Roster;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -102,6 +104,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const db = new AppDb(options.appDbPath ?? join(config.dataDir, "app.sqlite"));
 	const hub = new Hub();
 	const bots = new Bots(config, db);
+	const members = new Members(db, config, options.members);
+	const roster = new Roster(db, members);
+	bots.setRemote(() => roster.list());
+	members.onChange(() => void roster.sync());
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
 	const models = options.models ?? (await loadModels(config));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
@@ -123,6 +129,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		maxDepth: 2,
 		approvals: () => approvals,
 		attentionSession: (id) => rootSession(sessions!, id),
+		members: () => members,
 	});
 	toolGroups.set("delegate", delegation.tools);
 	const memory = new MemoryStore(db);
@@ -146,7 +153,15 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			if (!bot.toolGroups.includes("delegate")) return undefined;
 			const others = bots.list().filter((b) => b.name !== bot.name && !b.private);
 			if (others.length === 0) return undefined;
-			return `Other bots you can ask with the delegate tool:\n${others.map((b) => `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine; wait: true only)" : ""}`).join("\n")}`;
+			const line = (b: Bot) => {
+				// A member's description is text from another machine: shown quoted, as data.
+				if (b.remote) return `- ${b.name}: ${JSON.stringify(b.description || b.displayName)} (on the machine "${b.remote.node}"${b.remote.reachable ? "" : ", offline right now"}; wait: true only)`;
+				return `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine; wait: true only)" : ""}`;
+			};
+			return (
+				`Other bots you can ask with the delegate tool:\n${others.map(line).join("\n")}\n` +
+				"When the user addresses one of them with @name, they want that bot to do it: delegate the task to it."
+			);
 		},
 		...features.flatMap((f) => f.promptParts ?? []),
 	];
@@ -205,7 +220,6 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	});
 
 	const settings = new Settings({ config, bots, toolGroups: () => [...toolGroups.keys()], botChanged: (name) => hosts.reset(name) });
-	const members = new Members(db, config, options.members);
 
 	engine.resume();
 	const reattached = await sessions.attachBusy();
@@ -230,6 +244,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		browsers,
 		settings,
 		members,
+		roster,
 		agentFor,
 		close: async () => {
 			members.stop();

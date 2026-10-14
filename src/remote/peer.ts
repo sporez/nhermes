@@ -11,7 +11,8 @@ const log = logger("peer");
 
 type Frame = { id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
 
-export type PeerTarget = { url: string; token: string; profile?: string };
+/** A gateway to reach: with the owner's token (configured peer) or a member's identifying headers. */
+export type PeerTarget = { url: string; token?: string; headers?: Record<string, string>; profile?: string };
 export type PeerApproval = (params: Record<string, unknown>) => Promise<"once" | "session" | "always" | "deny">;
 
 class Socket {
@@ -24,8 +25,8 @@ class Socket {
 
 	static async open(t: PeerTarget, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): Promise<Socket> {
 		const s = new Socket();
-		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws?token=${encodeURIComponent(t.token)}`;
-		const ws = new WebSocket(url, { handshakeTimeout: 15_000 });
+		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws${t.token ? `?token=${encodeURIComponent(t.token)}` : ""}`;
+		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers: t.headers });
 		s.ws = ws;
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error(`peer ${t.url}: no gateway.ready`)), 20_000);
@@ -118,7 +119,16 @@ class Socket {
 export async function runOnPeer(
 	t: PeerTarget,
 	task: string,
-	opts: { key: string; sessionId?: string; onSession?: (id: string) => Promise<void>; onApproval: PeerApproval; signal?: AbortSignal; timeoutMs?: number },
+	opts: {
+		key: string;
+		sessionId?: string;
+		onSession?: (id: string) => Promise<void>;
+		onApproval: PeerApproval;
+		signal?: AbortSignal;
+		timeoutMs?: number;
+		/** When the very first connection fails, give up at once with this message instead of retrying. */
+		failFast?: string;
+	},
 ): Promise<{ sessionId: string; text: string }> {
 	const deadline = Date.now() + (opts.timeoutMs ?? 30 * 60_000);
 	const onRequest = async (method: string, params: Record<string, unknown>) => (method === "approval" ? { choice: await opts.onApproval(params) } : undefined);
@@ -150,6 +160,7 @@ export async function runOnPeer(
 			return { sessionId, text: String(done.payload.text ?? "") };
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
+			if (attempt === 0 && s === undefined && opts.failFast && !/rejected the token/.test(msg)) throw new Error(opts.failFast);
 			if (/rejected the token|run failed|cancelled/.test(msg) || attempt >= 20) throw error;
 			log.warn("peer connection problem; retrying", { url: t.url, attempt, error: msg });
 			await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))));
@@ -157,11 +168,4 @@ export async function runOnPeer(
 			s?.close();
 		}
 	}
-}
-
-/** Lists the peer's bots (used to show what a peer offers). */
-export async function peerProfiles(t: PeerTarget): Promise<string[]> {
-	const res = await fetch(`${t.url.replace(/^ws/, "http").replace(/\/$/, "")}/api/profiles`, { headers: { "X-Hermes-Session-Token": t.token }, signal: AbortSignal.timeout(10_000) });
-	if (!res.ok) throw new Error(`peer answered ${res.status}`);
-	return ((await res.json()) as { profiles: { name: string }[] }).profiles.map((p) => p.name);
 }

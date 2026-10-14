@@ -4,6 +4,7 @@
 import type { Core } from "../app.ts";
 import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
 import { FederationError, type MemberRow } from "./members.ts";
+import { publish } from "./roster.ts";
 
 export const OPEN_FEDERATION_PATHS = new Set(["/federation/hello", "/federation/join"]);
 
@@ -28,6 +29,7 @@ export function federationRoutes(core: Core): Router {
 	r.on("GET", "/federation/hello", () => m.hello());
 	r.on("POST", "/federation/join", (q) => federationCall(() => m.acceptJoin(obj(q.body))));
 	r.on("GET", "/federation/ping", (q) => ({ name: m.self().name, from: member(q).name }));
+	r.on("GET", "/federation/roster", (q) => (member(q), publish(core.bots.list())));
 	r.on("POST", "/federation/introduce", (q) => federationCall(() => (m.introduce(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/forget", (q) => federationCall(() => (m.forget(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/removed", (q) => (m.removed(member(q)), { ok: true }));

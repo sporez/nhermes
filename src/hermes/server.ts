@@ -87,11 +87,11 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			return;
 		}
 		wss.handleUpgrade(req, socket, head, (ws) => {
-			if (!tokenMatches(requestToken(req, url), core.config.token)) {
-				ws.close(4401, "invalid session token");
-				return;
-			}
-			new Connection(ws, core);
+			if (tokenMatches(requestToken(req, url), core.config.token)) return void new Connection(ws, core);
+			// A network member drives this gateway's shareable bots, within the limits Connection sets for it.
+			const member = core.members.verify(header(req, NODE_HEADER), header(req, SECRET_HEADER));
+			if (member) return void new Connection(ws, core, member);
+			ws.close(4401, "invalid session token");
 		});
 	});
 

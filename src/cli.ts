@@ -71,7 +71,7 @@ async function serve(configPath: string): Promise<void> {
 	const core = await createCore(config);
 	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
-	core.members.start();
+	core.members.start(() => core.roster.sync());
 	log.info("gateway ready", { bots: core.bots.names(), port: server.port, dataDir: config.dataDir });
 	let stopping = false;
 	const stop = async (signal: string) => {

@@ -185,8 +185,17 @@ run is not submitted twice.
   `peer: { url, tokenEnv, profile }`; local bots reach it with `delegate`, and its approval requests are
   relayed to the owner's chat on the central gateway. Peers are not listed as Vory profiles; to chat
   with one directly, add it to Vory as its own gateway.
+- **Network of members (`src/federation/`, `docs/FEDERATION.md`):** gateways join one network of equals
+  with `nhermes invite` / `join`; each pair shares a generated secret (`members`), sent as
+  `x-nhermes-node` + `x-nhermes-member-secret`. Members reach only `/federation/*` and the WebSocket,
+  never `/api/*` or `/admin/*`. Each member publishes its shareable bots (`/federation/roster`); the
+  others list them as `<bot>-<node>` (`remote_bots`, kept while a member is offline) and delegate to them
+  over the WebSocket like a peer. On the owning gateway such a chat has source `member:<node id>`: a
+  member's connection sees only those chats and shareable bots, cannot turn approvals off, and the work
+  is never trusted.
 - **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
-  answer as if it did not exist. It can still delegate to others and is still a Vory profile.
+  answer as if it did not exist; it is not shared with members either. It can still delegate to others
+  and is still a Vory profile on its own gateway.
 - **Privileges never escalate through delegation:** a delegated task is trusted only if every bot in the
   chain is, and runs under the strictest approval mode in the chain.
 
