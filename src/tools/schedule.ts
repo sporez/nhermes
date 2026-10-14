@@ -11,9 +11,16 @@ function text(t: string) {
 	return { output: [{ type: "text" as const, text: t }] };
 }
 
+/** A time as the job's local wall clock with its zone, and UTC, so nobody has to convert. */
+export function localTime(epochS: number, timezone: string): string {
+	const d = new Date(epochS * 1000);
+	const local = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" }).format(d);
+	return `${local.replace(",", "")} (${d.toISOString().slice(0, 16)}Z)`;
+}
+
 export function describeJob(s: Scheduler, j: JobRow): string {
 	const last = s.lastRun(j.id);
-	const next = j.next_run_at ? new Date(j.next_run_at * 1000).toISOString() : "none";
+	const next = j.next_run_at ? localTime(j.next_run_at, j.timezone) : "none";
 	return `${j.id} "${j.name}" bot=${j.bot} schedule="${describeSpec(specOf(j))}" tz=${j.timezone} ${j.enabled ? "enabled" : "paused"} next=${next} notify=${j.notify}${last ? ` last=${last.status}` : ""}`;
 }
 
