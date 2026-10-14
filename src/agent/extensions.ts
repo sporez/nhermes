@@ -21,6 +21,8 @@ export type AgentDeps = {
 	promptParts: PromptPart[];
 	/** The session whose clients are asked for a session's approvals (a delegation's root chat). */
 	attentionSession: (sessionId: string) => string;
+	/** Bots of the sessions that delegated to this one, nearest first (empty for a root session). */
+	delegationChain: (sessionId: string) => Bot[];
 	/** Session kinds with no client to ask (jobs): how a needed approval is answered. */
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
 };
@@ -67,9 +69,15 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const approvals = deps.approvals();
 					const attention = deps.attentionSession(row.id);
 					const sessionRules = [...new Set([...approvals.rules(`session:${row.id}`), ...approvals.rules(`session:${attention}`)])];
+					// Privileges never escalate through delegation: a delegated task is trusted only if every bot
+					// in the chain is, and runs under the strictest approval mode in the chain.
+					const chain = deps.delegationChain(row.id);
+					const order = { manual: 0, smart: 1, off: 2 } as const;
+					const mode = [bot, ...chain].map((b) => b.approvals.mode).reduce((a, m) => (order[m] < order[a] ? m : a));
+					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted), approvals: { ...bot.approvals, mode } };
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
-						{ bot, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention) },
+						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention) },
 					);
 					if (decision.action === "allow") return undefined;
 					if (decision.action === "deny") return { block: decision.description };

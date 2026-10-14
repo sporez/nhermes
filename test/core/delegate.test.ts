@@ -101,3 +101,36 @@ test("an approval inside a delegated task is asked in the root chat", async () =
 		await cleanup();
 	}
 });
+
+test("privileges do not escalate through delegation: an untrusted bot's task run by a trusted bot still asks", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models });
+	try {
+		const s = await core.sessions.create("main"); // untrusted
+		const c = collect(core.hub, s.id);
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "ops", task: "install cowsay" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("bash", { command: "sudo apt-get install -y cowsay" })], { stopReason: "toolUse" }), // ops (trusted)
+			fauxAssistantMessage([fauxText("Not allowed.")]),
+			fauxAssistantMessage([fauxText("Ops could not install it.")]),
+		]);
+		await core.sessions.submit(s.id, "get cowsay installed somehow");
+		const asked = await c.until((e) => e.type === "approval.requested", 10000);
+		if (asked.type !== "approval.requested") return;
+		assert.equal(asked.request.sessionId, s.id);
+		assert.equal(asked.request.bot, "ops");
+		core.approvals.answer(asked.request.requestId, "deny");
+		await c.until((e) => e.type === "run.finished", 10000);
+		// The same command started directly in an ops chat runs without asking (ops is trusted).
+		const o = await core.sessions.create("ops");
+		const co = collect(core.hub, o.id);
+		faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command: "echo sudo-ok" })], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("ok")])]);
+		await core.sessions.submit(o.id, "go");
+		await co.until((e) => e.type === "run.finished", 10000);
+		assert.equal(co.events.some((e) => e.type === "approval.requested"), false);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});

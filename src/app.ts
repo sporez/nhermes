@@ -143,6 +143,16 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		timezone: config.timezone,
 		promptParts,
 		attentionSession: (id) => rootSession(sessions!, id),
+		delegationChain: (id) => {
+			const out: Bot[] = [];
+			let row = sessions!.get(id);
+			for (let i = 0; row?.parent_id && i < 20; i++) {
+				row = sessions!.get(row.parent_id);
+				const b = row ? bots.get(row.bot) : undefined;
+				if (b) out.push(b);
+			}
+			return out;
+		},
 		unattendedPolicy: (sessionId) => scheduler?.approvalsFor(sessionId) ?? "ask",
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
