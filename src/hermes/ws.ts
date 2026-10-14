@@ -174,7 +174,8 @@ export class Connection {
 
 	private onSessionEvent(sid: string, e: SessionEvent): void {
 		switch (e.type) {
-			case "message.started":
+			case "run.started":
+				// Hermes sends message.start once, when the prompt is accepted (prompt_turn.py).
 				return this.event("message.start", sid, {});
 			case "text.delta":
 				return this.event("message.delta", sid, { text: e.text });

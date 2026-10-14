@@ -15,75 +15,90 @@ Status legend:
 "Verified with Vory" lists what has been exercised with the real app or Vory's own test suite
 (`VoryTests/GatewayIntegrationTests.swift`), as distinct from our own tests.
 
+## Vory's own test suites against this gateway
+
+Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated simulator, a real model).
+
+| Suite / test | Result | Notes |
+|---|---|---|
+| `VoryTests/GatewayIntegrationTests/testConnectionPassesAllLegs` | Pass | |
+| `…/restEndpointsAnswerJSON` | Pass | |
+| `…/websocketStreamsATurn` | Pass | real model (cerebras/gpt-oss-120b) |
+| `…/cleansUpLeftoverE2ESessions` | Pass | |
+| `…/aTurnSentFromOneDeviceShowsOnTheOther` | Pass | needed `message.start` at prompt acceptance, as Hermes does |
+| `…/anApprovalAnsweredOnOneDeviceLeavesTheOther` | Not exercised | returns early unless the token is `mock-token` (scripted mock turns); covered by our `test/hermes/protocol.test.ts` |
+| `…/aChatMovesToAProjectAndOut` | Not exercised | mock-only, and Projects are gated |
+| `VoryUITests/VoryUITests/testOnboardingConnectChatAndSettings` | Pass | Full UI: add gateway, connection test, new chat, real reply, Tools/Config/Env pages. On a fresh simulator the first run stops at Vory's one-time Companion prompt, which the test does not dismiss (a Vory test issue, the same against Hermes); the second run passes |
+
 ## Connection and auth
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| Liveness + auth shape | `GET /api/status` | Planned | | `auth_required: false`, `version`, `gateway_running`, `active_sessions` |
-| Session-token auth | `X-Hermes-Session-Token`, `?token=` | Planned | | Wrong token: HTTP 401, WS close 4401 |
+| Liveness + auth shape | `GET /api/status` | Tested | E2E `testConnectionPassesAllLegs`; UI onboarding | `auth_required: false`, `version`, `gateway_running`, `active_sessions` |
+| Session-token auth | `X-Hermes-Session-Token`, `?token=` | Tested | E2E, UI onboarding | Wrong token: HTTP 401, WS close 4401 |
 | Password / OAuth native sign-in | `/auth/native/*`, `/api/auth/*` | Gated | | `auth_providers: []`; Vory's session-token mode is used |
-| Socket handshake | `/api/ws` → `gateway.ready` | Planned | | Payload `{skin:{}, change_events, heartbeat, replay_epoch}` |
-| Heartbeat | `ping` | Planned | | `{pong: true}` |
-| Server-request capability | `client.capabilities` | Planned | | Returns `["approval"]` only |
-| Gateway capabilities | `gateway.capabilities` | Planned | | `per_session_exclusive_submit: true` |
+| Socket handshake | `/api/ws` → `gateway.ready` | Tested | E2E `testConnectionPassesAllLegs` | Payload `{skin:{}, change_events, heartbeat, replay_epoch}` |
+| Heartbeat | `ping` | Tested | E2E `websocketStreamsATurn` | `{pong: true}` |
+| Server-request capability | `client.capabilities` | Tested | E2E `websocketStreamsATurn` | Returns `["approval"]` only |
+| Gateway capabilities | `gateway.capabilities` | Tested | | `per_session_exclusive_submit: true` |
 
 ## Bots (profiles)
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| List bots | `GET /api/profiles`, `profiles.list` | Planned | | One profile per bot, `is_default` for the primary bot |
-| Active bot | `GET /api/profiles/active` | Planned | | |
-| Bot instructions | `GET/PUT /api/profiles/{name}/soul` | Planned | | SOUL = bot instructions |
-| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Planned | | |
-| Profile home | `config.get {key:"profile"}` | Planned | | Bot workspace path |
+| List bots | `GET /api/profiles`, `profiles.list` | Tested | E2E `restEndpointsAnswerJSON`; UI | One profile per bot, `is_default` for the primary bot |
+| Active bot | `GET /api/profiles/active` | Tested | | |
+| Bot instructions | `GET/PUT /api/profiles/{name}/soul` | Tested | | SOUL = bot instructions |
+| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides; create/delete bots is CLI-only |
+| Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
 | Create / delete / rename bots | `POST/DELETE/PATCH /api/profiles` | Deferred | | CLI manages bots |
 
 ## Sessions and chat
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| List sessions | `GET /api/sessions?order=recent&limit=&profile=` | Planned | | Rows: `id,title,preview,source,model,started_at,last_active,message_count,is_active,archived,pinned,profile` |
-| One session | `GET /api/sessions/{id}?profile=` | Planned | | 404 when another bot owns it |
-| Messages page | `GET /api/sessions/{id}/messages` | Planned | | |
-| Rename / pin / archive | `PATCH /api/sessions/{id}`, `session.title` | Planned | | |
-| Delete | `DELETE /api/sessions/{id}`, `session.delete` | Planned | | Bot identity and memory untouched |
-| Search | `GET /api/sessions/search?q=` | Planned | | Title/preview match |
-| Create | `session.create` | Planned | | Runtime id == stored id |
-| Resume snapshot | `session.resume` | Planned | | `messages`, `running`, `inflight`, `turn_started_at`, `open_requests`, `info` |
-| Close | `session.close` | Planned | | Detaches the socket; the run continues |
-| Send prompt | `prompt.submit` | Planned | | `status: streaming`; while busy: `queued` (Durable follow-up) |
-| Steer | `session.steer` | Planned | | Durable `whenBusy: "steer"` |
-| Stop | `session.interrupt` | Planned | | Durable `abort()` |
-| Streaming | `message.start`, `message.delta`, `reasoning.delta`, `message.complete` | Planned | | `message.complete.text` is the whole run's text |
-| Tool events | `tool.start`, `tool.complete` | Planned | | `tool_id` = Durable tool call id |
-| Usage | `session.usage`, `session.usage` event | Planned | | From Durable `pi.usage` |
-| Context breakdown | `session.context_breakdown` | Planned | | System / tools / conversation estimate |
-| Title | `session.title` event | Planned | | First prompt, shortened |
-| Multi-device fan-out | events to every attached socket | Planned | | |
-| Reconnect during a run | `session.resume` mid-run | Planned | | Snapshot, then live events |
+| List sessions | `GET /api/sessions?order=recent&limit=&profile=` | Tested | E2E, UI chat list | Rows: `id,title,preview,source,model,started_at,last_active,message_count,is_active,archived,pinned,profile` |
+| One session | `GET /api/sessions/{id}?profile=` | Tested | | 404 when another bot owns it |
+| Messages page | `GET /api/sessions/{id}/messages` | Tested | | |
+| Rename / pin / archive | `PATCH /api/sessions/{id}`, `session.title` | Partial | | `title`, `pinned`, `archived` work; `hidden` and `unread` are accepted and ignored |
+| Delete | `DELETE /api/sessions/{id}`, `session.delete` | Tested | E2E cleanup test | Bot identity and memory untouched |
+| Search | `GET /api/sessions/search?q=` | Partial | | Title and preview match only (no transcript full-text yet) |
+| Create | `session.create` | Tested | E2E, UI new chat | Runtime id == stored id |
+| Resume snapshot | `session.resume` | Tested | E2E two-device test | `messages`, `running`, `inflight`, `turn_started_at`, `open_requests`, `info` |
+| Close | `session.close` | Tested | | Detaches the socket; the run continues |
+| Send prompt | `prompt.submit` | Tested | E2E, UI composer | `status: streaming`; while busy: `queued` (Durable follow-up) |
+| Steer | `session.steer` | Partial | | Durable `whenBusy: steer`: placed after the current tool round |
+| Stop | `session.interrupt` | Tested | | Durable `abort()` |
+| Streaming | `message.start`, `message.delta`, `reasoning.delta`, `message.complete` | Tested | E2E (real model), UI shows reply | `message.complete.text` is the whole run's text |
+| Tool events | `tool.start`, `tool.complete` | Tested | | `tool_id` = Durable tool call id |
+| Usage | `session.usage`, `session.usage` event | Tested | E2E | From Durable `pi.usage` |
+| Context breakdown | `session.context_breakdown` | Tested | E2E | System / tools / conversation estimate |
+| Title | `session.title` event | Tested | | First prompt, shortened |
+| Multi-device fan-out | events to every attached socket | Tested | E2E `aTurnSentFromOneDeviceShowsOnTheOther` | |
+| Reconnect during a run | `session.resume` mid-run | Tested | | Snapshot, then live events |
 | Attachments | `image.attach_bytes`, `pdf.attach`, `file.attach` | Deferred | | |
 
 ## Tools and approvals
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| Approval request | server→client `approval` | Planned | | Enforced by a Durable `beforeTool` hook |
-| Answer approval | response frame, `approval.respond` | Planned | | `once`, `session`, `always`, `deny` |
-| Pending approvals | `approval.pending`, `approval.received` | Planned | | |
-| Withdrawn request | `request.cancel` event | Planned | | On interrupt / timeout |
+| Approval request | server→client `approval` | Tested | | Enforced by a Durable `beforeTool` hook |
+| Answer approval | response frame, `approval.respond` | Tested | | `once`, `session`, `always`, `deny` |
+| Pending approvals | `approval.pending`, `approval.received` | Tested | | |
+| Withdrawn request | `request.cancel` event | Tested | | On interrupt / timeout |
 | Clarify / sudo / secret / vault prompts | server→client | Gated | | Not in `client.capabilities` result |
-| Per-session YOLO | `config.set yolo` | Planned | | Allows everything except `deny` rules |
-| Toolsets | `GET /api/tools/toolsets` | Planned | | Our tool groups per bot |
+| Per-session YOLO | `config.set yolo` | Partial | | Allows everything except deny rules; held in memory, so it resets on gateway restart |
+| Toolsets | `GET /api/tools/toolsets` | Partial | E2E, UI Tools page | Lists the bot's tool groups; toggling from Vory (`PUT /api/tools/toolsets/{name}`) is not implemented yet |
 
 ## Models
 
 | Feature | Endpoint / method | Status | Verified with Vory | Notes |
 |---|---|---|---|---|
-| Model options | `GET /api/model/options?profile=` | Planned | | From Pi `ModelRuntime`; `authenticated` per provider |
-| Session model switch | `config.set model "<m> --provider <p> --session"` | Planned | | Durable `configure({model})` |
-| Reasoning effort | `config.set reasoning` | Planned | | Durable `thinkingLevel` |
+| Model options | `GET /api/model/options?profile=` | Tested | E2E `restEndpointsAnswerJSON` | From Pi `ModelRuntime`; `authenticated` per provider |
+| Session model switch | `config.set model "<m> --provider <p> --session"` | Tested | | Durable `configure({model})` |
+| Reasoning effort | `config.set reasoning` | Tested | | Durable `thinkingLevel` |
 | Fast mode | `config.set fast` | Gated | | Accepted and reported as unsupported |
-| Default model of a bot | `PUT /api/profiles/{name}/model` | Planned | | |
+| Default model of a bot | `PUT /api/profiles/{name}/model` | Partial | | Persists as a bot override; existing sessions keep their own model |
 
 ## Skills, config, status
 
@@ -91,11 +106,11 @@ Status legend:
 |---|---|---|---|---|
 | List skills | `GET /api/skills?profile=` | Planned | | `enabled` = active for that bot |
 | Toggle skill | `PUT /api/skills/toggle` | Planned | | Per bot |
-| Slash command catalog | `commands.catalog` | Planned | | Built-ins we really run + skills |
-| Slash execution | `slash.exec`, `command.dispatch` | Planned | | Small set: `/new`, `/compact`, `/usage`, `/skill <name>` |
-| Config read | `GET /api/config`, `/api/config/schema` | Planned | | Real settings only (approvals mode, default model, reasoning) |
-| Config write | `PUT /api/config` | Deferred | | CLI / config file |
-| Env / keys | `GET /api/env` | Planned | | Redacted; read-only |
+| Slash command catalog | `commands.catalog` | Tested | E2E | Built-ins we really run + skills |
+| Slash execution | `slash.exec`, `command.dispatch` | Partial | | `/compact`, `/usage`, `/status`; others return error 4018 |
+| Config read | `GET /api/config`, `/api/config/schema` | Tested | E2E, UI Config page | Real settings only (approvals mode, default model, reasoning) |
+| Config write | `PUT /api/config` | Deferred | | CLI / config file. Vory's Config page shows pickers; saving from it returns 404 for now |
+| Env / keys | `GET /api/env` | Tested | E2E, UI Env page | Redacted; read-only |
 | MCP servers | `/api/mcp/servers` | Deferred | | |
 | Logs | `GET /api/logs` | Deferred | | |
 
@@ -108,8 +123,8 @@ Status legend:
 | Edit | `PUT /api/cron/jobs/{id}` `{updates}` | Planned | | |
 | Pause / resume | `POST .../pause`, `.../resume` | Planned | | |
 | Run now | `POST .../trigger` | Planned | | Held until the run ends, as Hermes does; 409 if running |
-| Delete | `DELETE /api/cron/jobs/{id}` | Planned | | |
-| Create | `POST /api/cron/jobs` | Planned | | Vory does not create jobs; the agent's `schedule_create` tool and the CLI do |
+| Delete | `DELETE /api/cron/jobs/{id}` | Tested | E2E cleanup test | |
+| Create | `POST /api/cron/jobs` | Tested | E2E, UI new chat | Vory does not create jobs; the agent's `schedule_create` tool and the CLI do |
 | Change notice | `cron.changed` event | Planned | | |
 
 ## Other Vory features
