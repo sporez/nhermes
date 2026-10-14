@@ -138,7 +138,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const promptParts: PromptPart[] = [
 		(bot) => {
 			if (!bot.toolGroups.includes("delegate")) return undefined;
-			const others = bots.list().filter((b) => b.name !== bot.name);
+			const others = bots.list().filter((b) => b.name !== bot.name && !b.private);
 			if (others.length === 0) return undefined;
 			return `Other bots you can ask with the delegate tool:\n${others.map((b) => `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine; wait: true only)" : ""}`).join("\n")}`;
 		},

@@ -104,9 +104,13 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 		execute: async (args, api, ctx) => {
 			const sessions = deps.sessions();
 			const caller = sessions.byConversation(api.conversationId as number);
+			// A private bot answers as if it did not exist, so its name is not revealed.
 			const target = deps.bots().get(args.bot);
 			if (!caller) throw new Error("this conversation is not a known session");
-			if (!target) throw new Error(`there is no bot named "${args.bot}"; known bots: ${deps.bots().names().join(", ")}`);
+			if (!target || (target.private && target.name !== caller.bot)) {
+				const known = deps.bots().list().filter((b) => !b.private).map((b) => b.name);
+				throw new Error(`there is no bot named "${args.bot}"; known bots: ${known.join(", ")}`);
+			}
 			if (target.name === caller.bot) throw new Error("delegate to a different bot; you can do your own work directly");
 			if (depth(sessions, caller.id) >= deps.maxDepth) throw new Error(`delegation depth limit (${deps.maxDepth}) reached`);
 			if (target.isPeer) {

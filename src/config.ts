@@ -38,6 +38,8 @@ export type BotConfig = {
 	approvals?: { mode?: ApprovalMode; ask?: string[]; deny?: string[]; allow?: string[] };
 	/** Owner-trusted infrastructure bot: broad shell, only high-impact patterns ask. */
 	trusted?: boolean;
+	/** Kept to itself: other bots do not see it or delegate to it, and it is not shared with members. */
+	private?: boolean;
 	workspace?: string;
 	host?: { ssh: SshHostConfig };
 	/** Mode B: this bot is an independent Neil Hermes gateway elsewhere (its `profile` there). */
@@ -180,6 +182,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 			allow: strList(ap.allow, `${where}.approvals.allow`),
 		},
 		trusted: r.trusted === true,
+		private: r.private === true,
 		workspace: str(r.workspace, `${where}.workspace`),
 		host,
 		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "", profile: str(peerRaw.profile, `${where}.peer.profile`) } : undefined,

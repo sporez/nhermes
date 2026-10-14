@@ -185,6 +185,8 @@ run is not submitted twice.
   `peer: { url, tokenEnv, profile }`; local bots reach it with `delegate`, and its approval requests are
   relayed to the owner's chat on the central gateway. Peers are not listed as Vory profiles; to chat
   with one directly, add it to Vory as its own gateway.
+- **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
+  answer as if it did not exist. It can still delegate to others and is still a Vory profile.
 - **Privileges never escalate through delegation:** a delegated task is trusted only if every bot in the
   chain is, and runs under the strictest approval mode in the chain.
 

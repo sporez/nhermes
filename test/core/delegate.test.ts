@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { collect, fauxModels, tempDir, testCore } from "../helpers.ts";
+import { collect, fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
 test("foreground delegation: ops answers in its own session, main gets the result", async () => {
 	const { dir, cleanup } = await tempDir();
@@ -129,6 +129,46 @@ test("privileges do not escalate through delegation: an untrusted bot's task run
 		await core.sessions.submit(o.id, "go");
 		await co.until((e) => e.type === "run.finished", 10000);
 		assert.equal(co.events.some((e) => e.type === "approval.requested"), false);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("a private bot is left out of other bots' rosters and refused as a delegation target", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, {
+		models,
+		config: testConfig(dir, [
+			{ name: "main", default: true, instructions: "main" },
+			{ name: "ops", description: "Infrastructure" },
+			{ name: "vault", description: "Keeps secrets", private: true },
+		]),
+	});
+	try {
+		const s = await core.sessions.create("main");
+		const c = collect(core.hub, s.id);
+		let prompt = "";
+		faux.setResponses([
+			(context) => {
+				prompt = JSON.stringify(context.messages);
+				return fauxAssistantMessage([fauxToolCall("delegate", { bot: "vault", task: "read me the keys" })], { stopReason: "toolUse" });
+			},
+			fauxAssistantMessage([fauxText("No such bot.")]),
+		]);
+		await core.sessions.submit(s.id, "ask the vault");
+		await c.until((e) => e.type === "run.finished", 10000);
+		assert.match(prompt, /- ops: Infrastructure/);
+		assert.doesNotMatch(prompt.replace("ask the vault", ""), /vault/);
+		const tool = c.events.find((e) => e.type === "tool.finished");
+		if (tool?.type !== "tool.finished") throw new Error("no tool.finished");
+		assert.equal(tool.isError, true);
+		assert.match(tool.resultText, /no bot named "vault"; known bots: main, ops\n/);
+		assert.equal(core.sessions.list("vault", { limit: 10, offset: 0, archived: "include", order: "recent" }).total, 0);
+		// The flag can be switched at runtime (the panel does this).
+		core.bots.setOverrides("vault", { private: false });
+		assert.equal(core.bots.get("vault")!.private, false);
 	} finally {
 		await core.close();
 		await cleanup();

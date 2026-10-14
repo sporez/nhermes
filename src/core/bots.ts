@@ -14,6 +14,7 @@ export type BotOverrides = {
 	disabledSkills?: string[];
 	/** Global skill names switched on beyond config. */
 	enabledSkills?: string[];
+	private?: boolean;
 };
 
 export type Bot = {
@@ -30,6 +31,8 @@ export type Bot = {
 	sharedMemory: string[];
 	approvals: { mode: ApprovalMode; ask: string[]; deny: string[]; allow: string[] };
 	trusted: boolean;
+	/** Hidden from other bots' rosters and refused as a delegation target; never shared with members. */
+	private: boolean;
 	/** Mode B: an independent agent on another machine, reached by delegation. */
 	isPeer: boolean;
 	/** Local working directory (also the Hermes "profile home"). */
@@ -129,6 +132,7 @@ export class Bots {
 				allow: b.approvals?.allow ?? [],
 			},
 			trusted: b.trusted === true,
+			private: o.private ?? b.private === true,
 			isPeer: b.peer !== undefined,
 			workspace,
 			skillsDir: join(botDir, "skills"),
