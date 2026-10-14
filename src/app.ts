@@ -20,6 +20,7 @@ import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
 import { scheduleFeature } from "./tools/schedule.ts";
+import { webFeature } from "./tools/web.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -113,6 +114,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
 		scheduleFeature(late, () => scheduler!, () => notifier),
+		webFeature(late),
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);

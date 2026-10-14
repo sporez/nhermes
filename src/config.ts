@@ -41,6 +41,8 @@ export type BotConfig = {
 	workspace?: string;
 	host?: { ssh: SshHostConfig };
 	peer?: { url: string; tokenEnv: string };
+	/** Environment variables this bot's http_request may reference as {{secret:NAME}}. */
+	secrets?: string[];
 };
 
 export type Config = {
@@ -160,6 +162,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		workspace: str(r.workspace, `${where}.workspace`),
 		host,
 		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "" } : undefined,
+		secrets: strList(r.secrets, `${where}.secrets`),
 	};
 }
 
@@ -180,6 +183,7 @@ export function loadConfig(configPath: string): Config {
 	registerSecret(token);
 
 	const bots = (Array.isArray(doc.bots) ? doc.bots : []).map(parseBot);
+	for (const b of bots) for (const name of b.secrets ?? []) registerSecret(process.env[name]);
 	if (bots.length === 0) throw new ConfigError("config needs at least one bot under `bots:`");
 	const names = new Set<string>();
 	for (const b of bots) {
