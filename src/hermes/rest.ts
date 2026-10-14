@@ -1,0 +1,234 @@
+// Hermes-compatible REST endpoints, translated onto the core services. Routes we do not implement are
+// absent (404), so Vory's own capability checks hide those features.
+import type { Core } from "../app.ts";
+import { THINKING_LEVELS } from "../config.ts";
+import { GROUP_LABELS } from "../tools/index.ts";
+import { HttpError, obj, type Req, Router } from "./http.ts";
+import { profileJson, storedSession, VERSION } from "./shapes.ts";
+
+function botFor(core: Core, profile: string | null | undefined) {
+	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();
+	const bot = core.bots.get(profile);
+	if (!bot) throw new HttpError(404, `Profile '${profile}' not found`);
+	return bot;
+}
+
+function intParam(q: URLSearchParams, key: string, def: number, max: number): number {
+	const raw = q.get(key);
+	if (raw === null) return def;
+	const n = Number(raw);
+	if (!Number.isInteger(n) || n < 0) throw new HttpError(422, `${key} must be a non-negative integer`);
+	if (n > max) throw new HttpError(422, `${key} must be less than or equal to ${max}`);
+	return n;
+}
+
+export async function modelOptions(core: Core, current?: { provider: string; modelId: string }) {
+	const available = await core.models.getAvailable();
+	const byProvider = new Map<string, typeof available[number][]>();
+	for (const m of available) {
+		const list = byProvider.get(m.provider) ?? [];
+		list.push(m);
+		byProvider.set(m.provider, list);
+	}
+	const providers = [...byProvider.entries()].map(([slug, list]) => {
+		const p = core.models.getProvider(slug) as { name?: string } | undefined;
+		const capabilities: Record<string, { reasoning: boolean; fast: boolean; can_disable_reasoning: boolean }> = {};
+		for (const m of list) capabilities[m.id] = { reasoning: m.reasoning === true, fast: false, can_disable_reasoning: m.reasoning === true };
+		return {
+			slug,
+			name: p?.name ?? slug,
+			models: list.map((m) => m.id),
+			featured_models: list.slice(0, 6).map((m) => m.id),
+			authenticated: true,
+			is_current: current?.provider === slug,
+			capabilities,
+		};
+	});
+	return { providers, model: current?.modelId ?? null, provider: current?.provider ?? null };
+}
+
+export function restRoutes(core: Core): Router {
+	const r = new Router();
+	const { sessions, bots } = core;
+
+	const listRow = (id: string) => {
+		const row = sessions.require(id);
+		const bot = bots.get(row.bot);
+		return storedSession(row, bot ? bot.model.modelId : "", sessions.isRunning(id));
+	};
+
+	r.on("GET", "/api/status", () => ({
+		version: VERSION,
+		release_date: "",
+		gateway_running: true,
+		gateway_state: "running",
+		active_sessions: sessions.runningCount(),
+		active_agents: sessions.runningCount(),
+		auth_required: false,
+		auth_providers: [],
+		auth_flows: [],
+		profiles: bots.names(),
+		gateway_mode: "single",
+	}));
+	r.on("GET", "/api/health", () => ({ ok: true, version: VERSION, auth_required: false }));
+
+	// Bots (profiles)
+	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().map((b) => profileJson(b, 0)) }));
+	r.on("GET", "/api/profiles/active", () => ({ active: bots.defaultBot().name, current: bots.defaultBot().name }));
+	r.on("GET", "/api/profiles/:name/soul", (q) => {
+		const bot = botFor(core, q.params.name);
+		return { content: bot.instructions, exists: true };
+	});
+	r.on("PUT", "/api/profiles/:name/soul", (q) => {
+		const content = obj(q.body).content;
+		if (typeof content !== "string") throw new HttpError(422, "content is required");
+		const bot = botFor(core, q.params.name);
+		bots.setOverrides(bot.name, { instructions: content });
+		return { ok: true };
+	});
+	r.on("PUT", "/api/profiles/:name/description", (q) => {
+		const d = obj(q.body).description;
+		const bot = botFor(core, q.params.name);
+		bots.setOverrides(bot.name, { description: typeof d === "string" ? d : "" });
+		return { ok: true };
+	});
+	r.on("PUT", "/api/profiles/:name/model", (q) => {
+		const b = obj(q.body);
+		const provider = typeof b.provider === "string" ? b.provider : "";
+		const model = typeof b.model === "string" ? b.model : "";
+		if (!core.models.getModel(provider, model)) throw new HttpError(400, `Unknown model ${provider}/${model}`);
+		const bot = botFor(core, q.params.name);
+		bots.setOverrides(bot.name, { model: `${provider}/${model}` });
+		return { ok: true, provider, model };
+	});
+
+	// Sessions
+	r.on("GET", "/api/sessions", (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		const limit = intParam(q.query, "limit", 20, 100);
+		const offset = intParam(q.query, "offset", 0, 1_000_000);
+		const archived = (q.query.get("archived") ?? "exclude") as "exclude" | "only" | "include";
+		if (!["exclude", "only", "include"].includes(archived)) throw new HttpError(400, "archived must be one of: exclude, only, include");
+		const order = (q.query.get("order") ?? "created") as "recent" | "created";
+		if (!["recent", "created"].includes(order)) throw new HttpError(400, "order must be one of: created, recent");
+		const { rows, total } = sessions.list(bot.name, { limit, offset, archived, order });
+		return { sessions: rows.map((row) => listRow(row.id)), total, limit, offset };
+	});
+	r.on("GET", "/api/sessions/search", (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		const term = (q.query.get("q") ?? "").trim();
+		const { rows } = sessions.list(bot.name, { limit: 50, offset: 0, archived: "include", order: "recent", search: term || undefined });
+		return { sessions: rows.map((row) => listRow(row.id)) };
+	});
+	r.on("GET", "/api/sessions/stats", (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		const all = sessions.list(bot.name, { limit: 1, offset: 0, archived: "include", order: "recent" }).total;
+		const archived = sessions.list(bot.name, { limit: 1, offset: 0, archived: "only", order: "recent" }).total;
+		return { total: all, active_store: all - archived, archived };
+	});
+	const owned = (q: Req) => {
+		const row = sessions.get(q.params.id!);
+		const bot = botFor(core, q.query.get("profile") ?? (obj(q.body).profile as string | undefined));
+		if (!row || row.bot !== bot.name) throw new HttpError(404, "Session not found");
+		return row;
+	};
+	r.on("GET", "/api/sessions/:id", (q) => {
+		const row = owned(q);
+		return { ...listRow(row.id), is_default_profile: bots.get(row.bot)?.isDefault ?? false };
+	});
+	r.on("GET", "/api/sessions/:id/messages", async (q) => {
+		const row = owned(q);
+		const all = await sessions.rows(row.id);
+		const limit = Math.min(intParam(q.query, "limit", 500, 100_000), 500);
+		const offset = intParam(q.query, "offset", 0, 1_000_000);
+		const order = q.query.get("order") ?? (q.query.has("limit") ? "oldest" : "latest");
+		const page = order === "latest" ? all.slice(Math.max(0, all.length - offset - limit), all.length - offset) : all.slice(offset, offset + limit);
+		return { session_id: row.id, profile: row.bot, messages: page, pagination: { limit, offset, order, returned: page.length } };
+	});
+	r.on("PATCH", "/api/sessions/:id", (q) => {
+		const row = owned(q);
+		const b = obj(q.body);
+		if (b.title === undefined && b.archived === undefined && b.pinned === undefined && b.hidden === undefined && b.unread === undefined) {
+			throw new HttpError(400, "Nothing to update; provide 'title', 'archived', 'pinned'.");
+		}
+		const updated = sessions.update(row.id, {
+			title: typeof b.title === "string" ? b.title : undefined,
+			archived: typeof b.archived === "boolean" ? b.archived : undefined,
+			pinned: typeof b.pinned === "boolean" ? b.pinned : undefined,
+		});
+		return { ok: true, title: updated.title, archived: updated.archived === 1, pinned: updated.pinned === 1 };
+	});
+	r.on("DELETE", "/api/sessions/:id", async (q) => {
+		const row = sessions.get(q.params.id!);
+		if (!row) return { ok: true, already_absent: true };
+		await sessions.delete(row.id);
+		return { ok: true };
+	});
+
+	// Models
+	r.on("GET", "/api/model/options", async (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		return modelOptions(core, bot.model);
+	});
+
+	// Configuration: the settings that exist here, read-only over REST (edit config.yaml or use the CLI).
+	r.on("GET", "/api/config", () => {
+		const def = bots.defaultBot();
+		return {
+			config: {
+				model: `${def.model.provider}/${def.model.modelId}`,
+				approvals: { mode: def.approvals.mode, timeout: core.config.defaults.approvalTimeoutS },
+				agent: { reasoning_effort: def.thinking },
+				timezone: core.config.timezone,
+			},
+		};
+	});
+	r.on("GET", "/api/config/schema", () => ({
+		fields: {
+			model: { type: "string", description: "Default model of the default bot (provider/model)", category: "general" },
+			"approvals.mode": { type: "select", description: "Dangerous action approval mode", category: "security", options: ["manual", "smart", "off"] },
+			"approvals.timeout": { type: "number", description: "Seconds before an unanswered approval is denied", category: "security" },
+			"agent.reasoning_effort": { type: "select", description: "Reasoning effort", category: "agent", options: [...THINKING_LEVELS] },
+			timezone: { type: "string", description: "Time zone for schedules", category: "general" },
+		},
+		category_order: ["general", "agent", "security"],
+	}));
+	r.on("GET", "/api/env", () => {
+		const known: [string, string, string?][] = [
+			["NHERMES_TOKEN", "Gateway session token", undefined],
+			["PUSHOVER_USER_KEY", "Pushover user key", undefined],
+			["PUSHOVER_APP_TOKEN", "Pushover application token", undefined],
+			["OPENAI_API_KEY", "OpenAI API key", "openai"],
+			["ANTHROPIC_API_KEY", "Anthropic API key", "anthropic"],
+			["OPENROUTER_API_KEY", "OpenRouter API key", "openrouter"],
+			["CEREBRAS_API_KEY", "Cerebras API key", "cerebras"],
+		];
+		const out: Record<string, unknown> = {};
+		for (const [k, description, provider] of known) {
+			const v = process.env[k];
+			out[k] = {
+				is_set: Boolean(v),
+				redacted_value: v ? `«redacted:${v.slice(0, 4)}...${v.slice(-4)}»` : null,
+				description,
+				category: provider ? "LLM Providers" : "Gateway",
+				is_password: true,
+				provider: provider ?? null,
+			};
+		}
+		return out;
+	});
+	r.on("GET", "/api/tools/toolsets", (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		return [...core.toolGroups.entries()].map(([name, tools]) => ({
+			name,
+			label: GROUP_LABELS[name]?.label ?? name,
+			description: GROUP_LABELS[name]?.description ?? "",
+			platform: "gateway",
+			enabled: bot.toolGroups.includes(name),
+			configured: true,
+			tools: tools.map((t) => t.name),
+		}));
+	});
+
+	return r;
+}

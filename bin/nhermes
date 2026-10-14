@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher: runs the TypeScript sources directly on Node >= 24 (type stripping, no build step).
+self=$(readlink -f "$0" 2>/dev/null || realpath "$0")
+exec node "$(dirname "$self")/../src/cli.ts" "$@"

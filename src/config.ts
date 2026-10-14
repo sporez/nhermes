@@ -1,0 +1,228 @@
+// Configuration: one YAML file plus a secrets env file. Secrets never live in the YAML.
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
+import { registerSecret } from "./log.ts";
+
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+export type ApprovalMode = "smart" | "manual" | "off";
+
+export type SshHostConfig = {
+	host: string;
+	user?: string;
+	port?: number;
+	identityFile?: string;
+	/** Working directory on the host. */
+	cwd?: string;
+};
+
+export type BotConfig = {
+	name: string;
+	displayName?: string;
+	description?: string;
+	default?: boolean;
+	instructions?: string;
+	soulFile?: string;
+	/** "provider/modelId"; the model id may itself contain "/". */
+	model?: string;
+	thinking?: ThinkingLevel;
+	/** Tool groups (see src/tools/index.ts). */
+	tools?: string[];
+	/** Global skill names this bot may use; "*" for all. Per-bot skills in bots/<name>/skills are always on. */
+	skills?: string[];
+	/** Shared memory spaces this bot may read and write. */
+	sharedMemory?: string[];
+	approvals?: { mode?: ApprovalMode; ask?: string[]; deny?: string[]; allow?: string[] };
+	/** Owner-trusted infrastructure bot: broad shell, only high-impact patterns ask. */
+	trusted?: boolean;
+	workspace?: string;
+	host?: { ssh: SshHostConfig };
+	peer?: { url: string; tokenEnv: string };
+};
+
+export type Config = {
+	configPath: string;
+	configDir: string;
+	dataDir: string;
+	server: { host: string; port: number; publicName: string };
+	/** Gateway session token Vory sends as X-Hermes-Session-Token. */
+	token: string;
+	pi: { authPath: string; modelsPath: string };
+	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number };
+	skillsDir: string;
+	timezone: string;
+	bots: BotConfig[];
+	pushover?: { user: string; token: string };
+};
+
+const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
+
+export class ConfigError extends Error {
+	override name = "ConfigError";
+}
+
+function expandPath(p: string, base: string): string {
+	const home = p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+	return isAbsolute(home) ? home : resolve(base, home);
+}
+
+/** Loads KEY=VALUE lines into process.env without overriding values already set. */
+export function loadEnvFile(path: string): void {
+	if (!existsSync(path)) return;
+	for (const raw of readFileSync(path, "utf8").split(/\r?\n/)) {
+		const line = raw.trim();
+		if (!line || line.startsWith("#")) continue;
+		const eq = line.indexOf("=");
+		if (eq < 1) continue;
+		const key = line.slice(0, eq).replace(/^export\s+/, "").trim();
+		let value = line.slice(eq + 1).trim();
+		if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.endsWith(value[0]!)) value = value.slice(1, -1);
+		if (process.env[key] === undefined) process.env[key] = value;
+	}
+}
+
+export function splitModel(ref: string): { provider: string; modelId: string } {
+	const i = ref.indexOf("/");
+	if (i < 1 || i === ref.length - 1) throw new ConfigError(`model must be "provider/modelId", got "${ref}"`);
+	return { provider: ref.slice(0, i), modelId: ref.slice(i + 1) };
+}
+
+function asRecord(v: unknown, where: string): Record<string, unknown> {
+	if (v === undefined || v === null) return {};
+	if (typeof v !== "object" || Array.isArray(v)) throw new ConfigError(`${where} must be a mapping`);
+	return v as Record<string, unknown>;
+}
+
+function str(v: unknown, where: string): string | undefined {
+	if (v === undefined || v === null) return undefined;
+	if (typeof v !== "string") throw new ConfigError(`${where} must be a string`);
+	return v;
+}
+
+function strList(v: unknown, where: string): string[] | undefined {
+	if (v === undefined || v === null) return undefined;
+	if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new ConfigError(`${where} must be a list of strings`);
+	return v as string[];
+}
+
+function parseBot(raw: unknown, i: number): BotConfig {
+	const r = asRecord(raw, `bots[${i}]`);
+	const name = str(r.name, `bots[${i}].name`);
+	if (!name || !BOT_NAME.test(name)) throw new ConfigError(`bots[${i}].name must match ${BOT_NAME}`);
+	const where = `bot "${name}"`;
+	const thinking = str(r.thinking, `${where}.thinking`);
+	if (thinking && !THINKING_LEVELS.includes(thinking as ThinkingLevel)) throw new ConfigError(`${where}.thinking is invalid`);
+	const model = str(r.model, `${where}.model`);
+	if (model) splitModel(model);
+	const ap = asRecord(r.approvals, `${where}.approvals`);
+	const mode = str(ap.mode, `${where}.approvals.mode`);
+	if (mode && !["smart", "manual", "off"].includes(mode)) throw new ConfigError(`${where}.approvals.mode is invalid`);
+	const hostRaw = asRecord(r.host, `${where}.host`);
+	let host: BotConfig["host"];
+	if (hostRaw.ssh !== undefined) {
+		const s = asRecord(hostRaw.ssh, `${where}.host.ssh`);
+		const h = str(s.host, `${where}.host.ssh.host`);
+		if (!h) throw new ConfigError(`${where}.host.ssh.host is required`);
+		host = {
+			ssh: {
+				host: h,
+				user: str(s.user, `${where}.host.ssh.user`),
+				port: typeof s.port === "number" ? s.port : undefined,
+				identityFile: str(s.identityFile, `${where}.host.ssh.identityFile`),
+				cwd: str(s.cwd, `${where}.host.ssh.cwd`),
+			},
+		};
+	}
+	const peerRaw = asRecord(r.peer, `${where}.peer`);
+	const peerUrl = str(peerRaw.url, `${where}.peer.url`);
+	return {
+		name,
+		displayName: str(r.displayName, `${where}.displayName`),
+		description: str(r.description, `${where}.description`),
+		default: r.default === true,
+		instructions: str(r.instructions, `${where}.instructions`),
+		soulFile: str(r.soulFile, `${where}.soulFile`),
+		model,
+		thinking: thinking as ThinkingLevel | undefined,
+		tools: strList(r.tools, `${where}.tools`),
+		skills: strList(r.skills, `${where}.skills`),
+		sharedMemory: strList(r.sharedMemory, `${where}.sharedMemory`),
+		approvals: {
+			mode: mode as ApprovalMode | undefined,
+			ask: strList(ap.ask, `${where}.approvals.ask`),
+			deny: strList(ap.deny, `${where}.approvals.deny`),
+			allow: strList(ap.allow, `${where}.approvals.allow`),
+		},
+		trusted: r.trusted === true,
+		workspace: str(r.workspace, `${where}.workspace`),
+		host,
+		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "" } : undefined,
+	};
+}
+
+export function loadConfig(configPath: string): Config {
+	const path = resolve(configPath);
+	if (!existsSync(path)) throw new ConfigError(`config file not found: ${path}`);
+	const configDir = dirname(path);
+	const doc = asRecord(parseYaml(readFileSync(path, "utf8")), "config");
+	const secretsFile = expandPath(str(doc.secretsFile, "secretsFile") ?? "secrets.env", configDir);
+	loadEnvFile(secretsFile);
+
+	const server = asRecord(doc.server, "server");
+	const pi = asRecord(doc.pi, "pi");
+	const defaults = asRecord(doc.defaults, "defaults");
+	const tokenEnv = str(asRecord(doc.auth, "auth").tokenEnv, "auth.tokenEnv") ?? "NHERMES_TOKEN";
+	const token = process.env[tokenEnv] ?? "";
+	if (token.length < 16) throw new ConfigError(`${tokenEnv} must be set (in ${secretsFile} or the environment) to at least 16 characters`);
+	registerSecret(token);
+
+	const bots = (Array.isArray(doc.bots) ? doc.bots : []).map(parseBot);
+	if (bots.length === 0) throw new ConfigError("config needs at least one bot under `bots:`");
+	const names = new Set<string>();
+	for (const b of bots) {
+		if (names.has(b.name)) throw new ConfigError(`duplicate bot name "${b.name}"`);
+		names.add(b.name);
+	}
+	if (!bots.some((b) => b.default)) bots[0]!.default = true;
+	if (bots.filter((b) => b.default).length > 1) throw new ConfigError("only one bot may be `default: true`");
+
+	const defaultModel = str(defaults.model, "defaults.model");
+	if (!defaultModel) throw new ConfigError("defaults.model is required (provider/modelId)");
+	splitModel(defaultModel);
+	const thinking = (str(defaults.thinking, "defaults.thinking") ?? "medium") as ThinkingLevel;
+	if (!THINKING_LEVELS.includes(thinking)) throw new ConfigError("defaults.thinking is invalid");
+
+	const pushUser = process.env.PUSHOVER_USER_KEY;
+	const pushToken = process.env.PUSHOVER_APP_TOKEN;
+	registerSecret(pushToken);
+	registerSecret(pushUser);
+
+	return {
+		configPath: path,
+		configDir,
+		dataDir: expandPath(str(doc.dataDir, "dataDir") ?? "data", configDir),
+		server: {
+			host: str(server.host, "server.host") ?? "127.0.0.1",
+			port: typeof server.port === "number" ? server.port : 9119,
+			publicName: str(server.name, "server.name") ?? "Neil Hermes",
+		},
+		token,
+		pi: {
+			authPath: expandPath(str(pi.authPath, "pi.authPath") ?? "~/.pi/agent/auth.json", configDir),
+			modelsPath: expandPath(str(pi.modelsPath, "pi.modelsPath") ?? "~/.pi/agent/models.json", configDir),
+		},
+		defaults: {
+			model: defaultModel,
+			thinking,
+			approvals: (str(defaults.approvals, "defaults.approvals") ?? "smart") as ApprovalMode,
+			approvalTimeoutS: typeof defaults.approvalTimeoutS === "number" ? defaults.approvalTimeoutS : 600,
+		},
+		skillsDir: expandPath(str(doc.skillsDir, "skillsDir") ?? "skills", configDir),
+		timezone: str(doc.timezone, "timezone") ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+		bots,
+		pushover: pushUser && pushToken ? { user: pushUser, token: pushToken } : undefined,
+	};
+}
