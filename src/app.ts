@@ -13,7 +13,11 @@ import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
+import { MemoryStore } from "./memory/memory.ts";
+import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
+import { memoryFeature } from "./tools/memory.ts";
+import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
 const log = logger("app");
@@ -30,6 +34,8 @@ export type Core = {
 	toolGroups: ToolGroups;
 	deps: AgentDeps;
 	hosts: HostEnvs;
+	memory: MemoryStore;
+	skills: Skills;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -92,7 +98,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 
 	const delegation = delegateExtension({ sessions: late.sessions, bots: late.bots, agentFor, maxDepth: 2 });
 	toolGroups.set("delegate", delegation.tools);
-	const features = options.features?.(late) ?? [];
+	const memory = new MemoryStore(db);
+	const skills = new Skills(config.skillsDir, db);
+	const features = [memoryFeature(late, memory), skillsFeature(late, skills), ...(options.features?.(late) ?? [])];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
 
 	const promptParts: PromptPart[] = [
@@ -151,6 +159,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		toolGroups,
 		deps,
 		hosts,
+		memory,
+		skills,
 		agentFor,
 		close: async () => {
 			await engine.close();

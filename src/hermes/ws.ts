@@ -325,19 +325,29 @@ export class Connection {
 			}
 			case "config.set":
 				return this.configSet(p);
-			case "commands.catalog":
+			case "commands.catalog": {
+				const id = str(p, "session_id", false);
+				const bot = id ? this.core.bots.require(sessions.require(id).bot) : this.botOf(p);
+				const usage = this.core.skills.usage(bot.name);
+				const skills = this.core.skills.active(bot).filter((s) => s.modelInvocable);
 				return {
-					pairs: COMMANDS.map((c) => [c.name, c.description]),
+					pairs: [...COMMANDS.map((c) => [c.name, c.description]), ...skills.map((s) => [s.name, s.description])],
 					categories: [],
 					canon: { "/compress": "/compact" },
 					commands: Object.fromEntries(COMMANDS.map((c) => [`/${c.name}`, { argument_mode: c.args ? "text" : null, desktop: null }])),
-					skills: {},
+					skills: Object.fromEntries(skills.map((s) => [`/${s.name}`, { usage: usage.get(s.name) ?? 0, origin: s.source === "bot" ? "local" : "hub" }])),
 					warning: "",
 				};
+			}
 			case "slash.exec":
-				return { output: await this.slash(str(p, "session_id"), str(p, "command")) };
-			case "command.dispatch":
-				return { type: "exec", output: await this.slash(str(p, "session_id"), `${str(p, "name")} ${typeof p.arg === "string" ? p.arg : ""}`) };
+			case "command.dispatch": {
+				const id = str(p, "session_id");
+				const command = method === "slash.exec" ? str(p, "command") : `${str(p, "name")} ${typeof p.arg === "string" ? p.arg : ""}`;
+				const skill = this.skillCommand(id, command);
+				if (skill) return skill;
+				const output = await this.slash(id, command);
+				return method === "slash.exec" ? { output } : { type: "exec", output };
+			}
 			case "model.options":
 				return modelOptions(this.core, this.botOf(p).model);
 			default:
@@ -382,6 +392,16 @@ export class Connection {
 			return { key, value: "off", warning: value === "on" ? "Fast mode is not available on this gateway." : null, info: await this.info(id) };
 		}
 		throw new RpcError(-32602, `unsupported config key: ${key}`);
+	}
+
+	/** `/<skill> [what]`: becomes a prompt that has the bot load and follow that skill (Vory sends it). */
+	private skillCommand(sessionId: string, command: string): { type: "skill"; message: string } | undefined {
+		const [name = "", ...rest] = command.replace(/^\//, "").trim().split(/\s+/);
+		const row = this.core.sessions.require(sessionId);
+		const skill = this.core.skills.find(this.core.bots.require(row.bot), name);
+		if (!skill) return undefined;
+		const what = rest.join(" ").trim();
+		return { type: "skill", message: `Use the "${skill.name}" skill (load it with the skill tool first)${what ? ` for: ${what}` : "."}` };
 	}
 
 	private async slash(sessionId: string, command: string): Promise<string> {

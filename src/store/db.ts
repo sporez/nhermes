@@ -45,6 +45,41 @@ const MIGRATIONS: readonly string[] = [
 		detail TEXT NOT NULL
 	);
 	`,
+	// 2: memory (with FTS5), skill usage, skills attached to a session (jobs)
+	`
+	CREATE TABLE memories (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner TEXT NOT NULL,
+		kind TEXT NOT NULL DEFAULT 'fact',
+		title TEXT NOT NULL DEFAULT '',
+		body TEXT NOT NULL,
+		tags TEXT NOT NULL DEFAULT '',
+		source TEXT NOT NULL DEFAULT '',
+		pinned INTEGER NOT NULL DEFAULT 0,
+		created_at REAL NOT NULL,
+		updated_at REAL NOT NULL
+	);
+	CREATE INDEX memories_owner ON memories(owner, pinned, updated_at DESC);
+	CREATE VIRTUAL TABLE memories_fts USING fts5(title, body, tags, content='memories', content_rowid='id', tokenize='porter unicode61');
+	CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+		INSERT INTO memories_fts(rowid, title, body, tags) VALUES (new.id, new.title, new.body, new.tags);
+	END;
+	CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+		INSERT INTO memories_fts(memories_fts, rowid, title, body, tags) VALUES ('delete', old.id, old.title, old.body, old.tags);
+	END;
+	CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+		INSERT INTO memories_fts(memories_fts, rowid, title, body, tags) VALUES ('delete', old.id, old.title, old.body, old.tags);
+		INSERT INTO memories_fts(rowid, title, body, tags) VALUES (new.id, new.title, new.body, new.tags);
+	END;
+	CREATE TABLE skill_usage (
+		bot TEXT NOT NULL,
+		skill TEXT NOT NULL,
+		count INTEGER NOT NULL DEFAULT 0,
+		last_used REAL,
+		PRIMARY KEY (bot, skill)
+	);
+	ALTER TABLE sessions ADD COLUMN skills TEXT NOT NULL DEFAULT '[]';
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

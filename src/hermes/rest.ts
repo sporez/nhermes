@@ -73,7 +73,7 @@ export function restRoutes(core: Core): Router {
 	r.on("GET", "/api/health", () => ({ ok: true, version: VERSION, auth_required: false }));
 
 	// Bots (profiles)
-	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().map((b) => profileJson(b, 0)) }));
+	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().map((b) => profileJson(b, core.skills.catalog(b).filter((s) => s.active).length)) }));
 	r.on("GET", "/api/profiles/active", () => ({ active: bots.defaultBot().name, current: bots.defaultBot().name }));
 	r.on("GET", "/api/profiles/:name/soul", (q) => {
 		const bot = botFor(core, q.params.name);
@@ -163,6 +163,39 @@ export function restRoutes(core: Core): Router {
 		if (!row) return { ok: true, already_absent: true };
 		await sessions.delete(row.id);
 		return { ok: true };
+	});
+
+	// Skills: per bot, `enabled` means active for that bot.
+	r.on("GET", "/api/skills", (q) => {
+		const bot = botFor(core, q.query.get("profile"));
+		const usage = core.skills.usage(bot.name);
+		return core.skills.catalog(bot).map((s) => ({
+			name: s.name,
+			description: s.description,
+			category: s.source === "bot" ? bot.name : "global",
+			enabled: s.active,
+			usage: usage.get(s.name) ?? 0,
+			provenance: s.source === "bot" ? "agent" : "local",
+		}));
+	});
+	r.on("PUT", "/api/skills/toggle", (q) => {
+		const b = obj(q.body);
+		const bot = botFor(core, (typeof b.profile === "string" && b.profile) || q.query.get("profile"));
+		const name = typeof b.name === "string" ? b.name : "";
+		const skill = core.skills.catalog(bot).find((s) => s.name === name);
+		if (!skill) throw new HttpError(404, `Skill '${name}' not found`);
+		const o = core.bots.overrides(bot.name);
+		const disabled = new Set(o.disabledSkills ?? []);
+		const enabled = new Set(o.enabledSkills ?? []);
+		if (b.enabled === true) {
+			disabled.delete(name);
+			if (skill.source === "global") enabled.add(name);
+		} else {
+			disabled.add(name);
+			enabled.delete(name);
+		}
+		core.bots.setOverrides(bot.name, { disabledSkills: [...disabled], enabledSkills: [...enabled] });
+		return { ok: true, name, enabled: b.enabled === true };
 	});
 
 	// Models

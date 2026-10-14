@@ -33,6 +33,7 @@ export type SessionRow = {
 	deleted: number;
 	parent_id: string | null;
 	job_id: string | null;
+	skills: string;
 };
 
 export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; search?: string };
@@ -103,21 +104,21 @@ export class Sessions {
 		return row ? this.bots.get(row.bot) : undefined;
 	}
 
-	async create(botName: string, opts: { kind?: SessionKind; source?: string; title?: string; parentId?: string; jobId?: string } = {}): Promise<SessionRow> {
+	async create(botName: string, opts: { kind?: SessionKind; source?: string; title?: string; parentId?: string; jobId?: string; skills?: string[] } = {}): Promise<SessionRow> {
 		const bot = this.bots.require(botName);
 		const convId = await this.engine.create(this.agentFor(bot));
 		return this.register(convId, bot.name, opts);
 	}
 
 	/** Records a conversation created elsewhere (a delegation's child) as a session of `botName`. */
-	register(convId: ConvId, botName: string, opts: { kind?: SessionKind; source?: string; title?: string; parentId?: string; jobId?: string } = {}): SessionRow {
+	register(convId: ConvId, botName: string, opts: { kind?: SessionKind; source?: string; title?: string; parentId?: string; jobId?: string; skills?: string[] } = {}): SessionRow {
 		const existing = this.db.get<SessionRow>("SELECT * FROM sessions WHERE conversation_id = ?", convId);
 		if (existing) return existing;
 		const id = sessionIdNow();
 		const now = Date.now() / 1000;
 		this.db.run(
-			`INSERT INTO sessions (id, conversation_id, bot, kind, title, title_source, source, created_at, last_active, parent_id, job_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO sessions (id, conversation_id, bot, kind, title, title_source, source, created_at, last_active, parent_id, job_id, skills)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			convId,
 			botName,
@@ -129,6 +130,7 @@ export class Sessions {
 			now,
 			opts.parentId ?? null,
 			opts.jobId ?? null,
+			JSON.stringify(opts.skills ?? []),
 		);
 		this.byConvCache.set(convId, id);
 		this.hub.publishGlobal({ type: "sessions.changed", bot: botName });
