@@ -17,7 +17,8 @@ drive it as if it were a Hermes gateway.
  │  memory/        per-bot memory + explicit shared notes (SQLite FTS5)                    │
  │  tools/         memory, skills, web/http, schedule, delegate, notify, browser, desktop  │
  │──────────────────────────────────────────────────────────────────────────────────────── │
- │  engine/        the ONLY importer of pi-durable: Harness, conversations, events, hooks  │
+ │  engine/        owns the Harness: conversations, runs, events (tools/agent use Durable's │
+ │                 extension API: defineTool, hooks, sections)                             │
  │                 models = pi ModelRuntime (auth.json + models.json)                      │
  │                 env    = NodeExecutionEnv | pi-env RemoteExecutionEnv over SSH          │
  └───────────────┬──────────────────────────────┬──────────────────────────────────────────┘
@@ -59,7 +60,9 @@ Session ids are Durable conversation ids. The Hermes runtime id and stored id ar
 
 ## Engine boundary (`src/engine/`)
 
-The only module that imports `@earendil-works/pi-durable`. It exposes a narrow interface:
+The only module that opens and drives the Pi Durable Harness. (Tool and extension modules use
+Durable's extension API, `defineTool`/`hook`/`section`, since that is how tools plug in; `core/` and
+`hermes/` never import it.) It exposes a narrow interface:
 
 - `open()` / `close()`; `resume()` on start so interrupted runs continue.
 - `createConversation(botId, agentConfig)`, `configure(id, change)`, `submit(id, text, requestId, mode)`,
@@ -110,14 +113,14 @@ with only the high-impact patterns asking.
 | Group | Tools | Notes |
 |---|---|---|
 | `files`, `shell` | `read`, `write`, `edit`, `bash` | Pi Durable's own, run in the bot's env (local or SSH) |
-| `web` | `web_fetch`, `http_request` | `fetch` with size/time limits; secrets from env never echoed |
+| `web` | `web_fetch`, `http_request` | `fetch` with size/time limits; credentials as `{{secret:NAME}}` for env vars the bot lists under `secrets:`, scrubbed from results |
 | `memory` | `remember`, `recall`, `forget`, `memory_list` | Scoped to the bot; shared spaces only when granted |
 | `skills` | `skill` (load a SKILL.md by name), `skill_list` | The prompt lists names + descriptions only |
 | `schedule` | `schedule_create/list/update/delete/run` | Same service the Vory cron screens use |
 | `delegate` | `delegate` (ask another bot, wait or not), `delegate_result` | Durable child conversations / peer HTTP |
 | `notify` | `notify` (Pushover) | |
-| `browser` | `browser_open/snapshot/click/type/press/scroll/screenshot/tabs/eval_readonly` | Playwright, persistent isolated profile per bot |
-| `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/accessibility` | On a Linux desktop host over SSH (X11 via `xdotool`, screenshots via `import`, AT-SPI tree) |
+| `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
+| `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
 
 Long-running tools stream output through Pi Durable's `api.output()`, honour cancellation through the
 call's context, declare timeouts, and are `replay: "unsafe"` unless they are read-only
@@ -157,9 +160,10 @@ Conversation history stays in Pi Durable and is not copied into memory.
 - **Restarts:** an in-flight run continues because the Durable run does (`harness.resume()`); tools
   that were mid-execution are not replayed unless they are replay-safe (Pi Durable rule). The run
   record waits on the same submission after restart.
-- **Results:** each job has its own session (kind `job`), visible in Vory's chat list. `deliver:
-  session` also posts a short summary into the bot's primary chat; `notify: always|on_error|on_change`
-  sends Pushover.
+- **Results:** each job has one session (kind `job`, listed in Vory); every run starts it from a fresh
+  context (Durable reset), so runs are independent while their history stays readable. `deliver: chat`
+  also posts a notice into the bot's most recent chat; `notify: never|always|on_error|on_change|agent`
+  decides Pushover (`agent`: the run calls `notify` itself).
 
 Exactly-once is **not** claimed for side effects: Durable request deduplication only guarantees the
 run is not submitted twice.
@@ -174,11 +178,15 @@ run is not submitted twice.
 - **Mode A (remote execution):** a bot with `host: { ssh: ... }` runs its file and shell tools on that
   host through `pi-env`'s `RemoteExecutionEnv`; conversations, credentials and state stay central.
   Host keys are pinned in the gateway's own known-hosts file.
-- **Mode B (peer agent):** `nhermes agent --config peer.yaml` runs the same codebase without the
-  Hermes layer, with its own Durable database, and exposes a small authenticated peer API (`POST
-  /peer/v1/tasks` with an idempotency key, `GET /peer/v1/tasks/:id`, SSE events). The gateway lists a
-  peer as a bot (`peer: { url, token }`); delegating to it is an HTTP call with the same idempotency
-  semantics; chatting with it from Vory relays the session over the same API.
+- **Mode B (peer agent):** a peer is simply another `nhermes serve` on another machine, with its own
+  Durable database and bots. No second protocol: the central gateway talks to it over the same Hermes
+  WebSocket Vory uses (`session.create`, `prompt.submit` with `idempotency_key` → the peer's Durable
+  request id, `session.resume` after a dropped connection). A peer is configured as a bot with
+  `peer: { url, tokenEnv, profile }`; local bots reach it with `delegate`, and its approval requests are
+  relayed to the owner's chat on the central gateway. Peers are not listed as Vory profiles; to chat
+  with one directly, add it to Vory as its own gateway.
+- **Privileges never escalate through delegation:** a delegated task is trusted only if every bot in the
+  chain is, and runs under the strictest approval mode in the chain.
 
 ## Hermes compatibility layer (`src/hermes/`)
 
@@ -198,8 +206,8 @@ forward-only migrations), `workspaces/<bot>/`, `browser/<bot>/` (Playwright prof
 `logs/`. Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
 they are never in prompts, transcripts or logs (the logger redacts known secret values).
 
-Backup: `nhermes backup` asks the running service for consistent copies (`VACUUM INTO` for both
-databases) plus config, skills and workspaces, into one tarball. Restore: stop the service, `nhermes
+Backup: `nhermes backup` asks the running service (over its admin API) for consistent copies
+(`VACUUM INTO` for both databases) plus config, skills, workspaces and browser profiles, in one tarball. Restore: stop the service, `nhermes
 restore <file>`, start. Deployment: one systemd unit (or a rootless Podman quadlet). See `docs/OPERATIONS.md`.
 
 ## Why not more

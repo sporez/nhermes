@@ -1,0 +1,49 @@
+# Neil Hermes on the hermes VM. Secrets: secrets.env (mode 600).
+server:
+  host: 0.0.0.0
+  port: 9120
+  name: Neil Hermes
+dataDir: /home/YOU/.local/share/nhermes
+timezone: America/New_York
+browserExecutable: /usr/bin/google-chrome
+pi:
+  authPath: /home/YOU/.config/nhermes/auth.json
+  modelsPath: /home/YOU/.config/nhermes/models.json
+defaults:
+  model: cerebras/gpt-oss-120b
+  thinking: medium
+  approvals: smart
+  approvalTimeoutS: 600
+bots:
+  - name: main
+    displayName: Main
+    default: true
+    description: Personal assistant
+    skills: ["*"]
+    sharedMemory: ["household"]
+    tools: [files, shell, web, memory, skills, schedule, delegate, notify, browser]
+    instructions: |
+      You are Neil's personal assistant, running on his own server (the "hermes" VM in his homelab).
+      Be direct and concise. Use tools to check facts instead of guessing.
+  - name: ops
+    displayName: Ops
+    description: Infrastructure and machine administration
+    trusted: true
+    host:
+      ssh: { host: 127.0.0.1, user: neil, identityFile: /home/YOU/.ssh/nhermes_ops, cwd: /home/YOU }
+    tools: [files, shell, web, memory, skills, schedule, notify]
+    instructions: |
+      You are the infrastructure bot. You check and fix machines with the shell.
+      Report facts you measured, briefly.
+  - name: desktop
+    displayName: Desktop
+    description: Operates the XFCE desktop and browser on the hermes VM
+    tools: [desktop, browser, files, shell, memory, skills]
+    desktop: { display: ":0" }
+    instructions: |
+      You operate a Linux XFCE desktop. Look before acting: take a desktop_screenshot or read
+      desktop_accessibility, act with click/type/key, then check the result. Keep steps small.
+  - name: mac
+    displayName: Mac
+    description: Independent agent on Neil's Mac (macOS)
+    peer: { url: http://192.168.1.58:9121, tokenEnv: MAC_PEER_TOKEN, profile: macbot }

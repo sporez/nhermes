@@ -20,24 +20,24 @@ are updated with it.
 - Vory needs `/api/config`, `/api/config/schema` (`approvals.mode`), `/api/tools/toolsets`, `/api/env`
   to be non-empty for its REST E2E test; we serve real values for those.
 
-## Needs from the owner (not blocking Phase 1)
+## Needs from the owner (remaining)
 
-1. A Debian host for deployment tests (candidates in the homelab: the stopped `agent` LXC 104, or a new VM).
-2. A remote VM the second bot may administer over SSH (any non-critical guest).
-3. A Linux desktop for the remote-desktop workflow (the `hermes` VM has XFCE; a fresh VM is cleaner).
-4. Pushover user key and app token.
-5. Optional: a dashboard token for the existing Hermes on 192.168.1.17 to capture real fixtures.
+1. A second VM for `ops` to administer over SSH (currently loopback on the hermes VM).
+2. Pushover user key and app token.
+3. Optional: a dashboard token for the existing Hermes to capture real fixtures.
 
 ## Phases
 
-- [ ] **1. Vory connection**: config, app DB, engine boundary, bots, sessions, events, Hermes REST + WS,
+Status per phase: see `docs/STATUS.md`.
+
+- [x] **1. Vory connection**: config, app DB, engine boundary, bots, sessions, events, Hermes REST + WS,
   approvals, CLI `serve`/`token`, Vory E2E suite green against a real model, restart recovery.
-- [ ] **2. Agents and remote execution**: second bot with its own model/skills/memory, SSH host (pi-env),
+- [x] **2. Agents and remote execution**: second bot with its own model/skills/memory, SSH host (pi-env),
   `delegate` tool (local), peer agent mode + registration.
-- [ ] **3. Skills and memory**: SKILL.md loading per bot and per job, `skill` tool, memory tools + FTS5,
+- [x] **3. Skills and memory**: SKILL.md loading per bot and per job, `skill` tool, memory tools + FTS5,
   shared spaces, pinned memory in the prompt.
-- [ ] **4. Scheduling and notifications**: scheduler, job sessions, run history, missed/overlap rules,
+- [x] **4. Scheduling and notifications**: scheduler, job sessions, run history, missed/overlap rules,
   Pushover, Hermes cron endpoints, `schedule_*` tools.
-- [ ] **5. Computer use**: Playwright browser tools + E2E; Linux desktop tools over SSH + E2E.
-- [ ] **6. Reliability and polish**: backup/restore, systemd/Podman, upgrade/migrations, Vory UI pass,
+- [x] **5. Computer use**: Playwright browser tools + E2E; Linux desktop tools over SSH + E2E.
+- [x] **6. Reliability and polish**: backup/restore, systemd/Podman, upgrade/migrations, Vory UI pass,
   security review, docs.
