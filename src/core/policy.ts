@@ -27,6 +27,8 @@ const SHELL_PATTERNS: Pattern[] = [
 	{ key: "sql drop", re: /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i, description: "drop database objects", trustedAsks: false },
 	{ key: "kill all", re: /\b(killall|pkill)\b|\bkill\s+-9\s+-?1\b/, description: "kill processes broadly", trustedAsks: false },
 	{ key: "service stop", re: /\bsystemctl\s+(stop|disable|mask)\b/, description: "stop or disable a service", trustedAsks: false },
+	{ key: "package install", re: /\b(apt(-get)?|dnf|yum|pacman|brew|snap|pip3?|npm)\s+(-\S+\s+)*(install|add|upgrade|dist-upgrade|full-upgrade)\b/, description: "install or upgrade software", trustedAsks: false },
+	{ key: "sudo", re: /(^|[;&|(]\s*|\s)sudo\s/, description: "run a command as root", trustedAsks: false },
 	{ key: "package remove", re: /\b(apt(-get)?|dnf|yum|pacman|brew)\s+(remove|purge|autoremove|uninstall|-R)\b/, description: "remove packages", trustedAsks: false },
 	{ key: "fork bomb", re: /:\(\)\s*\{\s*:\|:&\s*\};:/, description: "fork bomb", trustedAsks: true },
 ];
@@ -79,32 +81,26 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	}
 	if (pc.yolo || bot.approvals.mode === "off") return { action: "allow", patternKey: "", description: "", command };
 
-	// What would make this call need an answer.
-	let ask: { key: string; description: string } | undefined;
+	// Everything that would make this call need an answer. Each must be allowed on its own: an answer
+	// for one pattern never covers another pattern in the same command.
+	const reasons: { key: string; description: string }[] = [];
 	for (const rule of bot.approvals.ask) {
-		if (ruleMatches(rule, call.name, command)) {
-			ask = { key: rule, description: `matches the bot's ask rule "${rule}"` };
-			break;
-		}
+		if (ruleMatches(rule, call.name, command)) reasons.push({ key: rule, description: `matches the bot's ask rule "${rule}"` });
 	}
-	if (!ask && shell !== undefined) {
-		const hit = SHELL_PATTERNS.find((p) => p.re.test(shell) && (!bot.trusted || p.trustedAsks));
-		if (hit) ask = { key: hit.key, description: hit.description };
+	if (shell !== undefined) {
+		for (const p of SHELL_PATTERNS) if (p.re.test(shell) && (!bot.trusted || p.trustedAsks)) reasons.push({ key: p.key, description: p.description });
 	}
-	if (!ask && (call.name === "write" || call.name === "edit") && typeof call.arguments.path === "string") {
+	if ((call.name === "write" || call.name === "edit") && typeof call.arguments.path === "string") {
 		const p = call.arguments.path;
-		if (SENSITIVE_PATHS.some((re) => re.test(p))) ask = { key: `${call.name}:sensitive`, description: "modify a sensitive file" };
+		if (SENSITIVE_PATHS.some((re) => re.test(p))) reasons.push({ key: `${call.name}:sensitive`, description: "modify a sensitive file" });
 	}
-	if (!ask && bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) {
-		ask = { key: `tool:${call.name}`, description: `run ${call.name}` };
-	}
-	if (!ask) return { action: "allow", patternKey: "", description: "", command };
+	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}` });
+	if (reasons.length === 0) return { action: "allow", patternKey: "", description: "", command };
 
-	// Answers ("session", "always") are stored as the pattern key they were asked for and match only
-	// that key; configured allow rules are matched against the call like ask/deny rules.
-	const answered = pc.botRules.includes(ask.key) || pc.sessionRules.includes(ask.key);
-	if (answered || bot.approvals.allow.some((r) => ruleMatches(r, call.name, command))) {
-		return { action: "allow", patternKey: ask.key, description: ask.description, command };
-	}
-	return { action: "ask", patternKey: ask.key, description: ask.description, command };
+	// Answers ("session", "always") are stored as the pattern key they were asked for and match only that
+	// key; configured allow rules are matched against the call like ask/deny rules.
+	if (bot.approvals.allow.some((r) => ruleMatches(r, call.name, command))) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
+	const open = reasons.filter((r) => !pc.botRules.includes(r.key) && !pc.sessionRules.includes(r.key));
+	if (open.length === 0) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
+	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command };
 }

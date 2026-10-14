@@ -62,6 +62,8 @@ export type Config = {
 	timezone: string;
 	bots: BotConfig[];
 	pushover?: { user: string; token: string };
+	/** Chrome/Chromium binary for Playwright (e.g. /usr/bin/google-chrome); default: Playwright's own. */
+	browserExecutable?: string;
 };
 
 const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
@@ -234,5 +236,6 @@ export function loadConfig(configPath: string): Config {
 		timezone: str(doc.timezone, "timezone") ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
 		bots,
 		pushover: pushUser && pushToken ? { user: pushUser, token: pushToken } : undefined,
+		browserExecutable: str(doc.browserExecutable, "browserExecutable"),
 	};
 }

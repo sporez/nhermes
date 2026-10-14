@@ -1,0 +1,21 @@
+# systemd user unit: ~/.config/systemd/user/nhermes.service
+# Enable with: loginctl enable-linger $USER; systemctl --user enable --now nhermes
+[Unit]
+Description=Neil Hermes gateway
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/nhermes
+Environment=NHERMES_CONFIG=%h/.config/nhermes/config.yaml
+Environment=PATH=%h/.local/node-v24.21.0-linux-x64/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/node-v24.21.0-linux-x64/bin/node %h/nhermes/src/cli.ts serve
+Restart=on-failure
+RestartSec=5
+# SIGTERM lets the gateway close the Durable store cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+MemoryHigh=900M
+
+[Install]
+WantedBy=default.target

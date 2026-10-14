@@ -23,6 +23,7 @@ import { scheduleFeature } from "./tools/schedule.ts";
 import { webFeature } from "./tools/web.ts";
 import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
+import { desktopFeature } from "./tools/desktop.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -69,6 +70,7 @@ export type CoreOptions = {
 	/** Notification transport override (tests). */
 	notifier?: Notifier;
 	browserHeadless?: boolean;
+	browserExecutable?: string;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -112,7 +114,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	toolGroups.set("delegate", delegation.tools);
 	const memory = new MemoryStore(db);
 	const skills = new Skills(config.skillsDir, db);
-	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true });
+	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
 	const notifier: Notifier = options.notifier ?? (config.pushover ? new PushoverNotifier(config.pushover) : new NullNotifier());
 	let scheduler: Scheduler | undefined;
 	const features = [
@@ -121,6 +123,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),
+		desktopFeature(late),
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
