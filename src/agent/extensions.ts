@@ -7,7 +7,7 @@ import type { Approvals } from "../core/approvals.ts";
 import type { Bot } from "../core/bots.ts";
 import { decide } from "../core/policy.ts";
 import type { Sessions } from "../core/sessions.ts";
-import { logger } from "../log.ts";
+import { logger, redact } from "../log.ts";
 
 const log = logger("guard");
 
@@ -61,6 +61,18 @@ export function guardExtension(deps: AgentDeps): Extension {
 		name: "guard",
 		hooks: [
 			hook(ToolTask, {
+				// Defence in depth: a known secret value never reaches the model or the transcript.
+				afterTool: (_call, result) => {
+					if (!result.output) return undefined;
+					let changed = false;
+					const output = result.output.map((block) => {
+						if (block.type !== "text") return block;
+						const clean = redact(block.text);
+						if (clean !== block.text) changed = true;
+						return clean === block.text ? block : { ...block, text: clean };
+					});
+					return changed ? { ...result, output } : undefined;
+				},
 				beforeTool: async (call, api, context: Context) => {
 					const sessions = deps.sessions();
 					const row = sessions.byConversation(api.conversationId as number);

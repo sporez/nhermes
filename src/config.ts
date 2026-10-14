@@ -78,6 +78,18 @@ function expandPath(p: string, base: string): string {
 	return isAbsolute(home) ? home : resolve(base, home);
 }
 
+/** Names of variables loaded from secrets files: never passed to the shells bots run. */
+export const secretEnvNames = new Set<string>();
+
+/** Variables a bot's shell must not inherit: those from secrets files and anything named like a credential. */
+export function scrubbedShellEnv(): Record<string, undefined> {
+	const out: Record<string, undefined> = {};
+	for (const name of Object.keys(process.env)) {
+		if (secretEnvNames.has(name) || /(^|_)(API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)($|_)/i.test(name)) out[name] = undefined;
+	}
+	return out;
+}
+
 /** Loads KEY=VALUE lines into process.env without overriding values already set. */
 export function loadEnvFile(path: string): void {
 	if (!existsSync(path)) return;
@@ -89,6 +101,8 @@ export function loadEnvFile(path: string): void {
 		const key = line.slice(0, eq).replace(/^export\s+/, "").trim();
 		let value = line.slice(eq + 1).trim();
 		if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.endsWith(value[0]!)) value = value.slice(1, -1);
+		secretEnvNames.add(key);
+		registerSecret(value);
 		if (process.env[key] === undefined) process.env[key] = value;
 	}
 }

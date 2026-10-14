@@ -4,7 +4,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { type AgentDeps, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
-import type { Config } from "./config.ts";
+import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
@@ -178,7 +178,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			env: async (convId, cwd) => {
 				const bot = sessions?.botOf(convId);
 				if (bot && HostEnvs.isRemote(bot)) return hosts.env(bot);
-				return new NodeExecutionEnv({ cwd: cwd ?? bot?.workspace ?? config.dataDir });
+				return new NodeExecutionEnv({ cwd: cwd ?? bot?.workspace ?? config.dataDir, shellEnv: scrubbedShellEnv() as NodeJS.ProcessEnv });
 			},
 		},
 		extensions,

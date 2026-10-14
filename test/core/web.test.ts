@@ -55,3 +55,32 @@ test("web_fetch reads pages as text; http_request fills secrets in and never ret
 		delete process.env.TEST_OTHER_TOKEN;
 	}
 });
+
+test("shells never see the gateway's secrets, and tool output never carries a known secret", async () => {
+	const { dir, cleanup } = await tempDir();
+	process.env.TEST_GATEWAY_API_KEY = "nw-secret-value-0123456789";
+	const { registerSecret } = await import("../../src/log.ts");
+	registerSecret(process.env.TEST_GATEWAY_API_KEY);
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models });
+	try {
+		const s = await core.sessions.create("main");
+		const c = collect(core.hub, s.id);
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "env | grep -i -E 'key|token' ; echo HOME=$HOME" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("bash", { command: "echo leaked:nw-secret-value-0123456789" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("done")]),
+		]);
+		await core.sessions.submit(s.id, "show env");
+		await c.until((e) => e.type === "run.finished");
+		const out = (c.events.filter((e) => e.type === "tool.finished") as { resultText: string }[]).map((r) => r.resultText);
+		assert.doesNotMatch(out[0]!, /TEST_GATEWAY_API_KEY|nw-secret-value/);
+		assert.match(out[0]!, /HOME=\//);
+		assert.match(out[1]!, /leaked:\[redacted\]/);
+		assert.ok(!JSON.stringify(await core.sessions.rows(s.id)).includes("nw-secret-value"));
+	} finally {
+		await core.close();
+		await cleanup();
+		delete process.env.TEST_GATEWAY_API_KEY;
+	}
+});

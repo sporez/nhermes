@@ -7,7 +7,7 @@ import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
 import type { SessionEvent } from "../core/events.ts";
 import { UnknownSession } from "../core/sessions.ts";
-import { logger } from "../log.ts";
+import { logger, redact } from "../log.ts";
 import { modelOptions } from "./rest.ts";
 import { approvalParams, type Json, sessionInfo, srqId, thinkingOf, usageJson } from "./shapes.ts";
 
@@ -178,18 +178,18 @@ export class Connection {
 				// Hermes sends message.start once, when the prompt is accepted (prompt_turn.py).
 				return this.event("message.start", sid, {});
 			case "text.delta":
-				return this.event("message.delta", sid, { text: e.text });
+				return this.event("message.delta", sid, { text: redact(e.text) });
 			case "reasoning.delta":
 				return this.event("reasoning.delta", sid, { text: e.text });
 			case "tool.started":
-				return this.event("tool.start", sid, { tool_id: e.callId, name: e.name, context: e.preview, args: e.args as Record<string, Json>, args_text: JSON.stringify(e.args, null, 2).slice(0, 2000) });
+				return this.event("tool.start", sid, { tool_id: e.callId, name: e.name, context: redact(e.preview), args: JSON.parse(redact(JSON.stringify(e.args))) as Record<string, Json>, args_text: redact(JSON.stringify(e.args, null, 2)).slice(0, 2000) });
 			case "tool.finished": {
 				const text = e.resultText.length > RESULT_TEXT_LIMIT ? `${e.resultText.slice(0, RESULT_TEXT_LIMIT)}\n… (${e.resultText.length - RESULT_TEXT_LIMIT} more characters)` : e.resultText;
 				const firstLine = e.resultText.split("\n").find((l) => l.trim()) ?? "";
 				return this.event("tool.complete", sid, { tool_id: e.callId, name: e.name, duration_s: Math.round(e.durationS * 100) / 100, result_text: text, summary: (e.isError ? "Failed: " : "") + firstLine.slice(0, 120) });
 			}
 			case "run.finished": {
-				const payload: Record<string, Json | undefined> = { text: e.text, status: e.status, usage: usageJson(e.usage) };
+				const payload: Record<string, Json | undefined> = { text: redact(e.text), status: e.status, usage: usageJson(e.usage) };
 				if (e.reasoning) payload.reasoning = e.reasoning;
 				if (e.error) payload.error = e.error;
 				this.event("session.usage", sid, { usage: usageJson(e.usage) });

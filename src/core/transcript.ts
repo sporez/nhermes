@@ -1,6 +1,7 @@
 // Projects Durable transcript entries into the row shape Hermes clients render
 // (`session_history._project_history`: role, text, timestamp, row_id, name, context, reasoning).
 import type { EntryRecord } from "../engine/engine.ts";
+import { redact } from "../log.ts";
 
 export type TranscriptRow = {
 	role: "user" | "assistant" | "tool" | "system";
@@ -48,6 +49,15 @@ export function userText(entry: EntryRecord): string | undefined {
 }
 
 export function projectTranscript(entries: readonly EntryRecord[]): TranscriptRow[] {
+	return projectRaw(entries).map((r) => ({
+		...r,
+		text: redact(r.text),
+		...(r.context !== undefined ? { context: redact(r.context) } : {}),
+		...(r.reasoning !== undefined ? { reasoning: redact(r.reasoning) } : {}),
+	}));
+}
+
+function projectRaw(entries: readonly EntryRecord[]): TranscriptRow[] {
 	const rows: TranscriptRow[] = [];
 	const calls = new Map<string, { name: string; args: Record<string, unknown> }>();
 	let ordinal = 0;
