@@ -43,6 +43,10 @@ export type BotConfig = {
 	peer?: { url: string; tokenEnv: string };
 	/** Environment variables this bot's http_request may reference as {{secret:NAME}}. */
 	secrets?: string[];
+	/** Browser: headless (default true), or attach to a browser elsewhere over CDP. */
+	browser?: { headless?: boolean; cdpUrl?: string };
+	/** Desktop automation target: an X11 desktop reached through the bot's host (see docs/COMPUTER_USE.md). */
+	desktop?: { display?: string };
 };
 
 export type Config = {
@@ -163,6 +167,8 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		host,
 		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "" } : undefined,
 		secrets: strList(r.secrets, `${where}.secrets`),
+		browser: r.browser === undefined ? undefined : { headless: asRecord(r.browser, `${where}.browser`).headless !== false, cdpUrl: str(asRecord(r.browser, `${where}.browser`).cdpUrl, `${where}.browser.cdpUrl`) },
+		desktop: r.desktop === undefined ? undefined : { display: str(asRecord(r.desktop, `${where}.desktop`).display, `${where}.desktop.display`) },
 	};
 }
 

@@ -21,6 +21,8 @@ import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
 import { scheduleFeature } from "./tools/schedule.ts";
 import { webFeature } from "./tools/web.ts";
+import { Browsers } from "./computer/browser.ts";
+import { browserFeature } from "./tools/browser.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -42,6 +44,7 @@ export type Core = {
 	skills: Skills;
 	scheduler: Scheduler;
 	notifier: Notifier;
+	browsers: Browsers;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -65,6 +68,7 @@ export type CoreOptions = {
 	features?: (late: LateServices) => Feature[];
 	/** Notification transport override (tests). */
 	notifier?: Notifier;
+	browserHeadless?: boolean;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -108,6 +112,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	toolGroups.set("delegate", delegation.tools);
 	const memory = new MemoryStore(db);
 	const skills = new Skills(config.skillsDir, db);
+	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true });
 	const notifier: Notifier = options.notifier ?? (config.pushover ? new PushoverNotifier(config.pushover) : new NullNotifier());
 	let scheduler: Scheduler | undefined;
 	const features = [
@@ -115,6 +120,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		skillsFeature(late, skills),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
+		browserFeature(late, () => browsers),
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
@@ -192,9 +198,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		skills,
 		scheduler,
 		notifier,
+		browsers,
 		agentFor,
 		close: async () => {
 			await scheduler!.stop();
+			await browsers.close();
 			await engine.close();
 			hosts.close();
 			db.close();

@@ -24,6 +24,7 @@
     "@earendil-works/pi-durable": "1.2.0",
     "@earendil-works/pi-env": "1.2.0",
     "croner": "10.0.1",
+    "playwright-core": "1.64.1",
     "ws": "8.22.0",
     "yaml": "2.9.1"
   },
