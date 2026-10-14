@@ -106,6 +106,7 @@ export class Sessions {
 
 	async create(botName: string, opts: { kind?: SessionKind; source?: string; title?: string; parentId?: string; jobId?: string; skills?: string[] } = {}): Promise<SessionRow> {
 		const bot = this.bots.require(botName);
+		if (bot.isPeer) throw new Error(`${bot.name} is an agent on another machine; delegate to it instead`);
 		const convId = await this.engine.create(this.agentFor(bot));
 		return this.register(convId, bot.name, opts);
 	}
@@ -226,14 +227,15 @@ export class Sessions {
 		return n;
 	}
 
-	async submit(id: string, text: string, opts: SubmitOptions = {}): Promise<{ status: "streaming" | "queued" | "steered" }> {
+	async submit(id: string, text: string, opts: SubmitOptions = {}): Promise<{ status: "streaming" | "queued" | "steered"; submission: string }> {
 		const row = this.require(id);
 		const live = await this.live(id);
 		const busy = live.running || (await this.engine.isBusy(row.conversation_id));
 		const r = await this.engine.submit(row.conversation_id, text, opts);
 		this.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, id);
-		if (!busy) return { status: "streaming" };
-		return { status: opts.whenBusy === "steer" ? "steered" : r.status === "queued" ? "queued" : "streaming" };
+		if (r.status === "done" || r.status === "unanswered") return { status: "streaming", submission: r.status };
+		if (!busy) return { status: "streaming", submission: r.status };
+		return { status: opts.whenBusy === "steer" ? "steered" : r.status === "queued" ? "queued" : "streaming", submission: r.status };
 	}
 
 	async interrupt(id: string): Promise<boolean> {

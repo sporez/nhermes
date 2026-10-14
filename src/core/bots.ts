@@ -30,6 +30,8 @@ export type Bot = {
 	sharedMemory: string[];
 	approvals: { mode: ApprovalMode; ask: string[]; deny: string[]; allow: string[] };
 	trusted: boolean;
+	/** Mode B: an independent agent on another machine, reached by delegation. */
+	isPeer: boolean;
 	/** Local working directory (also the Hermes "profile home"). */
 	workspace: string;
 	/** Per-bot skills directory. */
@@ -127,6 +129,7 @@ export class Bots {
 				allow: b.approvals?.allow ?? [],
 			},
 			trusted: b.trusted === true,
+			isPeer: b.peer !== undefined,
 			workspace,
 			skillsDir: join(botDir, "skills"),
 			config: b,

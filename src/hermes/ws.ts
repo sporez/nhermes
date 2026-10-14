@@ -114,7 +114,7 @@ export class Connection {
 		const name = typeof p.profile === "string" && p.profile && p.profile !== "default" ? p.profile : undefined;
 		if (!name) return this.core.bots.defaultBot();
 		const bot = this.core.bots.get(name);
-		if (!bot) throw new RpcError(4004, `profile not found: ${name}`);
+		if (!bot || bot.isPeer) throw new RpcError(4004, `profile not found: ${name}`);
 		return bot;
 	}
 
@@ -228,7 +228,7 @@ export class Connection {
 			case "gateway.capabilities":
 				return { per_session_exclusive_submit: true };
 			case "profiles.list":
-				return { profiles: bots.list().map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
+				return { profiles: bots.list().filter((b) => !b.isPeer).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
 			case "config.get": {
 				const key = str(p, "key");
 				const bot = this.botOf(p);
@@ -297,7 +297,10 @@ export class Connection {
 				if (!text.trim()) throw new RpcError(-32602, "text is required");
 				this.attach(id);
 				const requestId = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
-				return sessions.submit(id, text, { requestId, whenBusy: "followUp" });
+				const r = await sessions.submit(id, text, { requestId, whenBusy: "followUp" });
+				// submission_status: our extension, so a client retrying with an idempotency key learns that the
+				// earlier submission already finished (Vory ignores it).
+				return { status: r.status, submission_status: r.submission };
 			}
 			case "session.steer": {
 				const id = str(p, "session_id");

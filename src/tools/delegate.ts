@@ -17,14 +17,19 @@ import {
 	type Extension,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import type { Approvals } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Sessions } from "../core/sessions.ts";
+import { runOnPeer } from "../remote/peer.ts";
 
 export type DelegateDeps = {
 	sessions: () => Sessions;
 	bots: () => Bots;
 	agentFor: (bot: Bot) => AgentChange;
 	maxDepth: number;
+	approvals: () => Approvals;
+	/** The root chat a session's approvals are asked in. */
+	attentionSession: (sessionId: string) => string;
 };
 
 function textOf(message: AssistantMessage | undefined): string {
@@ -104,6 +109,35 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 			if (!target) throw new Error(`there is no bot named "${args.bot}"; known bots: ${deps.bots().names().join(", ")}`);
 			if (target.name === caller.bot) throw new Error("delegate to a different bot; you can do your own work directly");
 			if (depth(sessions, caller.id) >= deps.maxDepth) throw new Error(`delegation depth limit (${deps.maxDepth}) reached`);
+			if (target.isPeer) {
+				const peer = target.config.peer!;
+				const token = process.env[peer.tokenEnv];
+				if (!token) throw new Error(`the token for ${target.name} (${peer.tokenEnv}) is not set on this gateway`);
+				if (args.wait === false) throw new Error(`${target.name} is on another machine; delegate to it with wait: true`);
+				// The remote session survives a rerun of this call (memo), and the submission key deduplicates it there.
+				const remembered = await api.memo<string>("peer-session", ctx);
+				const attention = deps.attentionSession(caller.id);
+				const r = await runOnPeer({ url: peer.url, token, profile: peer.profile }, args.task, {
+					key: `delegate:${api.taskId}`,
+					sessionId: remembered,
+					onSession: async (id) => void (await api.memo("peer-session", id, ctx)),
+					onApproval: (p) =>
+						deps.approvals().ask(
+							{
+								sessionId: attention,
+								bot: target.name,
+								toolName: String(p.tool_name ?? "tool"),
+								command: String(p.command ?? ""),
+								description: `${String(p.description ?? "needs approval")} (asked by ${target.displayName} on another machine)`,
+								patternKey: `peer:${target.name}:${String(p.pattern_key ?? "")}`,
+							},
+							ctx.abortSignal ?? new AbortController().signal,
+						),
+					signal: ctx.abortSignal,
+				});
+				await api.details({ peer: target.name, remoteSession: r.sessionId }, ctx);
+				return { output: [{ type: "text", text: `${target.name} answered (on ${new URL(peer.url).host}, session ${r.sessionId}):\n\n${r.text}` }] };
+			}
 			const change = deps.agentFor(target);
 			const title = `From ${caller.bot}: ${args.task.replace(/\s+/g, " ").slice(0, 60)}`;
 

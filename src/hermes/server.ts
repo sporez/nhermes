@@ -31,7 +31,7 @@ function requestToken(req: IncomingMessage, url: URL): string | null {
 	return url.searchParams.get("token");
 }
 
-export type HermesServer = { server: Server; port: number; close(): Promise<void> };
+export type HermesServer = { server: Server; port: number; close(): Promise<void>; dropConnections(): void };
 
 /** Extra route sets (the admin API) mounted before the Hermes routes. */
 export async function startHermesServer(core: Core, opts: { host: string; port: number; extraRouters?: Router[] }): Promise<HermesServer> {
@@ -88,6 +88,9 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 	return {
 		server,
 		port,
+		dropConnections: () => {
+			for (const c of wss.clients) c.terminate();
+		},
 		close: () =>
 			new Promise<void>((resolve) => {
 				for (const c of wss.clients) c.terminate();

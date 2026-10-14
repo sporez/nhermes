@@ -10,7 +10,7 @@ import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from ".
 function botFor(core: Core, profile: string | null | undefined) {
 	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();
 	const bot = core.bots.get(profile);
-	if (!bot) throw new HttpError(404, `Profile '${profile}' not found`);
+	if (!bot || bot.isPeer) throw new HttpError(404, `Profile '${profile}' not found`);
 	return bot;
 }
 
@@ -74,7 +74,7 @@ export function restRoutes(core: Core): Router {
 	r.on("GET", "/api/health", () => ({ ok: true, version: VERSION, auth_required: false }));
 
 	// Bots (profiles)
-	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().map((b) => profileJson(b, core.skills.catalog(b).filter((s) => s.active).length)) }));
+	r.on("GET", "/api/profiles", () => ({ profiles: bots.list().filter((b) => !b.isPeer).map((b) => profileJson(b, core.skills.catalog(b).filter((s) => s.active).length)) }));
 	r.on("GET", "/api/profiles/active", () => ({ active: bots.defaultBot().name, current: bots.defaultBot().name }));
 	r.on("GET", "/api/profiles/:name/soul", (q) => {
 		const bot = botFor(core, q.params.name);

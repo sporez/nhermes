@@ -40,7 +40,8 @@ export type BotConfig = {
 	trusted?: boolean;
 	workspace?: string;
 	host?: { ssh: SshHostConfig };
-	peer?: { url: string; tokenEnv: string };
+	/** Mode B: this bot is an independent Neil Hermes gateway elsewhere (its `profile` there). */
+	peer?: { url: string; tokenEnv: string; profile?: string };
 	/** Environment variables this bot's http_request may reference as {{secret:NAME}}. */
 	secrets?: string[];
 	/** Browser: headless (default true), or attach to a browser elsewhere over CDP. */
@@ -167,7 +168,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		trusted: r.trusted === true,
 		workspace: str(r.workspace, `${where}.workspace`),
 		host,
-		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "" } : undefined,
+		peer: peerUrl ? { url: peerUrl, tokenEnv: str(peerRaw.tokenEnv, `${where}.peer.tokenEnv`) ?? "", profile: str(peerRaw.profile, `${where}.peer.profile`) } : undefined,
 		secrets: strList(r.secrets, `${where}.secrets`),
 		browser: r.browser === undefined ? undefined : { headless: asRecord(r.browser, `${where}.browser`).headless !== false, cdpUrl: str(asRecord(r.browser, `${where}.browser`).cdpUrl, `${where}.browser.cdpUrl`) },
 		desktop: r.desktop === undefined ? undefined : { display: str(asRecord(r.desktop, `${where}.desktop`).display, `${where}.desktop.display`) },
@@ -192,13 +193,19 @@ export function loadConfig(configPath: string): Config {
 
 	const bots = (Array.isArray(doc.bots) ? doc.bots : []).map(parseBot);
 	for (const b of bots) for (const name of b.secrets ?? []) registerSecret(process.env[name]);
+	for (const b of bots) if (b.peer) registerSecret(process.env[b.peer.tokenEnv]);
 	if (bots.length === 0) throw new ConfigError("config needs at least one bot under `bots:`");
 	const names = new Set<string>();
 	for (const b of bots) {
 		if (names.has(b.name)) throw new ConfigError(`duplicate bot name "${b.name}"`);
 		names.add(b.name);
 	}
-	if (!bots.some((b) => b.default)) bots[0]!.default = true;
+	if (bots.some((b) => b.default && b.peer)) throw new ConfigError("the default bot cannot be a peer");
+	if (!bots.some((b) => b.default)) {
+		const first = bots.find((b) => !b.peer);
+		if (!first) throw new ConfigError("config needs at least one local (non-peer) bot");
+		first.default = true;
+	}
 	if (bots.filter((b) => b.default).length > 1) throw new ConfigError("only one bot may be `default: true`");
 
 	const defaultModel = str(defaults.model, "defaults.model");

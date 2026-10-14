@@ -110,7 +110,14 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	});
 	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub };
 
-	const delegation = delegateExtension({ sessions: late.sessions, bots: late.bots, agentFor, maxDepth: 2 });
+	const delegation = delegateExtension({
+		sessions: late.sessions,
+		bots: late.bots,
+		agentFor,
+		maxDepth: 2,
+		approvals: () => approvals,
+		attentionSession: (id) => rootSession(sessions!, id),
+	});
 	toolGroups.set("delegate", delegation.tools);
 	const memory = new MemoryStore(db);
 	const skills = new Skills(config.skillsDir, db);
@@ -133,7 +140,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			if (!bot.toolGroups.includes("delegate")) return undefined;
 			const others = bots.list().filter((b) => b.name !== bot.name);
 			if (others.length === 0) return undefined;
-			return `Other bots you can ask with the delegate tool:\n${others.map((b) => `- ${b.name}: ${b.description || b.displayName}`).join("\n")}`;
+			return `Other bots you can ask with the delegate tool:\n${others.map((b) => `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine; wait: true only)" : ""}`).join("\n")}`;
 		},
 		...features.flatMap((f) => f.promptParts ?? []),
 	];
