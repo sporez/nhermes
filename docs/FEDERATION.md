@@ -1,0 +1,195 @@
+# Federation and control panel (plan)
+
+Status: proposed, 2026-10-14. Nothing here is implemented yet.
+
+## Goal
+
+Any number of machines run the same `nhermes serve` and form one network of equals. Adding a machine is
+one command and a short code, with no tokens to create or copy by hand. Every member knows every other
+member's bots: local bots can delegate to them, and Vory, connected to any member, lists all of them in
+its `@` picker and chats with remote bots as if they were local. A bot can be kept private to its own
+machine. A web control panel served by every gateway at `/panel` manages the network and the bots.
+
+## Where we start
+
+- Every gateway runs the same software; there is no "main" role. Today the gateway Vory points at lists
+  remote bots one by one as `peer: { url, tokenEnv, profile }` bot entries (`src/config.ts:44`,
+  `deploy/config.example.yaml:46-49`). The link is one-way and the token is created and copied by hand.
+- Delegation (`src/tools/delegate.ts`) already reaches peer bots over the Hermes WebSocket
+  (`src/remote/peer.ts`), idempotently and with approvals relayed to the root chat.
+- Peers are hidden from Vory: `/api/profiles` and the WS profile list filter them out
+  (`src/hermes/rest.ts:77`, `src/hermes/ws.ts:231`) and `sessions.create` refuses them
+  (`src/core/sessions.ts:111`). `/api/profiles` never lists a gateway's own peers, which already prevents
+  transitive forwarding.
+- Bots come from `config.yaml`, read once at startup; runtime overrides (model, instructions,
+  description, skill toggles) live in `app.sqlite` (`src/core/bots.ts`). The bot roster in each prompt is
+  rebuilt every turn (`src/agent/extensions.ts:40-50`), so roster changes reach running conversations on
+  their next turn.
+- The CLI talks to the running gateway through `/admin/*` with the Vory session token (`src/cli.ts:95`).
+- `server.host` defaults to `127.0.0.1` in code (`src/config.ts:241`); the deployed config sets
+  `0.0.0.0` (`deploy/config.example.yaml:3`).
+
+## Decisions
+
+1. **Members are equals.** No main gateway. Each member holds the full member list and connects directly
+   to every other member; nothing is relayed through a third machine.
+2. **Joining any member joins the whole network.** The member that accepts a join introduces the newcomer
+   to everyone else over its existing authenticated links.
+3. **Only the roster and reachability are shared.** Conversations, memory, skills, schedules, secrets
+   and tool execution stay on the machine that owns the bot. No memory sync.
+4. **Credentials are managed by the software.** Pairwise secrets are generated at join, stored in
+   `app.sqlite` (`members` table), registered with the log scrubber, and included in backups only with
+   `--secrets`. No `tokenEnv` for federation.
+5. **Remote bots appear as Vory profiles through a live proxy**, not a turn-by-turn delegation mirror:
+   streaming, tool calls, reasoning and approval cards behave as for a local bot.
+6. **`private: true` keeps a bot on its own machine**: not in other bots' rosters, not a `delegate`
+   target, not advertised to members.
+7. **The control panel is a web page served by the gateway**, a client of the admin API, never an editor
+   of files on its own. Settings changed in the panel are applied by the gateway and survive restarts.
+   The CLI (`invite`, `join`, `members`, `reload`) covers headless use over SSH.
+8. **Gateways listen on `0.0.0.0` by default**, so a headless machine is reachable by Vory, members and
+   the panel without editing the config. `server.host: 127.0.0.1` restricts it to the machine.
+9. **The panel password is optional and off by default.** The owner's LAN is trusted (the owner and
+   their household). Vory's API keeps requiring the gateway token as it does today.
+
+## Phases
+
+Each phase lands as tested commits and updates `docs/STATUS.md`, `docs/COMPATIBILITY.md` and
+`ARCHITECTURE.md` where they change.
+
+### F1. Private bots
+
+- `private: true` on a bot in `config.yaml`, with an override in `app.sqlite` so the panel can flip it.
+- Excluded from the delegate roster prompt part (`src/app.ts:139-144`) and refused as a `delegate`
+  target (`src/tools/delegate.ts:107-110`) with a "no bot named X" answer, so its existence is not
+  revealed.
+- Never advertised to members (F4).
+- Still listed for Vory on its own gateway.
+- Tests: roster, delegate refusal, advertisement filter.
+
+### F2. Runtime configuration
+
+Prerequisite for the panel and for a roster that changes while the gateway runs.
+
+- `Bots` reads a live config snapshot instead of the startup copy; `nhermes reload` and `SIGHUP` re-read
+  `config.yaml` and validate it before swapping (a bad file keeps the running config and reports why).
+- Admin endpoints to create, edit and remove local bots, and change gateway settings. Writes go to
+  `config.yaml` through the `yaml` Document API so comments and ordering survive, then reload.
+  Runtime-only fields stay in overrides.
+- Removing a bot keeps its sessions, memory and workspace on disk; the panel says so.
+- In-flight runs keep the agent config they started with; the next turn picks up changes. The
+  scheduler re-reads jobs whose bot changed.
+- Tests: reload with a valid and an invalid file, comment-preserving writes, create/edit/remove.
+
+### F3. Membership: identity, invite, join, leave
+
+- Each gateway has a `node` name (default: the host name) and a random node id, created at first start
+  and kept in `app.sqlite`.
+- `members` table: node id, name, URL, pairwise secret (ours and theirs), joined/last-seen times, state.
+- `nhermes invite` on any member prints a join code: the member's URL plus a single-use secret, valid for
+  10 minutes.
+- `nhermes join <code>` on the new machine: it connects to the URL, proves the code, and both sides show
+  each other's node name and fingerprint for confirmation. On confirmation they exchange pairwise
+  secrets. The inviting member then introduces the newcomer to every other member: it generates a secret
+  for each new pair and delivers it to both ends over the links it already trusts.
+- `nhermes members` lists members and their reachability. `nhermes members remove <name>` revokes the
+  member everywhere (each member deletes its secret for it). `nhermes leave` does the same from the
+  leaving side.
+- Member-to-member calls authenticate with the pairwise secret, in a header distinct from Vory's
+  `X-Hermes-Session-Token`, so a member's credential cannot open the admin API.
+- Transport: members talk over plain HTTP/WS on the LAN today. The join code carries a secret, so
+  `join` warns when the URL is not `https://` or a Tailscale/loopback address. TLS is not built in.
+- Migration: an existing `peer:` bot entry keeps working until its gateway joins; then `nhermes
+  migrate-peers` replaces it with the discovered bot and the entry and its `tokenEnv` can be removed.
+- Tests: two and three in-process gateways joining, introduction, removal, expired and reused codes,
+  wrong secret.
+
+### F4. Roster sync and delegation
+
+- `GET /federation/roster` (member-authenticated) returns the member's non-private local bots: name,
+  display name, description, model, and whether it is online.
+- Each member polls every other member's roster at start and every few minutes, and immediately after a
+  join or leave notice. Last-known rosters are kept in `app.sqlite`, so a down member's bots stay listed
+  as unreachable rather than vanishing.
+- Remote bots enter `Bots` as runtime entries named `<bot>@<node>` (for example `macbot@mac`). Local
+  names stay bare. The name format must be checked against what Vory accepts as a profile name; if `@`
+  is rejected, use `<node>-<bot>`.
+- `delegate` reaches remote bots the way peer bots are reached today (`runOnPeer`), authenticated with
+  the member secret. Delegating to an unreachable member fails with a clear "mac is offline" answer.
+- Remote descriptions are text from another machine inserted into prompts: they are capped in length,
+  stripped of control characters and rendered as quoted data in the roster section.
+- Tests: roster merge, unreachable members, name collisions, private bots absent, description sanitising.
+
+### F5. Remote bots in Vory
+
+- `/api/profiles` and the WS profile list include remote bots, marked in `description` with their
+  machine. `session.create` for a remote profile creates a local **proxy session**: the catalogue row is
+  ours (title, preview, pins, unread), the conversation lives on the owning member.
+- The proxy forwards `prompt.submit`, interrupt, steer and approval answers to the owning member over a
+  member-authenticated WebSocket, and relays its event stream to Vory unchanged apart from session ids.
+  Message history for a proxy session is fetched from the owning member.
+- Reconnects resume the remote session (`session.resume`), as `runOnPeer` does. While the member is
+  offline the session opens read-only with the last known title and a clear status.
+- Model and skill edits for a remote profile are forwarded to its owner (they are the owner's settings),
+  or refused when the panel's remote-edit permission (F6) is off.
+- Acceptance: Vory's E2E suite run against a gateway with a remote profile selected; a manual pass in the
+  Vory UI for streaming, an approval card and a reconnect.
+
+### F6. Web control panel (`/panel`)
+
+Served by every gateway on its normal port (`http://<member>:<port>/panel`), so any member's panel
+reaches the whole network. Plain HTML, CSS and a small amount of JavaScript in `src/panel/`, served as
+static files: no framework, no build step, no new dependencies. Works on a phone or tablet screen.
+
+Listening and access:
+
+- `server.host` defaults to `0.0.0.0` (change in `src/config.ts:241`), so a fresh headless install is
+  reachable on the LAN; `nhermes init` writes it explicitly. `server.host: 127.0.0.1` keeps everything,
+  panel included, on the machine.
+- `panel.enabled` (default `true`) turns the panel off entirely.
+- **No password by default.** `panel.password` (or `panel.passwordEnv`) turns on a login page; a
+  successful login sets an HttpOnly, SameSite=Strict session cookie, signed with a key kept in
+  `app.sqlite`. `nhermes panel password` sets or clears it without editing files.
+- The page calls its own endpoints under `/panel/api/*`, which call the admin services in-process. The
+  gateway token is never sent to the browser or shown in the panel.
+- Even without a password, every state-changing request must be JSON with an `Origin` matching the
+  gateway's own host. This stops a web page open in a browser on the LAN from changing settings
+  through the panel (cross-site requests), at no cost to the owner.
+- `/api/*` (Vory) and `/admin/*` (CLI) keep requiring the gateway token.
+
+Screens:
+
+- **Network**: members with reachability and last seen; invite (shows the code), join, remove, leave.
+- **Bots**: local and remote bots in one list, grouped by machine. For a local bot: display name,
+  description, model and thinking (from the model list), tool groups, private, approval mode, trusted,
+  instructions (editor), skills on/off, shared memory spaces. Create and remove bots. Remote bots are
+  read-only unless the owning member allows remote edits.
+- **Gateway**: node name, listen address, default model, time zone, approval timeout, notifications.
+- **Status**: active runs, pending approvals, scheduled jobs and their last results, recent errors.
+
+Remote editing: off by default. A member can allow listed members to edit its bots
+(`federation.allowRemoteEdits: [nodes]`). Edits are recorded in the gateway log with the editing member.
+
+Tests: admin service coverage for every panel action; panel endpoints with and without a password
+(login, cookie, logout); cross-origin and non-JSON writes refused; a Playwright smoke test (already a
+dependency) that loads each screen against an in-process gateway.
+
+## Security notes
+
+- A member can drive any non-private bot on every other member, subject to that bot's own approval
+  mode; approvals for a delegated run are still asked in the chat that started it. Join confirms both
+  fingerprints for this reason, and `members remove` must work from any member.
+- Trust does not cross machines: a run started by a member is never treated as `trusted` on the owning
+  gateway, whatever the caller's chain was.
+- Member secrets never reach prompts, logs or tool environments (the existing secret scrubbing and
+  shell environment stripping apply).
+- With no panel password, anyone on the LAN can change bots, invite machines and remove members. That is
+  the owner's choice for a household LAN; set `panel.password` or `server.host: 127.0.0.1` on any
+  machine reachable from a less trusted network.
+
+## Open questions
+
+1. Profile name format Vory accepts (`@`, `-`, length).
+2. Whether the panel should also manage sessions and memory, or stay with network, bots and gateway
+   settings at first.
+3. Built-in TLS or relying on Tailscale for members outside the LAN.

@@ -41,3 +41,5 @@ Status per phase: see `docs/STATUS.md`.
 - [x] **5. Computer use**: Playwright browser tools + E2E; Linux desktop tools over SSH + E2E.
 - [x] **6. Reliability and polish**: backup/restore, systemd/Podman, upgrade/migrations, Vory UI pass,
   security review, docs.
+- [ ] **7. Federation and control panel**: private bots, runtime config, membership (invite/join),
+  roster sync, remote bots as Vory profiles, web control panel at `/panel`. Plan: `docs/FEDERATION.md`.
