@@ -118,6 +118,11 @@ const MIGRATIONS: readonly string[] = [
 	);
 	CREATE INDEX job_runs_job ON job_runs(job_id, id DESC);
 	`,
+	// 4: a session follows its bot's model and reasoning level unless the chat chose its own
+	`
+	ALTER TABLE sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE sessions ADD COLUMN thinking_override INTEGER NOT NULL DEFAULT 0;
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

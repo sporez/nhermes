@@ -90,3 +90,28 @@ test("a dangerous shell call asks for approval; 'once' runs it, 'deny' blocks it
 		await cleanup();
 	}
 });
+
+test("sessions follow their bot's model unless the chat chose its own", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models });
+	try {
+		const a = await core.sessions.create("main");
+		const b = await core.sessions.create("main");
+		core.sessions.markOverride(b.id, "model");
+		await core.engine.configure(b.conversation_id, { model: { provider: "faux", modelId: "faux-1" } });
+		core.bots.setOverrides("main", { model: "faux/faux-2" });
+		faux.setResponses([fauxAssistantMessage([fauxText("a")]), fauxAssistantMessage([fauxText("b")])]);
+		const ca = collect(core.hub, a.id);
+		await core.sessions.submit(a.id, "hi");
+		await ca.until((e) => e.type === "run.finished");
+		const cb = collect(core.hub, b.id);
+		await core.sessions.submit(b.id, "hi");
+		await cb.until((e) => e.type === "run.finished");
+		assert.equal((await core.engine.agentModel(a.conversation_id)).model?.modelId, "faux-2", "follows the bot");
+		assert.equal((await core.engine.agentModel(b.conversation_id)).model?.modelId, "faux-1", "keeps the chat's own choice");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});

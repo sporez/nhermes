@@ -248,6 +248,7 @@ export class Connection {
 			case "session.activate": {
 				const id = str(p, "session_id");
 				if (!sessions.get(id)) throw new RpcError(4006, `session not found: ${id}`);
+				if (!sessions.isRunning(id)) await sessions.followBot(id);
 				return this.snapshotReply(id);
 			}
 			case "session.close": {
@@ -382,6 +383,7 @@ export class Connection {
 			}
 			if (!provider || !models.getModel(provider, modelId)) throw new RpcError(4010, `unknown model: ${value}`);
 			await engine.configure(row.conversation_id, { model: { provider, modelId } });
+			sessions.markOverride(id, "model");
 			const busy = sessions.isRunning(id);
 			return { key, value: modelId, scope: "session", deferred: busy, info: await this.info(id) };
 		}
@@ -389,6 +391,7 @@ export class Connection {
 			const level = thinkingOf(value);
 			if (!level) throw new RpcError(-32602, `unknown reasoning effort: ${value}`);
 			await engine.configure(row.conversation_id, { thinkingLevel: level as never });
+			sessions.markOverride(id, "thinking");
 			return { key, value, scope: "session", info: await this.info(id) };
 		}
 		if (key === "fast") {

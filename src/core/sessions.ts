@@ -34,6 +34,8 @@ export type SessionRow = {
 	parent_id: string | null;
 	job_id: string | null;
 	skills: string;
+	model_override: number;
+	thinking_override: number;
 };
 
 export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; search?: string };
@@ -227,8 +229,30 @@ export class Sessions {
 		return n;
 	}
 
+	/**
+	 * Brings a session's model and reasoning level in line with its bot, unless the chat chose its own
+	 * (Vory's per-chat model switch). Called before each prompt, so changing a bot's model in config or
+	 * from Vory reaches its existing sessions.
+	 */
+	async followBot(id: string): Promise<void> {
+		const row = this.require(id);
+		const bot = this.bots.get(row.bot);
+		if (!bot || (row.model_override && row.thinking_override)) return;
+		const current = await this.engine.agentModel(row.conversation_id);
+		const change: { model?: { provider: string; modelId: string }; thinkingLevel?: AgentChange["thinkingLevel"] } = {};
+		if (!row.model_override && (current.model?.provider !== bot.model.provider || current.model?.modelId !== bot.model.modelId)) change.model = bot.model;
+		if (!row.thinking_override && current.thinking !== bot.thinking) change.thinkingLevel = bot.thinking as AgentChange["thinkingLevel"];
+		if (change.model || change.thinkingLevel) await this.engine.configure(row.conversation_id, change);
+	}
+
+	markOverride(id: string, what: "model" | "thinking"): void {
+		this.db.run(`UPDATE sessions SET ${what === "model" ? "model_override" : "thinking_override"} = 1 WHERE id = ?`, id);
+	}
+
 	async submit(id: string, text: string, opts: SubmitOptions = {}): Promise<{ status: "streaming" | "queued" | "steered"; submission: string }> {
 		const row = this.require(id);
+		const busyNow = this.lives.get(id)?.running ?? false;
+		if (!busyNow) await this.followBot(id);
 		const live = await this.live(id);
 		const busy = live.running || (await this.engine.isBusy(row.conversation_id));
 		const r = await this.engine.submit(row.conversation_id, text, opts);

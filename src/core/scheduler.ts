@@ -363,6 +363,8 @@ export class Scheduler {
 			if (job.model) {
 				const i = job.model.indexOf("/");
 				await this.d.engine.configure(session.conversation_id, { model: { provider: job.model.slice(0, i), modelId: job.model.slice(i + 1) } });
+			} else {
+				await this.d.sessions.followBot(session.id);
 			}
 			await this.d.sessions.live(session.id);
 			await this.d.engine.reset(session.conversation_id);
