@@ -97,14 +97,21 @@ export class Bots {
 		return this.require(name);
 	}
 
+	/** Forgets a bot's runtime overrides (when it is removed, so a new bot of that name starts clean). */
+	clearOverrides(name: string): void {
+		this.db.run("DELETE FROM bot_overrides WHERE bot = ?", name);
+	}
+
+	/** Where a bot's instructions file is (whether or not it exists). */
+	soulPath(b: BotConfig): string {
+		if (!b.soulFile) return join(this.config.configDir, "bots", b.name, "SOUL.md");
+		return isAbsolute(b.soulFile) ? b.soulFile : resolve(this.config.configDir, b.soulFile);
+	}
+
 	private resolve(b: BotConfig): Bot {
 		const o = this.overrides(b.name);
 		const botDir = join(this.config.configDir, "bots", b.name);
-		const soulPath = b.soulFile
-			? isAbsolute(b.soulFile)
-				? b.soulFile
-				: resolve(this.config.configDir, b.soulFile)
-			: join(botDir, "SOUL.md");
+		const soulPath = this.soulPath(b);
 		const fileSoul = existsSync(soulPath) ? readFileSync(soulPath, "utf8").trim() : "";
 		const instructions = o.instructions ?? (b.instructions?.trim() || fileSoul || DEFAULT_INSTRUCTIONS);
 		const workspace = b.workspace

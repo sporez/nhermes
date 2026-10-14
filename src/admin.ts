@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Core } from "./app.ts";
+import { type BotConfig, ConfigError } from "./config.ts";
+import type { BotPatch, GatewayPatch } from "./core/settings.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
 import { logger } from "./log.ts";
 
@@ -120,5 +122,89 @@ export function adminRoutes(core: Core): Router {
 		if (!bot) throw new HttpError(404, "unknown bot");
 		return { deleted: core.memory.forget(bot, Number(q.params.id)) };
 	});
+
+	// Configuration: read, reload, and edit config.yaml through the running gateway.
+	r.on("GET", "/admin/config", () => configView(core));
+	r.on("POST", "/admin/reload", () => settingsCall(() => core.settings.reload()));
+	r.on("POST", "/admin/bots", (q) => {
+		const b = obj(q.body);
+		if (typeof b.name !== "string") throw new HttpError(400, "name required");
+		const fields = botFields(b, true) as BotConfig;
+		return settingsCall(() => core.settings.addBot({ ...fields, name: b.name as string }));
+	});
+	r.on("PATCH", "/admin/bots/:name", (q) => settingsCall(() => core.settings.editBot(q.params.name!, botFields(obj(q.body), false))));
+	r.on("DELETE", "/admin/bots/:name", (q) => settingsCall(() => core.settings.removeBot(q.params.name!)));
+	r.on("PATCH", "/admin/gateway", (q) => settingsCall(() => core.settings.setGateway(obj(q.body) as GatewayPatch)));
 	return r;
+}
+
+/** Keys a bot entry may carry (the name is the route's or the create body's). */
+const BOT_KEYS = new Set<string>([
+	"displayName",
+	"description",
+	"default",
+	"instructions",
+	"soulFile",
+	"model",
+	"thinking",
+	"tools",
+	"skills",
+	"sharedMemory",
+	"approvals",
+	"trusted",
+	"private",
+	"workspace",
+	"host",
+	"peer",
+	"secrets",
+	"browser",
+	"desktop",
+]);
+
+function botFields(body: Record<string, unknown>, creating: boolean): BotPatch {
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(body)) {
+		if (k === "name" && creating) continue;
+		if (!BOT_KEYS.has(k)) throw new HttpError(400, `unknown bot setting "${k}"`);
+		out[k] = v;
+	}
+	return out as BotPatch;
+}
+
+function settingsCall<T>(fn: () => T): T {
+	try {
+		return fn();
+	} catch (error) {
+		if (error instanceof ConfigError) throw new HttpError(400, error.message);
+		throw error;
+	}
+}
+
+/** The gateway's settings and every bot: its config entry, what is in effect, and runtime overrides. */
+export function configView(core: Core) {
+	const c = core.config;
+	return {
+		configPath: c.configPath,
+		gateway: { server: c.server, defaults: c.defaults, timezone: c.timezone },
+		toolGroups: [...core.toolGroups.keys()],
+		bots: core.bots.list().map((b) => ({
+			name: b.name,
+			config: b.config,
+			effective: {
+				displayName: b.displayName,
+				description: b.description,
+				model: `${b.model.provider}/${b.model.modelId}`,
+				thinking: b.thinking,
+				tools: b.toolGroups,
+				approvals: b.approvals.mode,
+				trusted: b.trusted,
+				private: b.private,
+				default: b.isDefault,
+				peer: b.isPeer,
+				instructions: b.instructions,
+				instructionsFrom: core.bots.overrides(b.name).instructions !== undefined ? "override" : b.config.instructions ? "config" : existsSync(core.bots.soulPath(b.config)) ? "soul file" : "default",
+			},
+			overrides: core.bots.overrides(b.name),
+		})),
+	};
 }

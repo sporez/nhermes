@@ -51,6 +51,10 @@ export type Snapshot = {
 type Block = { type: string };
 type Msg = { role: string; content: string | Block[]; usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens: number; cost?: { total: number } } };
 
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
+}
+
 function sessionIdNow(): string {
 	const d = new Date();
 	const p = (n: number) => String(n).padStart(2, "0");
@@ -230,19 +234,21 @@ export class Sessions {
 	}
 
 	/**
-	 * Brings a session's model and reasoning level in line with its bot, unless the chat chose its own
-	 * (Vory's per-chat model switch). Called before each prompt, so changing a bot's model in config or
-	 * from Vory reaches its existing sessions.
+	 * Brings a session's model, reasoning level and tools in line with its bot, unless the chat chose its
+	 * own model or level (Vory's per-chat switch). Called before each prompt, so changing a bot in config,
+	 * the panel or Vory reaches its existing sessions.
 	 */
 	async followBot(id: string): Promise<void> {
 		const row = this.require(id);
 		const bot = this.bots.get(row.bot);
-		if (!bot || (row.model_override && row.thinking_override)) return;
+		if (!bot) return;
 		const current = await this.engine.agentModel(row.conversation_id);
-		const change: { model?: { provider: string; modelId: string }; thinkingLevel?: AgentChange["thinkingLevel"] } = {};
+		const wanted = this.agentFor(bot).tools;
+		const change: { model?: { provider: string; modelId: string }; thinkingLevel?: AgentChange["thinkingLevel"]; tools?: AgentChange["tools"] } = {};
 		if (!row.model_override && (current.model?.provider !== bot.model.provider || current.model?.modelId !== bot.model.modelId)) change.model = bot.model;
 		if (!row.thinking_override && current.thinking !== bot.thinking) change.thinkingLevel = bot.thinking as AgentChange["thinkingLevel"];
-		if (change.model || change.thinkingLevel) await this.engine.configure(row.conversation_id, change);
+		if (Array.isArray(wanted) && !sameNames(current.tools, wanted.map((t) => t.name))) change.tools = wanted;
+		if (change.model || change.thinkingLevel || change.tools) await this.engine.configure(row.conversation_id, change);
 	}
 
 	markOverride(id: string, what: "model" | "thinking"): void {

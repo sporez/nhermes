@@ -62,7 +62,12 @@ nhermes backup [--out file] [--secrets] # consistent online backup (.tar.gz) mad
 nhermes restore file [--with-config]    # gateway must be stopped; previous data is kept aside
 ```
 
-Bots, their tools, skills and hosts are edited in `config.yaml` (then `systemctl --user restart nhermes`).
+Bots, their tools, skills and hosts are edited in `config.yaml`, then applied with `nhermes reload` (or
+`systemctl --user reload nhermes` / SIGHUP). Bots and `defaults` apply at once, including to existing
+chats on their next message; `reload` lists anything that still needs a restart (server address, data
+directory, time zone, approval timeout). A file that does not load is refused and the running
+configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gateway`) makes the same edits
+and keeps the file's comments.
 From Vory you can edit a bot's instructions, description, default model, skills and scheduled tasks.
 
 ## Data

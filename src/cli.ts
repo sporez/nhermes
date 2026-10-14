@@ -18,6 +18,7 @@ Commands:
   serve                       Run the gateway (one process owns the data directory)
   init [dir]                  Write a starter config.yaml and secrets.env into dir (default: .)
   status                      Bots, running sessions and scheduled jobs of the running gateway
+  reload                      Re-read config.yaml (bots and defaults apply at once; also on SIGHUP)
   backup [--out f] [--secrets]  Consistent backup (.tar.gz) made by the running gateway
   restore <file> [--with-config]  Restore a backup; the gateway must be stopped
   host trust <bot>            Show a bot's SSH host key fingerprints and trust them after you confirm
@@ -74,6 +75,14 @@ async function serve(configPath: string): Promise<void> {
 		await core.close();
 		process.exit(0);
 	};
+	process.on("SIGHUP", () => {
+		try {
+			const r = core.settings.reload();
+			if (r.restartNeeded.length > 0) log.warn("reloaded; some changes need a restart", { settings: r.restartNeeded });
+		} catch (error) {
+			log.error("reload failed; keeping the running configuration", { error: error instanceof Error ? error.message : String(error) });
+		}
+	});
 	process.on("SIGTERM", () => void stop("SIGTERM"));
 	process.on("SIGINT", () => void stop("SIGINT"));
 }
@@ -145,6 +154,14 @@ async function main(): Promise<void> {
 			return init(rest[0] ?? ".");
 		case "status":
 			return print(await admin(configPath, "GET", "/admin/status"));
+		case "reload": {
+			const r = (await admin(configPath, "POST", "/admin/reload")) as { added: string[]; removed: string[]; changed: string[]; restartNeeded: string[] };
+			const groups: [string, string[]][] = [["added", r.added], ["removed", r.removed], ["changed", r.changed]];
+			const parts = groups.filter(([, v]) => v.length > 0).map(([k, v]) => `${k}: ${v.join(", ")}`);
+			process.stdout.write(`Reloaded${parts.length ? ` (${parts.join("; ")})` : ", no bot changes"}.\n`);
+			if (r.restartNeeded.length > 0) process.stdout.write(`Needs a restart to take effect: ${r.restartNeeded.join(", ")}\n`);
+			return;
+		}
 		case "backup":
 			return print(await admin(configPath, "POST", "/admin/backup", { out: values.out ? resolve(values.out) : undefined, includeSecrets: values.secrets === true }));
 		case "restore": {

@@ -115,12 +115,17 @@ export class Engine {
 		await (await this.conv(id)).configure(change, ctx);
 	}
 
-	/** The conversation's resolved model and thinking level, with the model's context window. */
-	async agentModel(id: ConvId): Promise<{ model?: ModelRef; thinking: string; contextWindow: number }> {
+	/** The conversation's resolved model, thinking level and offered tool names, with the model's context window. */
+	async agentModel(id: ConvId): Promise<{ model?: ModelRef; thinking: string; contextWindow: number; tools: string[] }> {
 		const agent = await (await this.conv(id)).agent(ctx);
 		const ref = agent.model;
 		const model = ref ? this.models.getModel(ref.provider, ref.modelId) : undefined;
-		return { model: ref ? { provider: ref.provider, modelId: ref.modelId } : undefined, thinking: agent.thinkingLevel, contextWindow: model?.contextWindow ?? 0 };
+		return {
+			model: ref ? { provider: ref.provider, modelId: ref.modelId } : undefined,
+			thinking: agent.thinkingLevel,
+			contextWindow: model?.contextWindow ?? 0,
+			tools: agent.tools.map((t) => t.name),
+		};
 	}
 
 	async submit(id: ConvId, text: string, options: SubmitOptions = {}): Promise<SubmitResult> {
