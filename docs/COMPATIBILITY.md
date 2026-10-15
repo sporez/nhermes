@@ -53,7 +53,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides; create/delete bots is CLI-only |
 | Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
 | Create / delete bots | `POST /api/profiles` `{name, clone_from?}`, `DELETE /api/profiles/{name}` | Tested | | Adds or removes the bot in config.yaml, as the panel does. `clone_from` copies the other bot's settings and instructions (not its name, default flag, workspace or chats). Delete keeps the bot's chats, memory and workspace on disk; the default bot cannot be deleted. Renaming is not offered by Vory |
-| Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Instructions, description, model and skills of such a bot answer 409 (change them on its machine); skills and toolsets list empty |
+| Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Its Tools, Skills, Config, instructions, description, model and usage go over the member link to its machine, which answers with its own handlers (`src/federation/vory.ts`): reads always, changes only when that machine allows bot edits from members (its panel: Network), else 403 saying so |
 
 ## Sessions and chat
 

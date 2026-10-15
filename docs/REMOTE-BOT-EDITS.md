@@ -69,6 +69,15 @@ management.
   not mark it unreachable, panel 401 mapping.
 - [x] Docs: `docs/FEDERATION.md` (follow-up done), `ARCHITECTURE.md`, `docs/STATUS.md`.
 
+## Vory
+
+Vory connects to one gateway. When its selected profile is a member's bot (`<bot>-<node>`), its settings
+requests (Tools, Skills, Config, instructions/description/model, model set, usage analytics) are
+forwarded by that gateway to `POST /federation/manage/vory/:bot` on the owning machine, which runs them
+through its own Vory handlers for its own bot (`src/federation/vory.ts`). Reads are always answered;
+changes need the same "Let other machines edit this machine's bots" switch, and are logged there with
+the member's name. Only those requests are accepted, only for that machine's own bots.
+
 ## Not in scope
 
 - Remote memory and sessions in the panel (the Sessions screen already lists remote chats; memory stays

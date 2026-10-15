@@ -9,6 +9,7 @@ import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import { type MemberRow, NODE_HEADER, SECRET_HEADER } from "../federation/members.ts";
 import { manageRoutes } from "../federation/manage.ts";
+import { forwardVory, voryMemberRoutes } from "../federation/vory.ts";
 import { federationRoutes, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
 import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
@@ -44,7 +45,7 @@ export type HermesServer = { server: Server; port: number; close(): Promise<void
 
 /** Extra route sets (the admin API) mounted before the Hermes routes. */
 export async function startHermesServer(core: Core, opts: { host: string; port: number; extraRouters?: Router[] }): Promise<HermesServer> {
-	const federation = [federationRoutes(core), manageRoutes(core)];
+	const federation = [federationRoutes(core), manageRoutes(core), voryMemberRoutes(core)];
 	const panel = new Panel(core);
 	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
@@ -77,6 +78,9 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			if (matched === undefined) throw new HttpError(404, "Not Found");
 			if (matched === "method") throw new HttpError(405, "Method Not Allowed");
 			const body = await readJson(req);
+			// Settings of a member's bot are answered by the member that owns it.
+			const forwarded = isFederation ? undefined : await forwardVory(core, method, url, body);
+			if (forwarded !== undefined) return sendJson(res, 200, forwarded);
 			const result = await matched.handler({ method, path: url.pathname, query: url.searchParams, params: matched.params, body, raw: req, member });
 			if (result instanceof RawBody) return sendRaw(res, result);
 			sendJson(res, 200, result ?? {});

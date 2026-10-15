@@ -42,7 +42,8 @@ test("a client on alpha chats with beta's bot through alpha", async () => {
 				["nasbot-beta", "Nasbot (beta)", "Runs on the NAS"],
 			],
 		);
-		assert.equal((await rest("/api/profiles/nasbot-beta/soul", { method: "PUT", body: JSON.stringify({ content: "x" }) })).status, 409);
+		// Forwarded to beta, which refuses until its owner allows bot edits (test/federation/vory-remote.test.ts).
+		assert.equal((await rest("/api/profiles/nasbot-beta/soul", { method: "PUT", body: JSON.stringify({ content: "x" }) })).status, 403);
 
 		vory = await HermesClient.connect(a.port, TOKEN);
 		await vory.waitEvent("gateway.ready");
