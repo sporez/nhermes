@@ -48,7 +48,7 @@ test("a due job runs in its own session without a client and records history; th
 		assert.equal(session.bot, "ops");
 		assert.equal(session.title, "Disk check");
 		await until(() => notifier.sent.length > 0 || undefined);
-		assert.deepEqual(notifier.sent[0], { title: "Disk check", message: "All disks below 70%.", priority: 0 });
+		assert.deepEqual(notifier.sent[0], { title: "Disk check", message: "All disks below 70%.", priority: 0, sessionId: session.id, bot: "ops" });
 
 		// A second run starts from a fresh context but in the same session.
 		faux.setResponses([fauxAssistantMessage([fauxText("Still fine.")])]);

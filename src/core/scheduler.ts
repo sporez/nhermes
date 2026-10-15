@@ -469,7 +469,7 @@ export class Scheduler {
 			const title = failed ? `${job.name} ${run.status === "interrupted" ? "was interrupted" : "failed"}` : run.error ? `${job.name}: needs approval` : job.name;
 			const message = failed ? run.error || "The run did not finish." : `${run.summary}${run.error ? `\n\n(${run.error})` : ""}`;
 			try {
-				await this.d.notifier.send({ title, message, priority: failed ? 1 : 0 });
+				await this.d.notifier.send({ title, message, priority: failed ? 1 : 0, sessionId: job.session_id ?? undefined, bot: job.bot });
 				this.d.db.run("UPDATE job_runs SET notified = 1 WHERE id = ?", run.id);
 			} catch (error) {
 				log.error("notification failed", { job: job.id, error: String(error) });

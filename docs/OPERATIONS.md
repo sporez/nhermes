@@ -66,6 +66,17 @@ Vory → Settings → Gateways → Add: URL `http://<host>:9120` (or the Tailsca
 proxy), authentication **Session token**, token = `NHERMES_TOKEN`. Keep the port off the internet: use
 Tailscale or a TLS proxy. Wrong tokens get HTTP 401 / WebSocket close 4401.
 
+### Notifications in Vory
+
+Vory → Settings → Notifications: allow notifications, then set up the Companion and install it on the
+gateway. No gateway restart is needed. The gateway doesn't run the Companion's Python; it sends the same
+notifications itself through the Vory push relay, which only sees encrypted payloads. You get approvals
+with Approve once / Deny, finished and failed turns, scheduled-task results and the `notify` tool, and the
+turn's Live Activity is finished. The test button in the setup sends a real push. The device registrations
+and the Companion's files are kept in `<data>/vory/`. Pushover keeps working alongside it when its keys are
+set. Removing the Companion in Vory stops the notifications. This needs a Vory build with the push relay
+built in. A build without it asks for your own APNs key instead, and the gateway doesn't support that setup.
+
 ## Administration
 
 ```sh

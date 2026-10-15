@@ -7,6 +7,7 @@ import { GROUP_LABELS } from "../tools/index.ts";
 import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
+import { VoryPushError } from "../notify/vory.ts";
 import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
 
 function botFor(core: Core, profile: string | null | undefined) {
@@ -364,6 +365,49 @@ export function restRoutes(core: Core): Router {
 			configured: true,
 			tools: tools.map((t) => t.name),
 		}));
+	});
+
+	// Vory's notification Companion: its files only (devices, markers, plugin), kept by core.vory. The
+	// Files browser stays absent (GET /api/files is 404), so Vory keeps that tab hidden.
+	const voryFiles = <T>(fn: () => T): T => {
+		try {
+			return fn();
+		} catch (error) {
+			if (error instanceof VoryPushError) throw new HttpError(error.status, error.message);
+			throw error;
+		}
+	};
+	const pathOf = (v: unknown) => {
+		if (typeof v !== "string" || !v.startsWith("/")) throw new HttpError(400, "path must be absolute");
+		return v;
+	};
+	r.on("GET", "/api/files", () => {
+		throw new HttpError(404, "Not Found");
+	});
+	r.on("POST", "/api/files/upload", (q) => {
+		const b = obj(q.body);
+		const path = pathOf(b.path);
+		const m = typeof b.data_url === "string" ? /^data:[^,]*;base64,(.*)$/s.exec(b.data_url) : null;
+		if (!m) throw new HttpError(400, "data_url must be a base64 data URL");
+		voryFiles(() => core.vory.write(path, Buffer.from(m[1]!, "base64")));
+		return { ok: true, path };
+	});
+	r.on("GET", "/api/files/read", (q) => {
+		const path = pathOf(q.query.get("path"));
+		const data = core.vory.read(path);
+		if (!data) throw new HttpError(404, "File not found");
+		const mime = path.endsWith(".json") ? "application/json" : "text/plain";
+		return { path, size: data.length, data_url: `data:${mime};base64,${data.toString("base64")}` };
+	});
+	r.on("DELETE", "/api/files", (q) => {
+		const b = obj(q.body);
+		const path = pathOf(b.path ?? q.query.get("path"));
+		voryFiles(() => core.vory.remove(path, b.recursive === true));
+		return { ok: true };
+	});
+	r.on("POST", "/api/dashboard/agent-plugins/:name/:action", (q) => {
+		if (q.params.name !== "vory-push" || !["enable", "disable"].includes(q.params.action!)) throw new HttpError(404, "Not Found");
+		return q.params.action === "enable" ? core.vory.enable() : core.vory.disable();
 	});
 
 	return r;

@@ -4,11 +4,49 @@ import { logger, redact } from "../log.ts";
 
 const log = logger("notify");
 
-export type Notification = { title: string; message: string; priority?: -1 | 0 | 1; url?: string; urlTitle?: string };
+/** `sessionId` and `bot` let a transport that can open a chat (Vory) open the one this is about. */
+export type Notification = { title: string; message: string; priority?: -1 | 0 | 1; url?: string; urlTitle?: string; sessionId?: string; bot?: string };
 
 export interface Notifier {
 	readonly name: string;
 	send(n: Notification): Promise<void>;
+}
+
+/** A transport that may have nowhere to send right now (Vory with no device registered). */
+export interface OptionalNotifier extends Notifier {
+	ready(): boolean;
+}
+
+/**
+ * Every transport that can deliver right now gets the notification; with none, it is recorded as
+ * not sent, as NullNotifier does. `name` is "none" while nothing can deliver.
+ */
+export class FanoutNotifier implements Notifier {
+	private readonly transports: (Notifier | OptionalNotifier)[];
+	private readonly fallback = new NullNotifier();
+
+	constructor(transports: (Notifier | OptionalNotifier)[]) {
+		this.transports = transports;
+	}
+
+	private active(): Notifier[] {
+		return this.transports.filter((t) => !("ready" in t) || t.ready());
+	}
+
+	get name(): string {
+		const names = this.active().map((t) => t.name);
+		return names.length ? names.join("+") : "none";
+	}
+
+	async send(n: Notification): Promise<void> {
+		const active = this.active();
+		if (active.length === 0) return this.fallback.send(n);
+		const results = await Promise.allSettled(active.map((t) => t.send(n)));
+		const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+		// One transport delivering is enough; all of them failing is the caller's error.
+		if (failed.length === active.length) throw failed[0]!.reason;
+		for (const f of failed) log.warn("notification transport failed", { error: String(f.reason).slice(0, 300) });
+	}
 }
 
 export class NotifyError extends Error {
@@ -53,6 +91,6 @@ export class NullNotifier implements Notifier {
 	readonly sent: Notification[] = [];
 	async send(n: Notification): Promise<void> {
 		this.sent.push(n);
-		log.warn("notification not sent: no transport configured (set PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN)", { title: n.title.slice(0, 80) });
+		log.warn("notification not sent: no transport configured (set PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN, or set up notifications in Vory)", { title: n.title.slice(0, 80) });
 	}
 }

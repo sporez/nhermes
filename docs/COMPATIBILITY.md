@@ -136,10 +136,10 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Kanban board | `/api/plugins/kanban/*` | Gated | 404 |
 | Bot rooms (groups) | `groups.capabilities` | Gated | -32601 → Bot Mode hidden |
 | Gateway voice (STT/TTS) | `/api/audio/*` | Gated | 404; Vory's on-device voice works |
-| Files browser | `/api/files*` | Deferred | |
+| Files browser | `GET /api/files`, `/api/files/download` | Deferred | 404, so the tab stays hidden |
 | Analytics | `/api/analytics/usage` | Deferred | |
-| APNs push / Live Activity relay | `hermes-push` companion | Deferred | Pushover is our notification channel |
-| Plugins hub, update, restart | `/api/dashboard/plugins/hub`, `/api/hermes/update*`, `/api/gateway/restart` | Deferred | systemd manages restarts |
+| Notifications (Companion) | `/api/files/upload`, `/api/files/read`, `DELETE /api/files`, `/api/dashboard/agent-plugins/vory-push/{enable,disable}`, `push/status.json` | Tested (protocol) | Through the Vory push relay only, as its Companion plugin does (`src/notify/vory.ts`): approvals, finished and failed turns, scheduled-task results and the `notify` tool; a settled approval's banner is replaced on the other devices; the turn's Live Activity is finished. Installing the Companion in Vory stores its files (never run); the files API takes only those paths under a bot's home and keeps them in `<data>/vory`. Not sent: Live Activity progress, push-to-start, watch complications, clarify questions |
+| Plugins hub, update, restart | `/api/dashboard/plugins/hub`, `/api/hermes/update*`, `/api/gateway/restart` | Deferred | systemd manages restarts; the Companion never needs one (its heartbeat reports it reloads in place) |
 
 ## Cadu
 

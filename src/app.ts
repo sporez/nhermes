@@ -23,7 +23,8 @@ import { logger } from "./log.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
-import { type Notifier, NullNotifier, PushoverNotifier } from "./notify/notifier.ts";
+import { FanoutNotifier, type Notifier, PushoverNotifier } from "./notify/notifier.ts";
+import { VoryPush } from "./notify/vory.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
@@ -54,6 +55,8 @@ export type Core = {
 	skills: Skills;
 	scheduler: Scheduler;
 	notifier: Notifier;
+	/** Vory's own notifications through its push relay (what its Companion plugin does on Hermes). */
+	vory: VoryPush;
 	browsers: Browsers;
 	settings: Settings;
 	members: Members;
@@ -86,6 +89,8 @@ export type CoreOptions = {
 	features?: (late: LateServices) => Feature[];
 	/** Notification transport override (tests). */
 	notifier?: Notifier;
+	/** Replaces the HTTP call to the Vory push relay (tests). */
+	voryFetch?: typeof fetch;
 	browserHeadless?: boolean;
 	browserExecutable?: string;
 	/** Software updates: the checkout, package install and restart (the CLI passes restart; tests replace the rest). */
@@ -154,7 +159,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const memory = new MemoryStore(db);
 	const skills = new Skills(config.skillsDir, db);
 	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
-	const notifier: Notifier = options.notifier ?? (config.pushover ? new PushoverNotifier(config.pushover) : new NullNotifier());
+	const vory = new VoryPush({ dir: join(config.dataDir, "vory"), hub, bots, sessions: () => sessions, fetch: options.voryFetch });
+	const notifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
 	let scheduler: Scheduler | undefined;
 	const selfServices: SelfServices = {
 		skills,
@@ -260,6 +266,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 
 	const settings = new Settings({ config, bots, toolGroups: () => [...toolGroups.keys()], botChanged: (name) => hosts.reset(name) });
 
+	vory.start();
 	engine.resume();
 	const reattached = await sessions.attachBusy();
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
@@ -280,6 +287,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		skills,
 		scheduler,
 		notifier,
+		vory,
 		browsers,
 		settings,
 		members,
@@ -293,6 +301,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		close: async () => {
 			members.stop();
 			updates.stop();
+			vory.stop();
 			proxy.close();
 			await scheduler!.stop();
 			await browsers.close();

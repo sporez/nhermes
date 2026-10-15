@@ -130,7 +130,7 @@ with only the high-impact patterns asking.
 | `skills` | `skill` (load a SKILL.md by name), `skill_list` | The prompt lists names + descriptions only |
 | `schedule` | `schedule_create/list/update/delete/run` | Same service the Vory cron screens use |
 | `delegate` | `delegate` (ask another bot, wait or not), `delegate_result` | Durable child conversations / peer HTTP |
-| `notify` | `notify` (Pushover) | |
+| `notify` | `notify` (Vory and/or Pushover) | |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
 | `self` | `self_info`, `nhermes_docs`, `self_update`, `self_skill_write/delete`; trusted bots also `gateway_bot_update/add/remove`, `gateway_update`, `gateway_reload`, `gateway_skill_write/delete`, `gateway_software` | Adds the `about` prompt section (what nHermes is, the bot's live settings, a docs map). Edits go through `Settings`; every change asks the owner with a diff (never Jev, no "always"); refused in jobs, from network members, and (gateway tools) through an untrusted delegation chain. `src/tools/self.ts` |
@@ -178,7 +178,7 @@ Conversation history stays in Pi Durable and is not copied into memory.
   skips the reset so runs share one thread (Durable compacts it as it grows); switching a job to it
   continues from the last run. `deliver: chat`
   also posts a notice into the bot's most recent chat; `notify: never|always|on_error|on_change|agent`
-  decides Pushover (`agent`: the run calls `notify` itself).
+  decides the notification (`agent`: the run calls `notify` itself).
 
 Exactly-once is **not** claimed for side effects: Durable request deduplication only guarantees the
 run is not submitted twice.
@@ -243,4 +243,5 @@ restore <file>`, start. Deployment: one systemd unit (or a rootless Podman quadl
 
 No Postgres, Redis, broker or orchestrator: one owner, one process, two SQLite files. No vector store:
 FTS5 is enough until a concrete recall failure shows otherwise. No web dashboard: Vory and the CLI cover
-administration. No messaging-platform integrations: Pushover for alerts, Vory for conversation.
+administration. No messaging-platform integrations: Vory for conversation and its own notifications (through the
+Vory push relay, `src/notify/vory.ts`), Pushover as an optional second channel.
