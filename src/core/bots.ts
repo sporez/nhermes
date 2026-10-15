@@ -45,7 +45,7 @@ export type Bot = {
 	config: BotConfig;
 };
 
-export const DEFAULT_TOOL_GROUPS = ["files", "shell", "web", "memory", "skills", "schedule", "delegate", "notify"];
+export const DEFAULT_TOOL_GROUPS = ["files", "shell", "web", "memory", "skills", "self", "schedule", "delegate", "notify"];
 
 const DEFAULT_INSTRUCTIONS =
 	"You are a capable personal assistant running on the owner's own server. Be direct and concise. " +

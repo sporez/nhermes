@@ -32,6 +32,7 @@ import { webFeature } from "./tools/web.ts";
 import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
 import { desktopFeature } from "./tools/desktop.ts";
+import { selfFeature } from "./tools/self.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -157,6 +158,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const features = [
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
+		selfFeature(late, { skills }),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),
