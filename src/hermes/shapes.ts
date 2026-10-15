@@ -148,6 +148,7 @@ export function cronJobJson(job: JobRow, last: RunRow | undefined, running: bool
 		prompt_preview: job.prompt.slice(0, 160),
 		deliver: job.deliver,
 		notify: job.notify,
+		context: job.context,
 		approvals: job.approvals,
 		model: job.model,
 		skills: JSON.parse(job.skills) as string[],

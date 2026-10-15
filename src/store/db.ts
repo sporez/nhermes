@@ -199,6 +199,10 @@ const MIGRATIONS: readonly string[] = [
 	);
 	CREATE INDEX reviews_recent ON reviews(id DESC);
 	`,
+	// 10: a job can keep one thread across runs ("continue") instead of starting each from a fresh context
+	`
+	ALTER TABLE jobs ADD COLUMN context TEXT NOT NULL DEFAULT 'fresh';
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

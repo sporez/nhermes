@@ -26,6 +26,7 @@ const log = logger("scheduler");
 export type NotifyPolicy = "never" | "always" | "on_error" | "on_change" | "agent";
 export type Deliver = "session" | "chat";
 export type UnattendedApprovals = "deny" | "allow" | "ask";
+export type JobContext = "fresh" | "continue";
 
 export type JobRow = {
 	id: string;
@@ -39,6 +40,7 @@ export type JobRow = {
 	skills: string;
 	notify: NotifyPolicy;
 	deliver: Deliver;
+	context: JobContext;
 	approvals: UnattendedApprovals;
 	catch_up_s: number;
 	enabled: number;
@@ -76,6 +78,8 @@ export type JobInput = {
 	skills?: string[];
 	notify?: NotifyPolicy;
 	deliver?: Deliver;
+	/** "continue" keeps one thread across runs; "fresh" (default) resets it before each. */
+	context?: JobContext;
 	approvals?: UnattendedApprovals;
 	catchUpS?: number;
 	enabled?: boolean;
@@ -160,6 +164,7 @@ export class Scheduler {
 		if (input.bot !== undefined && this.d.bots.get(input.bot)!.isPeer) throw new JobError(400, `${input.bot} is on another machine; schedule the task there`);
 		if (input.notify !== undefined && !NOTIFY.includes(input.notify)) throw new JobError(400, `notify must be one of ${NOTIFY.join(", ")}`);
 		if (input.deliver !== undefined && !["session", "chat"].includes(input.deliver)) throw new JobError(400, "deliver must be session or chat");
+		if (input.context !== undefined && !["fresh", "continue"].includes(input.context)) throw new JobError(400, "context must be fresh or continue");
 		if (input.approvals !== undefined && !["deny", "allow", "ask"].includes(input.approvals)) throw new JobError(400, "approvals must be deny, allow or ask");
 		if (input.model && !this.d.modelExists(input.model)) throw new JobError(400, `unknown model "${input.model}"`);
 		if (input.prompt !== undefined && !input.prompt.trim()) throw new JobError(400, "prompt is required");
@@ -192,8 +197,8 @@ export class Scheduler {
 		// A one-shot already due runs at the next tick; anything else from its next occurrence.
 		const next = spec.kind === "at" ? spec.at : nextRun(spec, tz, now, now);
 		this.d.db.run(
-			`INSERT INTO jobs (id, name, bot, prompt, schedule_kind, schedule, timezone, model, skills, notify, deliver, approvals, catch_up_s, enabled, next_run_at, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO jobs (id, name, bot, prompt, schedule_kind, schedule, timezone, model, skills, notify, deliver, context, approvals, catch_up_s, enabled, next_run_at, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			input.name.trim(),
 			input.bot,
@@ -205,6 +210,7 @@ export class Scheduler {
 			JSON.stringify(input.skills ?? []),
 			input.notify ?? "on_error",
 			input.deliver ?? "session",
+			input.context ?? "fresh",
 			input.approvals ?? "deny",
 			input.catchUpS ?? 6 * 3600,
 			input.enabled === false ? 0 : 1,
@@ -229,6 +235,7 @@ export class Scheduler {
 		if (patch.skills !== undefined) fields.skills = JSON.stringify(patch.skills);
 		if (patch.notify !== undefined) fields.notify = patch.notify;
 		if (patch.deliver !== undefined) fields.deliver = patch.deliver;
+		if (patch.context !== undefined) fields.context = patch.context;
 		if (patch.approvals !== undefined) fields.approvals = patch.approvals;
 		if (patch.catchUpS !== undefined) fields.catch_up_s = patch.catchUpS;
 		if (patch.timezone !== undefined) fields.timezone = tz;
@@ -341,7 +348,8 @@ export class Scheduler {
 	private jobPrompt(job: JobRow, occurrence: string): string {
 		const when = occurrence.startsWith("manual:") ? `run by hand at ${occurrence.slice(7)}` : `scheduled for ${occurrence}`;
 		const agentNotify = job.notify === "agent" ? "\n\nIf the result is something the owner should know about now, call the notify tool with a short message; otherwise do not." : "";
-		return `[Scheduled task "${job.name}" (${when}). Nobody is watching this run: work autonomously, and finish with a short report of what you found or did.]${agentNotify}\n\n${job.prompt}`;
+		const thread = job.context === "continue" ? " Earlier runs of this task are above in this thread: use them (what you already reported, what changed since) and do not repeat what the owner was already told unless it changed." : "";
+		return `[Scheduled task "${job.name}" (${when}).${thread} Nobody is watching this run: work autonomously, and finish with a short report of what you found or did.]${agentNotify}\n\n${job.prompt}`;
 	}
 
 	private ensureSession(job: JobRow) {
@@ -368,7 +376,8 @@ export class Scheduler {
 				await this.d.sessions.followBot(session.id);
 			}
 			await this.d.sessions.live(session.id);
-			await this.d.engine.reset(session.conversation_id);
+			// "continue" keeps the thread (switching from fresh continues from the last run, which the session still holds)
+			if (job.context !== "continue") await this.d.engine.reset(session.conversation_id);
 			const subId = await this.submissionOf(session.conversation_id, `job:${job.id}:${occurrence}`, job, occurrence);
 			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
 			this.d.db.run("UPDATE job_runs SET submission_id = ? WHERE id = ?", subId, run.id);

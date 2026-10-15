@@ -64,6 +64,40 @@ test("a due job runs in its own session without a client and records history; th
 	}
 });
 
+test("context: continue keeps one thread across runs; fresh (default) starts each run empty; bad values are rejected", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models, notifier: new Recorder() });
+	try {
+		const seen: string[] = [];
+		const reply = (text: string) => (ctx: unknown) => {
+			seen.push(JSON.stringify(ctx));
+			return fauxAssistantMessage([fauxText(text)]);
+		};
+		const runTwice = async (context: "fresh" | "continue") => {
+			const job = core.scheduler.create({ name: `Watch ${context}`, bot: "main", prompt: "check", schedule: "every 1h", context });
+			assert.equal(job.context, context);
+			seen.length = 0;
+			faux.setResponses([reply(`first-${context}-marker`), reply("second")]);
+			for (const n of [1, 2]) {
+				await core.scheduler.trigger(job.id);
+				await until(() => core.scheduler.runs(job.id).filter((r) => r.status === "ok").length === n || undefined);
+			}
+			return seen[1]!;
+		};
+		assert.ok((await runTwice("continue")).includes("first-continue-marker"), "the second run sees the first run");
+		assert.ok(!(await runTwice("fresh")).includes("first-fresh-marker"), "a fresh run does not");
+		assert.equal(core.scheduler.create({ name: "Default", bot: "main", prompt: "x", schedule: "every 1h" }).context, "fresh");
+		assert.throws(() => core.scheduler.create({ name: "Bad", bot: "main", prompt: "x", schedule: "every 1h", context: "forever" as never }), /context must be/);
+		const job = core.scheduler.list()[0]!;
+		assert.throws(() => core.scheduler.update(job.id, { context: "x" as never }), /context must be/);
+		assert.equal(core.scheduler.update(job.id, { context: "fresh" }).context, "fresh");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
 test("overlap is skipped, long-missed occurrences are recorded as missed, recent ones caught up once", async () => {
 	const { dir, cleanup } = await tempDir();
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 50 });

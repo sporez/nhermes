@@ -40,6 +40,10 @@ test("cron REST surface", async () => {
 		assert.equal(edited.json.schedule, "30 6 * * *");
 		assert.equal(edited.json.prompt, "Summarize alerts and failed jobs");
 		assert.equal((await call("PUT", `/api/cron/jobs/${id}`, { updates: { schedule: "whenever" } })).status, 400);
+		assert.equal(created.json.context, "fresh");
+		assert.equal((await call("PUT", `/api/cron/jobs/${id}`, { updates: { context: "continue" } })).json.context, "continue");
+		assert.equal((await call("GET", `/api/cron/jobs/${id}`)).json.context, "continue");
+		assert.equal((await call("PUT", `/api/cron/jobs/${id}`, { updates: { context: "forever" } })).status, 400);
 
 		assert.equal((await call("POST", `/api/cron/jobs/${id}/pause`)).json.state, "paused");
 		assert.equal((await call("GET", `/api/cron/jobs/${id}`)).json.next_run_at, null);

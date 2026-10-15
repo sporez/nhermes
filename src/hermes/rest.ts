@@ -257,6 +257,7 @@ export function restRoutes(core: Core): Router {
 		if (s("profile") !== undefined || s("bot") !== undefined) p.bot = s("bot") ?? s("profile");
 		if (s("notify") !== undefined) p.notify = s("notify") as JobInput["notify"];
 		if (s("deliver") !== undefined && ["session", "chat"].includes(s("deliver")!)) p.deliver = s("deliver") as JobInput["deliver"];
+		if (s("context") !== undefined) p.context = s("context") as JobInput["context"];
 		if (s("approvals") !== undefined) p.approvals = s("approvals") as JobInput["approvals"];
 		if ("model" in raw && (raw.model === null || typeof raw.model === "string")) p.model = (raw.model as string | null) || null;
 		if (Array.isArray(raw.skills)) p.skills = raw.skills.filter((x): x is string => typeof x === "string");

@@ -173,7 +173,9 @@ Conversation history stays in Pi Durable and is not copied into memory.
   that were mid-execution are not replayed unless they are replay-safe (Pi Durable rule). The run
   record waits on the same submission after restart.
 - **Results:** each job has one session (kind `job`, listed in Vory); every run starts it from a fresh
-  context (Durable reset), so runs are independent while their history stays readable. `deliver: chat`
+  context (Durable reset), so runs are independent while their history stays readable. `context: continue`
+  skips the reset so runs share one thread (Durable compacts it as it grows); switching a job to it
+  continues from the last run. `deliver: chat`
   also posts a notice into the bot's most recent chat; `notify: never|always|on_error|on_change|agent`
   decides Pushover (`agent`: the run calls `notify` itself).
 

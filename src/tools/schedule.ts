@@ -21,9 +21,12 @@ export function localTime(epochS: number, timezone: string): string {
 export function describeJob(s: Scheduler, j: JobRow): string {
 	const last = s.lastRun(j.id);
 	const next = j.next_run_at ? localTime(j.next_run_at, j.timezone) : "none";
-	return `${j.id} "${j.name}" bot=${j.bot} schedule="${describeSpec(specOf(j))}" tz=${j.timezone} ${j.enabled ? "enabled" : "paused"} next=${next} notify=${j.notify}${last ? ` last=${last.status}` : ""}`;
+	return `${j.id} "${j.name}" bot=${j.bot} schedule="${describeSpec(specOf(j))}" tz=${j.timezone} ${j.enabled ? "enabled" : "paused"} next=${next} notify=${j.notify} context=${j.context}${last ? ` last=${last.status}` : ""}`;
 }
 
+const ContextMode = Type.Union([Type.Literal("fresh"), Type.Literal("continue")], {
+	description: "fresh (default): every run starts from an empty context. continue: runs share one thread, so a run sees what earlier runs found and reported (use for watching for changes or following up).",
+});
 const NotifyPolicy = Type.Union([Type.Literal("never"), Type.Literal("always"), Type.Literal("on_error"), Type.Literal("on_change"), Type.Literal("agent")]);
 
 export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, notifier: () => Notifier): Feature {
@@ -57,11 +60,12 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 			skills: Type.Optional(Type.Array(Type.String())),
 			model: Type.Optional(Type.String({ description: "provider/model override" })),
 			deliver: Type.Optional(Type.Union([Type.Literal("session"), Type.Literal("chat")])),
+			context: Type.Optional(ContextMode),
 		}),
 		execute: async (args, api) => {
 			const bot = botOf(api.conversationId as number);
 			const job = wrap(() =>
-				scheduler().create({ name: args.name, prompt: args.prompt, schedule: args.schedule, timezone: args.timezone, bot: args.bot ?? bot.name, notify: args.notify, skills: args.skills, model: args.model, deliver: args.deliver }),
+				scheduler().create({ name: args.name, prompt: args.prompt, schedule: args.schedule, timezone: args.timezone, bot: args.bot ?? bot.name, notify: args.notify, skills: args.skills, model: args.model, deliver: args.deliver, context: args.context }),
 			);
 			return text(`Created ${describeJob(scheduler(), job)}`);
 		},
@@ -78,7 +82,7 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 	});
 	const update = defineTool({
 		name: "schedule_update",
-		description: "Change a scheduled task: name, prompt, schedule, timezone, notify, enabled (pause/resume).",
+		description: "Change a scheduled task: name, prompt, schedule, timezone, notify, context, enabled (pause/resume).",
 		parameters: Type.Object({
 			id: Type.String(),
 			name: Type.Optional(Type.String()),
@@ -86,6 +90,7 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 			schedule: Type.Optional(Type.String()),
 			timezone: Type.Optional(Type.String()),
 			notify: Type.Optional(NotifyPolicy),
+			context: Type.Optional(ContextMode),
 			enabled: Type.Optional(Type.Boolean()),
 		}),
 		execute: async (args) => {
