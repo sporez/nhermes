@@ -4,7 +4,9 @@
 // Either way, every change must come from the panel's own page: a custom header that cross-site pages
 // cannot send without a CORS preflight (never granted), a matching Origin, and a Host that is an address
 // or a local name (so a public DNS name pointed at this machine cannot reach it from a browser).
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { hostname, networkInterfaces } from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join } from "node:path";
 import { configView } from "../admin.ts";
@@ -194,6 +196,14 @@ export class Panel {
 		r.on("DELETE", "/panel/api/network/members/:name", async (q) => (await c.members.remove(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
 
+		// Connecting a client (Vory): the addresses to use, and the gateway token shown on request.
+		r.on("GET", "/panel/api/connect", () => ({ addresses: clientAddresses(c), tokenEnv: c.config.tokenEnv }));
+		r.on("POST", "/panel/api/connect/token", () => ({
+			token: c.config.token,
+			// A token generated in the Keys tab replaces this one at the next restart.
+			newTokenAfterRestart: (process.env[c.config.tokenEnv] ?? c.config.token) !== c.config.token,
+		}));
+
 		// Software: version, what is new on GitHub, update (restarts the gateway) and going back.
 		r.on("GET", "/panel/api/software", () => ({ ...c.updates.status(), running: c.sessions.runningCount() }));
 		r.on("POST", "/panel/api/software/check", () => ({ ...c.updates.check(), running: c.sessions.runningCount() }));
@@ -333,6 +343,47 @@ export class Panel {
 		});
 		return r;
 	}
+}
+
+/** The URLs a client on the LAN or the tailnet can reach this gateway at, most useful first. */
+export function clientAddresses(c: Core): { label: string; url: string }[] {
+	const { host, port } = c.config.server;
+	const out: { label: string; url: string }[] = [];
+	const add = (label: string, h: string) => {
+		const url = `http://${h.includes(":") ? `[${h}]` : h}:${port}`;
+		if (!out.some((a) => a.url === url)) out.push({ label, url });
+	};
+	if (c.config.node.url) out.push({ label: "Configured address (node.url)", url: c.config.node.url.replace(/\/$/, "") });
+	if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+		add("This machine only (server.host is local)", "127.0.0.1");
+		return out;
+	}
+	if (host !== "0.0.0.0" && host !== "::") {
+		add("Listening address", host);
+		return out;
+	}
+	const ipv4 = Object.values(networkInterfaces()).flatMap((l) => l ?? []).filter((i) => i.family === "IPv4" && !i.internal).map((i) => i.address);
+	for (const a of ipv4.filter((a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a))) add("Home network", a);
+	const name = hostname().split(".")[0];
+	if (name) add("Home network, by name", `${name}.local`);
+	for (const a of ipv4.filter((a) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a))) add("Tailscale (away from home)", a);
+	const magic = tailscaleName();
+	if (magic) add("Tailscale, by name", magic);
+	return out;
+}
+
+/** This machine's Tailscale MagicDNS name, when the tailscale command is there to ask. */
+function tailscaleName(): string | undefined {
+	for (const bin of ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]) {
+		try {
+			const s = JSON.parse(execFileSync(bin, ["status", "--json"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] })) as { Self?: { DNSName?: string } };
+			const n = s.Self?.DNSName?.replace(/\.$/, "");
+			if (n) return n;
+		} catch {
+			// Not installed or not running.
+		}
+	}
+	return undefined;
 }
 
 function translate(error: unknown): { status: number; message: string } {

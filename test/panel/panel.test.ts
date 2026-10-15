@@ -200,3 +200,21 @@ test("panel: keys are write-only, review settings and the review log", async () 
 		await cleanup();
 	}
 });
+
+test("panel: connecting a client shows addresses and, on request, the token", async () => {
+	const { core, server, base, panel, cleanup } = await setup();
+	try {
+		const r = (await panel("GET", "/connect")).json as { addresses: { label: string; url: string }[]; tokenEnv: string };
+		assert.equal(r.tokenEnv, "NHERMES_TOKEN");
+		assert.deepEqual(r.addresses.map((a) => a.url), [`http://127.0.0.1:${core.config.server.port}`]);
+		assert.match(r.addresses[0]!.label, /This machine only/);
+		assert.equal(JSON.stringify(r).includes(TOKEN), false, "the token is not part of the address list");
+		// The token comes only from a deliberate request from the panel page.
+		assert.equal((await fetch(`${base}/panel/api/connect/token`, { method: "POST" })).status, 403);
+		assert.deepEqual((await panel("POST", "/connect/token")).json, { token: TOKEN, newTokenAfterRestart: false });
+	} finally {
+		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});

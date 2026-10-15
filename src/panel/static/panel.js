@@ -25,6 +25,27 @@ function show(...kids) {
 	view.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
 }
 
+/**
+ * Copies text. The clipboard API exists only on HTTPS or localhost; the panel is usually plain HTTP on the
+ * LAN, so fall back to selecting a hidden field and the older copy command.
+ */
+async function copyText(text, what = "text") {
+	try {
+		if (navigator.clipboard && window.isSecureContext) {
+			await navigator.clipboard.writeText(text);
+			return toast("Copied");
+		}
+		const area = h("textarea", { value: text, readOnly: true, class: "offscreen" });
+		document.body.append(area);
+		area.select();
+		const ok = document.execCommand("copy");
+		area.remove();
+		ok ? toast("Copied") : toast(`Copy failed; select the ${what} by hand`, true);
+	} catch {
+		toast(`Copy failed; select the ${what} by hand`, true);
+	}
+}
+
 class AuthError extends Error {}
 
 async function api(method, path, body) {
@@ -334,7 +355,7 @@ async function networkScreen() {
 }
 
 function showInvite(out, r) {
-	const copy = h("button", { on: { click: () => { navigator.clipboard?.writeText(r.code).then(() => toast("Copied"), () => toast("Copy failed; select the code by hand", true)); } } }, "Copy");
+	const copy = h("button", { on: { click: () => copyText(r.code, "code") } }, "Copy");
 	const card = h("div", { class: "card" }, h("h3", {}, "Invitation code"), h("div", { class: "code" }, r.code), copy,
 		h("p", {}, "On the other machine run: ", h("span", { class: "mono" }, `nhermes join ${r.code}`), ", or paste the code in its panel."),
 		h("div", { class: "muted small" }, `Expires ${when(r.expiresAt)} (${ago(r.expiresAt)}).`));
@@ -491,7 +512,7 @@ async function keysScreen() {
 			h("div", { class: "notice warn" }, "Shown only once. Vory and the nhermes command need this new token after the gateway restarts."),
 			h("div", { class: "code mono" }, t.value),
 			h("div", { class: "row" },
-				h("button", { on: { click: () => { navigator.clipboard?.writeText(t.value).then(() => toast("Copied"), () => toast("Copy failed; select the token by hand", true)); } } }, "Copy"),
+				h("button", { on: { click: () => copyText(t.value, "token") } }, "Copy"),
 				h("button", { on: { click: () => { newToken.replaceChildren(); redo(); } } }, "Done (hide it)")));
 		newToken.replaceChildren(box);
 	});
@@ -703,6 +724,7 @@ async function gatewayScreen() {
 		: h("div", {}, h("p", { class: "muted" }, "No password: anyone on your network can open this panel."), h("button", { on: { click: setPassword(false) } }, "Set a password"));
 
 	show(h("h1", {}, "Gateway"),
+		connectCard(),
 		h("div", { class: "card" }, h("strong", {}, state.node.name), h("div", { class: "muted small" }, state.node.url), h("div", { class: "muted small mono" }, state.configPath)),
 		h("div", { class: "card" }, h("h3", {}, "Defaults"),
 			h("div", { class: "grid2" }, field("Model", model), field("Thinking", thinking), field("Approval mode", mode), field("Approval timeout (seconds)", timeout, "Takes effect after a restart")),
@@ -718,6 +740,36 @@ async function gatewayScreen() {
 			h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save")),
 		h("div", { class: "card" }, h("h3", {}, "Panel password"), pass),
 		softwareCard());
+}
+
+/** What a client such as Vory needs: an address and the gateway token (shown only when asked). */
+function connectCard() {
+	const addresses = h("div", {}, h("div", { class: "muted small" }, "Loading…"));
+	const tokenBox = h("div");
+	const hideToken = () => tokenBox.replaceChildren(h("button", { on: { click: showToken } }, "Show token"));
+	const showToken = () => run(async () => {
+		const r = await api("POST", "/connect/token");
+		tokenBox.replaceChildren(
+			h("div", { class: "row" }, h("span", { class: "mono token" }, r.token),
+				h("button", { on: { click: () => copyText(r.token, "token") } }, "Copy"),
+				h("button", { class: "link", on: { click: hideToken } }, "Hide")),
+			r.newTokenAfterRestart && h("div", { class: "notice warn" }, "A new token was generated in Keys; this one stops working when the gateway restarts."),
+		);
+	});
+	hideToken();
+	run(async () => {
+		const r = await api("GET", "/connect");
+		addresses.replaceChildren(...(r.addresses.length
+			? r.addresses.map((a) => h("div", { class: "row between" },
+				h("div", {}, h("div", { class: "mono" }, a.url), h("div", { class: "muted small" }, a.label)),
+				h("button", { on: { click: () => copyText(a.url, "address") } }, "Copy")))
+			: [h("div", { class: "muted" }, "No network address found.")]));
+	});
+	return h("div", { class: "card" }, h("h3", {}, "Connect a client"),
+		h("p", { class: "muted small" }, "In Vory: Settings → Gateways → Add. Use one of these addresses, choose Session token, and paste the token."),
+		h("div", { class: "field" }, h("span", {}, "Address"), addresses),
+		h("div", { class: "field" }, h("span", {}, "Token"), tokenBox,
+			h("div", { class: "hint" }, "Every device uses this same token. To cut all devices off, generate a new one in Keys and enter it again on the ones you keep.")));
 }
 
 /** Version, what is new on GitHub, update (the gateway restarts) and going back. */
