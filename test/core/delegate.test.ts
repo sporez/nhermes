@@ -174,3 +174,35 @@ test("a private bot is left out of other bots' rosters and refused as a delegati
 		await cleanup();
 	}
 });
+
+test("every bot gets the ground rules; one without the delegate tool is told it cannot reach other bots", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, {
+		models,
+		config: testConfig(dir, [
+			{ name: "main", default: true, instructions: "main" },
+			{ name: "ops", description: "Infrastructure", tools: ["files", "shell"] },
+		]),
+	});
+	try {
+		const s = await core.sessions.create("ops");
+		const c = collect(core.hub, s.id);
+		let prompt = "";
+		faux.setResponses([
+			(context) => {
+				prompt = JSON.stringify(context.messages);
+				return fauxAssistantMessage([fauxText("I have no way to reach that bot.")]);
+			},
+		]);
+		await core.sessions.submit(s.id, "Ask @main what time it is");
+		await c.until((e) => e.type === "run.finished", 10000);
+		assert.match(prompt, /Ground rules/);
+		assert.match(prompt, /no delegate tool[^"]*answer that you have no way to reach it/);
+		assert.ok(prompt.includes(core.config.dataDir), "the gateway's data folder is named");
+		assert.doesNotMatch(prompt, /Other bots you can ask/, "no roster without the delegate tool");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});

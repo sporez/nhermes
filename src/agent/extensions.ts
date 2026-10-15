@@ -25,10 +25,28 @@ export type AgentDeps = {
 	delegationChain: (sessionId: string) => Bot[];
 	/** Session kinds with no client to ask (jobs): how a needed approval is answered. */
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
+	/** The gateway's own folders (config and data); bots are told to leave them alone. */
+	gatewayPaths: string[];
 };
 
 function today(tz: string): string {
 	return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" }).format(new Date());
+}
+
+/**
+ * Rules every bot gets, whatever its instructions say. A bot's shell runs with the gateway's own
+ * permissions, so it could reach the gateway's secrets and other machines; these rules are what keeps
+ * a resourceful model from building its own way around a missing tool (the approval guard and the
+ * operating-system user are the hard limits).
+ */
+export function groundRules(gatewayPaths: readonly string[]): string {
+	return [
+		"Ground rules (these always apply):",
+		"- Work only through the tools you were given. If a task needs a capability you do not have, say so plainly in one or two sentences and stop. Do not build a way around it: no scripts, no reading another program's files or databases, no calling APIs on your own to stand in for a missing tool.",
+		"- In particular: if asked to contact another bot (for example with @name) and you have no delegate tool, or that bot is not in your list, answer that you have no way to reach it. Never message other bots, gateways or machines by any other route.",
+		`- Never read, copy, change or use this gateway's own configuration, secrets, credentials or databases, nor act as the gateway or as another bot. That includes ${gatewayPaths.map((p) => `\`${p}\``).join(" and ")} (config.yaml, secrets.env, auth.json, app.sqlite, durable.sqlite) and any token or key you come across.`,
+		"- When you are unsure whether something is allowed, ask the owner first.",
+	].join("\n");
 }
 
 export function personaExtension(deps: AgentDeps): Extension {
@@ -44,6 +62,7 @@ export function personaExtension(deps: AgentDeps): Extension {
 					if (!bot || !row) return undefined;
 					const parts = [bot.instructions.trim()];
 					parts.push(`You are the bot "${bot.displayName}" (id ${bot.name}). Today is ${today(deps.timezone)} (${deps.timezone}).`);
+					parts.push(groundRules(deps.gatewayPaths));
 					for (const part of deps.promptParts) {
 						const text = await part(bot, row.id);
 						if (text) parts.push(text.trim());

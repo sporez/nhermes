@@ -103,6 +103,11 @@ If the gateway restarts while a call waits, the call has no intent yet, so Pi Du
 phase and the question is asked again; nothing ran. Scheduled runs (no client) use the job's
 `approvals: deny|allow` policy and notify on a denied action instead of waiting.
 
+Every bot's prompt carries fixed ground rules (`groundRules` in `src/agent/extensions.ts`): use only the
+tools it has and say so when one is missing, reach other bots only through `delegate`, and leave the
+gateway's own config, secrets and databases alone. A bot's shell runs as the gateway's user, so these
+rules, the approval guard and the operating-system user are what keep it from the gateway's secrets.
+
 Trust boundaries: bot instructions and configured hosts are owner-trusted. Tool output (web pages, files,
 logs, API responses) is untrusted content; it never changes policy, and approvals are keyed on what the
 call does, not on what a page said. A bot marked `trusted: true` with a host gets broad shell and sudo,

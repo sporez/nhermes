@@ -184,6 +184,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			return out;
 		},
 		unattendedPolicy: (sessionId) => scheduler?.approvalsFor(sessionId) ?? "ask",
+		gatewayPaths: [...new Set([config.configDir, config.dataDir])],
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
