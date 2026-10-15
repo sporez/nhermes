@@ -65,6 +65,8 @@ export type Config = {
 	secretsPath: string;
 	/** Jev permission review in the approval guard (active when its key is set). */
 	review: ReviewConfig;
+	/** Model providers left out of model pickers (Vory, the panel); `models.hide` in config.yaml. */
+	modelLists: { hide: string[] };
 	pi: { authPath: string; modelsPath: string };
 	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number };
 	skillsDir: string;
@@ -279,6 +281,8 @@ export function loadConfig(configPath: string): Config {
 		tokenEnv,
 		secretsPath: secretsFile,
 		review: parseReview(doc.review),
+		// OpenRouter's key is there for Jev review; its hundreds of models stay out of the pickers unless asked for.
+		modelLists: { hide: strList(asRecord(doc.models, "models").hide, "models.hide") ?? ["openrouter"] },
 		pi: {
 			authPath: expandPath(str(pi.authPath, "pi.authPath") ?? "~/.pi/agent/auth.json", configDir),
 			modelsPath: expandPath(str(pi.modelsPath, "pi.modelsPath") ?? "~/.pi/agent/models.json", configDir),

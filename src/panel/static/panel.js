@@ -35,15 +35,40 @@ async function copyText(text, what = "text") {
 			await navigator.clipboard.writeText(text);
 			return toast("Copied");
 		}
-		const area = h("textarea", { value: text, readOnly: true, class: "offscreen" });
+		// Safari (macOS and iOS) copies only a selection it made itself, within the tap or click: a
+		// read-only field kept on screen (no keyboard pops up), selected both ways.
+		const area = h("textarea", { value: text, readOnly: true, class: "copy-buffer" });
 		document.body.append(area);
+		area.focus({ preventScroll: true });
 		area.select();
-		const ok = document.execCommand("copy");
-		area.remove();
-		ok ? toast("Copied") : toast(`Copy failed; select the ${what} by hand`, true);
+		area.setSelectionRange(0, text.length);
+		const range = document.createRange();
+		range.selectNodeContents(area);
+		const sel = window.getSelection();
+		let ok = false;
+		try {
+			ok = document.execCommand("copy");
+		} finally {
+			area.remove();
+			sel?.removeAllRanges();
+		}
+		ok ? toast("Copied") : toast(`Copy did not work in this browser; tap the ${what} to select it, then copy`, true);
 	} catch {
-		toast(`Copy failed; select the ${what} by hand`, true);
+		toast(`Copy did not work in this browser; tap the ${what} to select it, then copy`, true);
 	}
+}
+
+/** Text that selects whole on a tap, for copying by hand when a browser refuses to copy. */
+function selectable(text, cls = "") {
+	const el = h("div", { class: `selectable ${cls}` }, text);
+	el.addEventListener("click", () => {
+		const r = document.createRange();
+		r.selectNodeContents(el);
+		const s = window.getSelection();
+		s?.removeAllRanges();
+		s?.addRange(r);
+	});
+	return el;
 }
 
 class AuthError extends Error {}
@@ -356,7 +381,7 @@ async function networkScreen() {
 
 function showInvite(out, r) {
 	const copy = h("button", { on: { click: () => copyText(r.code, "code") } }, "Copy");
-	const card = h("div", { class: "card" }, h("h3", {}, "Invitation code"), h("div", { class: "code" }, r.code), copy,
+	const card = h("div", { class: "card" }, h("h3", {}, "Invitation code"), selectable(r.code, "code"), copy,
 		h("p", {}, "On the other machine run: ", h("span", { class: "mono" }, `nhermes join ${r.code}`), ", or paste the code in its panel."),
 		h("div", { class: "muted small" }, `Expires ${when(r.expiresAt)} (${ago(r.expiresAt)}).`));
 	out.prepend(card);
@@ -510,7 +535,7 @@ async function keysScreen() {
 		const t = await api("POST", "/token/new");
 		const box = h("div", { class: "card" }, h("h3", {}, "New token for ", h("span", { class: "mono" }, t.name)),
 			h("div", { class: "notice warn" }, "Shown only once. Vory and the nhermes command need this new token after the gateway restarts."),
-			h("div", { class: "code mono" }, t.value),
+			selectable(t.value, "code mono"),
 			h("div", { class: "row" },
 				h("button", { on: { click: () => copyText(t.value, "token") } }, "Copy"),
 				h("button", { on: { click: () => { newToken.replaceChildren(); redo(); } } }, "Done (hide it)")));
@@ -738,8 +763,25 @@ async function gatewayScreen() {
 				badge(rv.keySet ? "set" : "not set", rv.keySet ? "ok" : "warn"), " ", h("a", { href: "#keys" }, "Keys")),
 			h("div", { class: "hint" }, "Commands and the owner's recent messages are sent to OpenRouter/TypeSafe for review; known secrets are removed first."),
 			h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save")),
+		modelListsCard(),
 		h("div", { class: "card" }, h("h3", {}, "Panel password"), pass),
 		softwareCard());
+}
+
+/** Which providers' models appear in the model pickers here and in Vory. */
+function modelListsCard() {
+	const boxes = (state.modelProviders ?? []).map((p) => ({ p, box: h("input", { type: "checkbox", checked: p.shown }) }));
+	const save = () => run(async () => {
+		const hide = boxes.filter((b) => !b.box.checked).map((b) => b.p.name);
+		restartNote(await api("PATCH", "/gateway", { modelLists: { hide } }));
+		await loadState();
+	});
+	return h("div", { class: "card" }, h("h3", {}, "Model lists"),
+		h("p", { class: "muted small" }, "Providers whose models appear in model pickers (this panel and Vory). A model already in use stays listed."),
+		boxes.length
+			? h("div", { class: "checks" }, boxes.map(({ p, box }) => h("label", {}, box, ` ${p.name} (${p.models})`)))
+			: h("div", { class: "muted" }, "No model providers are connected."),
+		h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save"));
 }
 
 /** What a client such as Vory needs: an address and the gateway token (shown only when asked). */
@@ -750,7 +792,7 @@ function connectCard() {
 	const showToken = () => run(async () => {
 		const r = await api("POST", "/connect/token");
 		tokenBox.replaceChildren(
-			h("div", { class: "row" }, h("span", { class: "mono token" }, r.token),
+			h("div", { class: "row" }, selectable(r.token, "mono token"),
 				h("button", { on: { click: () => copyText(r.token, "token") } }, "Copy"),
 				h("button", { class: "link", on: { click: hideToken } }, "Hide")),
 			r.newTokenAfterRestart && h("div", { class: "notice warn" }, "A new token was generated in Keys; this one stops working when the gateway restarts."),
@@ -761,7 +803,7 @@ function connectCard() {
 		const r = await api("GET", "/connect");
 		addresses.replaceChildren(...(r.addresses.length
 			? r.addresses.map((a) => h("div", { class: "row between" },
-				h("div", {}, h("div", { class: "mono" }, a.url), h("div", { class: "muted small" }, a.label)),
+				h("div", {}, selectable(a.url, "mono"), h("div", { class: "muted small" }, a.label)),
 				h("button", { on: { click: () => copyText(a.url, "address") } }, "Copy")))
 			: [h("div", { class: "muted" }, "No network address found.")]));
 	});

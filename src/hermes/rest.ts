@@ -40,8 +40,14 @@ function intParam(q: URLSearchParams, key: string, def: number, max: number): nu
 	return n;
 }
 
+/** Models offered in pickers: hidden providers left out, except the model already in use. */
+export async function pickableModels(core: Core, current?: { provider: string; modelId: string }) {
+	const hide = new Set(core.config.modelLists.hide);
+	return (await core.models.getAvailable()).filter((m) => !hide.has(m.provider) || (m.provider === current?.provider && m.id === current?.modelId));
+}
+
 export async function modelOptions(core: Core, current?: { provider: string; modelId: string }) {
-	const available = await core.models.getAvailable();
+	const available = await pickableModels(core, current);
 	const byProvider = new Map<string, typeof available[number][]>();
 	for (const m of available) {
 		const list = byProvider.get(m.provider) ?? [];

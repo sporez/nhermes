@@ -26,6 +26,7 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		token: TOKEN,
 		tokenEnv: "NHERMES_TOKEN",
 		secretsPath: join(dir, "secrets.env"),
+		modelLists: { hide: ["openrouter"] },
 		review: { enabled: true, keyEnv: "TEST_JEV_KEY", allowThreshold: 0.8, timeoutMs: 3000 },
 		pi: { authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json") },
 		defaults: { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30 },

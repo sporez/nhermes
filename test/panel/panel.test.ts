@@ -218,3 +218,24 @@ test("panel: connecting a client shows addresses and, on request, the token", as
 		await cleanup();
 	}
 });
+
+test("panel: providers can be left out of model pickers; OpenRouter is by default", async () => {
+	const { core, server, panel, path, cleanup } = await setup();
+	try {
+		let state = (await panel("GET", "/state")).json as { models: string[]; modelProviders: { name: string; shown: boolean }[] };
+		assert.deepEqual(core.config.modelLists.hide, ["openrouter"]);
+		assert.deepEqual(state.modelProviders.map((p) => [p.name, p.shown]), [["faux", true]]);
+		assert.ok(state.models.includes("faux/faux-2"));
+		assert.equal((await panel("PATCH", "/gateway", { modelLists: { hide: ["openrouter", "faux"] } })).status, 200);
+		assert.match(readFileSync(path, "utf8"), /models:\n\s+hide: \[ openrouter, faux \]/);
+		state = (await panel("GET", "/state")).json as typeof state;
+		assert.deepEqual(state.models, ["faux/faux-1"], "only the model in use stays");
+		const { modelOptions } = await import("../../src/hermes/rest.ts");
+		const opts = await modelOptions(core, { provider: "faux", modelId: "faux-1" });
+		assert.deepEqual(opts.providers.map((p) => [p.slug, p.models]), [["faux", ["faux-1"]]]);
+	} finally {
+		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});

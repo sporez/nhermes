@@ -89,5 +89,6 @@ th { font-size: .78rem; color: var(--muted); font-weight: 600; }
 .review-cmd { cursor: pointer; margin: .3rem 0; }
 .review-cmd:not(.trunc) { white-space: pre-wrap; overflow-wrap: anywhere; }
 .update-badge { margin-left: .6rem; text-decoration: none; }
-.offscreen { position: fixed; left: -9999px; top: 0; }
+.copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; font-size: 16px; }
+.selectable { user-select: all; -webkit-user-select: all; cursor: text; overflow-wrap: anywhere; }
 .token { overflow-wrap: anywhere; user-select: all; }

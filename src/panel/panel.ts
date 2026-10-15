@@ -147,13 +147,18 @@ export class Panel {
 		// Overview, bots and gateway settings
 		r.on("GET", "/panel/api/state", async () => {
 			const view = configView(c);
-			const models = (await c.models.getAvailable()).map((m) => `${m.provider}/${m.id}`);
+			const all = await c.models.getAvailable();
+			const hidden = new Set(c.config.modelLists.hide);
+			const inUse = new Set([c.config.defaults.model, ...c.bots.list().filter((b) => !b.remote).map((b) => `${b.model.provider}/${b.model.modelId}`)]);
+			const models = all.map((m) => `${m.provider}/${m.id}`).filter((m) => !hidden.has(m.slice(0, m.indexOf("/"))) || inUse.has(m));
+			const providers = [...new Set(all.map((m) => m.provider))].sort().map((name) => ({ name, models: all.filter((m) => m.provider === name).length, shown: !hidden.has(name) }));
 			return {
 				node: c.members.self(),
 				gateway: view.gateway,
 				configPath: view.configPath,
 				toolGroups: view.toolGroups,
 				models,
+				modelProviders: providers,
 				bots: view.bots.filter((b) => !c.bots.get(b.name)?.remote),
 				remoteBots: c.bots.list().filter((b) => b.remote).map((b) => ({ name: b.name, displayName: b.displayName, description: b.description, node: b.remote!.node, reachable: b.remote!.reachable, model: `${b.model.provider}/${b.model.modelId}` })),
 				spaces: [...new Set(c.config.bots.flatMap((b) => b.sharedMemory ?? []))].sort(),
