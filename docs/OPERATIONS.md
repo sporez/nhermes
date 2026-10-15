@@ -143,7 +143,11 @@ Every machine runs the same gateway; together they form one network of equals (`
 - Backup: `nhermes backup` (cron it, e.g. a systemd timer, and copy the file off the machine). Secrets are
   excluded unless `--secrets`.
 - Restore: `systemctl --user stop nhermes && nhermes restore file && systemctl --user start nhermes`.
-- Upgrade: `git pull && npm ci --omit=dev && systemctl --user restart nhermes`. `app.sqlite` migrations run
+- Upgrade: the panel's Gateway tab → Software → "Update now", or `nhermes update` (`--check` lists what
+  is new; `nhermes update rollback` goes back to the version before). It fast-forwards the git checkout,
+  reinstalls packages when the lockfile changed, and restarts through systemd/launchd; it refuses local
+  changes or a version that needs a newer Node (then rerun the install script). By hand:
+  `git pull && npm ci --omit=dev && systemctl --user restart nhermes`. `app.sqlite` migrations run
   forward automatically at start (`schema_version`); Pi Durable migrates its own store. Take a backup
   first; the five Pi packages are pinned together (see `UPSTREAM.md`) and `npm run test:upstream` checks
   the API we rely on after a bump.
