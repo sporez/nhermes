@@ -108,6 +108,12 @@ tools it has and say so when one is missing, reach other bots only through `dele
 gateway's own config, secrets and databases alone. A bot's shell runs as the gateway's user, so these
 rules, the approval guard and the operating-system user are what keep it from the gateway's secrets.
 
+Jev permission review (`src/core/review.ts`): when the guard would ask and the reasons are all
+reviewable (not the destructive group, an owner ask rule or manual mode; not a job or another machine's
+work), Jev gets the owner's recent messages from the chat where the work started, the delegated task
+texts (marked as not the owner's), and the call. A confident allow runs; anything else is the card, with
+Jev's view. Reviews are logged in `app.sqlite` (`reviews`) and listed in the panel.
+
 Trust boundaries: bot instructions and configured hosts are owner-trusted. Tool output (web pages, files,
 logs, API responses) is untrusted content; it never changes policy, and approvals are keyed on what the
 call does, not on what a page said. A bot marked `trusted: true` with a host gets broad shell and sudo,

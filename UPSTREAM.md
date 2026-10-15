@@ -9,6 +9,11 @@ Reference clones live in `reference/` (git-ignored, read-only). Re-create them w
 | Hermes Agent | https://github.com/NousResearch/hermes-agent | `300228d24c593f779055204753921fbe9a2163c5` | 2026-10-14 | 2026-10-14 | MIT (Nous Research) |
 | Vory | https://github.com/matt0975/vory | `d99369bfdb64a29cae5aa7776fc13fd6ee5c152e` | 2026-10-09 | 2026-10-14 | MIT (Matthew Wagner) |
 
+`src/core/review.ts` adapts the permission-review rules and Jev request handling of the owner's
+OpenChamber plugin `opencode-auto-permissions` (0.2.15-openchamber.jev.3, local), itself based on
+https://github.com/hueyexe/opencode-auto-permissions (MIT). Jev: TypeSafe AI's `~typesafe/jev-latest`
+through OpenRouter's `/api/alpha/decisions`.
+
 Pi `main` was at `b45e0ebc` (17 commits past `v1.2.0` in the packages we use) when it was cloned. We pin the
 tag because it is what npm publishes; reading `main` would describe code we do not run.
 

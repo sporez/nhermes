@@ -93,6 +93,27 @@ scheduled jobs and gateway settings. It is open to anyone on the LAN until you s
 `panel: { enabled: false }` to turn it off, or `server.host: 127.0.0.1` to keep the whole gateway on the
 machine. The panel never shows or needs the gateway token.
 
+## Keys and tokens
+
+`secrets.env` holds the gateway token and API keys. Manage it from the panel's Keys tab or with
+`nhermes secret list`, `nhermes secret set NAME` (asks for the value without showing it) and
+`nhermes secret rm NAME`. Values are never shown again; changes apply at once except the gateway token
+and Pushover keys, which need a restart. A variable set by the service's own environment (for example in
+the systemd unit) wins over the file and is read-only here. "Generate new token" shows a new gateway
+token once: update Vory and restart the gateway. A key can also be set on other machines in the network,
+on those whose panel allows "Accept keys from other machines" (off by default).
+
+## Permission review (Jev)
+
+With `OPENROUTER_API_KEY` set (Keys tab), the approval guard asks Jev before showing an approval card:
+a confident allow (default 80%) runs without a card; otherwise the card shows Jev's view. While it is on,
+the guard also asks about more everyday commands (deleting files, git writes, ssh/rsync, inline scripts,
+containers, services), which Jev mostly answers. Never left to Jev: the destructive group (disk wipes and
+checks, power, credentials…), your own `approvals.ask` rules, manual mode, scheduled jobs set to ask,
+and work started by another machine. Commands and your recent messages in that chat go to
+OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
+allowThreshold, timeoutMs, keyEnv } }` in config.yaml. Every review is listed in the panel's Status tab.
+
 ## Network of gateways
 
 Every machine runs the same gateway; together they form one network of equals (`docs/FEDERATION.md`).

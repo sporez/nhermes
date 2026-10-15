@@ -30,11 +30,11 @@ Status: in progress (decisions recorded at the end).
 
 ## Steps
 
-- [ ] S1. Secrets service and CLI
+- [x] S1. Secrets service and CLI · `ec8a150`
 - [ ] S2. Secrets screen in the panel
 - [ ] S3. Optional: set a key on other members too
-- [ ] S4. Jev permission review in the guard
-- [ ] S5. Wider ask list, reviewed by Jev
+- [x] S4. Jev permission review in the guard · `84cef8a`
+- [x] S5. Wider ask list, reviewed by Jev · `84cef8a`
 - [ ] S6. Review log in the panel
 
 ### S1. Secrets service and CLI
@@ -110,6 +110,9 @@ Status: in progress (decisions recorded at the end).
   folders, `secrets.env`, `app.sqlite`, `durable.sqlite`, `auth.json`.
 - Without a review key these stay as they are today (the list grows only with review on), so a
   gateway without Jev does not start nagging.
+- As built: the wider list applies to trusted bots too (Jev answers it). Touching the gateway's own
+  folders and files asks always, review or not (bots' workspaces excluded); a write or edit there is
+  never left to Jev, a read or a shell command may be.
 
 ### S6. Review log in the panel
 
