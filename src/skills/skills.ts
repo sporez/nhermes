@@ -2,8 +2,9 @@
 // skills directory (a bot opts in by name or "*") and each bot's own bots/<name>/skills (always on
 // unless switched off). A job can attach extra skills to its session. Only names and descriptions go
 // into the prompt; the `skill` tool loads a body when the model decides it is relevant.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import type { Bot } from "../core/bots.ts";
 import { logger } from "../log.ts";
@@ -12,6 +13,17 @@ import type { AppDb } from "../store/db.ts";
 const log = logger("skills");
 
 export type SkillEntry = { name: string; description: string; filePath: string; baseDir: string; source: "global" | "bot"; modelInvocable: boolean };
+
+export const SKILL_FILE_MAX = 64 * 1024;
+const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** A supporting file's path inside a skill folder: relative, no `..`, no hidden parts, never SKILL.md itself. */
+function skillRelPath(path: string): string {
+	const parts = path.split("/");
+	if (!path || isAbsolute(path) || path.includes("\\") || parts.some((p) => p === "" || p === "." || p === ".." || p.startsWith("."))) throw new Error(`bad file path "${path}": use a plain relative path inside the skill folder`);
+	if (path.toLowerCase() === "skill.md") throw new Error("SKILL.md is given as skillMd, not in files");
+	return path;
+}
 
 export class Skills {
 	private readonly globalDir: string;
@@ -36,6 +48,57 @@ export class Skills {
 		const out = skills.map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, baseDir: s.baseDir, source, modelInvocable: !s.disableModelInvocation }));
 		this.cache.set(key, { at: Date.now(), skills: out });
 		return out;
+	}
+
+	/** Forgets what was read, so a write shows at once. */
+	invalidate(): void {
+		this.cache.clear();
+	}
+
+	/**
+	 * Writes a skill into `root/<name>/` (SKILL.md and supporting files; other files there stay). The name and
+	 * SKILL.md frontmatter are checked with Pi's loader first, and nothing can land outside the skill folder.
+	 */
+	write(root: string, name: string, skillMd: string, files: Record<string, string> = {}): string[] {
+		if (name.length > 64 || !SKILL_NAME.test(name)) throw new Error("skill names are lowercase letters, digits and single hyphens (at most 64 characters)");
+		const all: [string, string][] = [["SKILL.md", skillMd], ...Object.entries(files).map(([p, c]): [string, string] => [skillRelPath(p), c])];
+		if (all.length > 30) throw new Error("at most 30 files per skill");
+		for (const [p, c] of all) if (Buffer.byteLength(c) > SKILL_FILE_MAX) throw new Error(`${p} is larger than ${SKILL_FILE_MAX / 1024} KB`);
+		const tmp = mkdtempSync(join(tmpdir(), "nh-skill-"));
+		try {
+			mkdirSync(join(tmp, name));
+			writeFileSync(join(tmp, name, "SKILL.md"), skillMd);
+			const r = loadSkillsFromDir({ dir: tmp, source: "path" });
+			if (r.skills.length !== 1 || r.skills[0]!.name !== name || r.diagnostics.length > 0) {
+				throw new Error(`SKILL.md is not a valid skill (needs frontmatter with name: ${name} and a description): ${JSON.stringify(r.diagnostics[0] ?? "no skill found").slice(0, 300)}`);
+			}
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+		mkdirSync(root, { recursive: true });
+		const dir = join(realpathSync(root), name);
+		if (existsSync(dir) && (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory())) throw new Error("that skill path is not a normal folder");
+		mkdirSync(dir, { recursive: true });
+		const written: string[] = [];
+		for (const [p, c] of all) {
+			const target = resolve(dir, p);
+			if (!target.startsWith(dir + sep)) throw new Error("path is outside the skill directory");
+			mkdirSync(dirname(target), { recursive: true });
+			if (!realpathSync(dirname(target)).startsWith(dir) || (existsSync(target) && lstatSync(target).isSymbolicLink())) throw new Error("path is outside the skill directory");
+			writeFileSync(target, c);
+			written.push(p);
+		}
+		this.invalidate();
+		return written;
+	}
+
+	/** Removes one skill folder under `root` (it must hold a SKILL.md). */
+	remove(root: string, name: string): void {
+		if (!SKILL_NAME.test(name)) throw new Error("bad skill name");
+		const dir = join(root, name);
+		if (!existsSync(dir) || lstatSync(dir).isSymbolicLink() || !existsSync(join(dir, "SKILL.md"))) throw new Error(`no skill "${name}" there`);
+		rmSync(dir, { recursive: true });
+		this.invalidate();
 	}
 
 	global(): SkillEntry[] {

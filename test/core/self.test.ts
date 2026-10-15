@@ -1,7 +1,11 @@
 // Self-aware bots: the `about` prompt section, read-only self tools, own-setup edits, gateway-wide edits
 // for trusted bots, and the approval rules around them.
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { createCore } from "../../src/app.ts";
+import { loadConfig } from "../../src/config.ts";
 import { INSTALL_DIR } from "../../src/tools/self.ts";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -59,6 +63,94 @@ test("self tools: self_info shows the bot's own entry without secrets; trusted-o
 		assert.equal(t[0]!.isError, false);
 		assert.doesNotMatch(t[0]!.resultText, new RegExp(TOKEN));
 		assert.match(t[0]!.resultText, /"name": "main"/);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+const YAML = `server:
+  host: 127.0.0.1
+  port: 0
+defaults:
+  model: faux/faux-1
+bots:
+  - name: main
+    default: true
+    instructions: You are main.
+  - name: ops
+    description: Infrastructure
+    trusted: true
+`;
+
+/** A gateway built from a real config.yaml (so edits can be written), with every approval card answered "once". */
+async function setupFile(yaml = YAML) {
+	const t = await tempDir();
+	process.env.NHERMES_TOKEN = TOKEN;
+	const path = join(t.dir, "config.yaml");
+	writeFileSync(path, yaml);
+	const { models, faux } = fauxModels();
+	const core = await createCore(loadConfig(path), { models });
+	const cards: { toolName: string; description: string; command: string; choices: string[] }[] = [];
+	const answer = (choice: "once" | "deny" = "once") => core.hub.subscribeAll((_sid, e) => {
+		if (e.type === "approval.requested") {
+			cards.push(e.request);
+			core.approvals.answer(e.request.requestId, choice);
+		}
+	});
+	const off = answer();
+	const run = async (bot: string, calls: [string, Parameters<typeof fauxToolCall>[1]][]) => {
+		const s = await core.sessions.create(bot);
+		const c = collect(core.hub, s.id);
+		faux.setResponses([...calls.map(([n, a]) => fauxAssistantMessage([fauxToolCall(n, a)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
+		await core.sessions.submit(s.id, "go");
+		await c.until((e) => e.type === "run.finished");
+		return c.events.filter((e) => e.type === "tool.finished") as { resultText: string; isError: boolean }[];
+	};
+	return { ...t, path, core, faux, cards, run, off, answer };
+}
+
+test("self_update: allowed fields change config.yaml (kept as .prev); privileged fields and unknown models are refused", async () => {
+	const { core, path, run, cleanup } = await setupFile();
+	try {
+		const r = await run("main", [["self_update", { description: "Answers questions", thinking: "low" }], ["self_update", { tools: ["files", "shell"] }], ["self_update", { trusted: true }], ["self_update", { model: "nope/none" }], ["self_update", {}]]);
+		assert.equal(r[0]!.isError, false, r[0]!.resultText);
+		assert.equal(core.bots.require("main").description, "Answers questions");
+		assert.equal(core.bots.require("main").thinking, "low");
+		assert.match(readFileSync(path, "utf8"), /description: Answers questions/);
+		assert.match(readFileSync(`${path}.prev`, "utf8"), /name: main\n {4}default: true\n {4}instructions: You are main\.\n/);
+		assert.doesNotMatch(readFileSync(`${path}.prev`, "utf8"), /Answers questions/);
+		for (const i of [1, 2, 3, 4]) assert.equal(r[i]!.isError, true);
+		assert.match(r[1]!.resultText, /cannot change tools/);
+		assert.equal(core.bots.require("main").trusted, false);
+		const audit = core.db.all<{ kind: string; bot: string }>("SELECT kind, bot FROM audit WHERE kind LIKE 'config.%'");
+		assert.deepEqual(audit.map((a) => [a.kind, a.bot]), [["config.self_update", "main"]]);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("self skills: written into the bot's own folder after validation; traversal and bad skills are refused; delete works", async () => {
+	const { core, dir, run, cleanup } = await setupFile();
+	try {
+		const md = "---\nname: tidy\ndescription: Tidy the workspace\n---\n\nDelete temp files.\n";
+		const r = await run("main", [
+			["self_skill_write", { name: "tidy", skillMd: md, files: { "scripts/run.sh": "echo hi" } }],
+			["self_skill_write", { name: "../evil", skillMd: md }],
+			["self_skill_write", { name: "tidy", skillMd: md, files: { "../../config.yaml": "x" } }],
+			["self_skill_write", { name: "tidy", skillMd: md, files: { "/etc/x": "x" } }],
+			["self_skill_write", { name: "bad", skillMd: "no frontmatter" }],
+			["self_skill_write", { name: "big", skillMd: md.replace("tidy", "big") + "x".repeat(70_000) }],
+			["self_skill_delete", { name: "tidy" }],
+			["self_skill_delete", { name: "../tidy" }],
+		]);
+		assert.equal(r[0]!.isError, false, r[0]!.resultText);
+		assert.equal(r.slice(1, 6).every((x) => x.isError), true, r.map((x) => x.resultText).join("\n"));
+		assert.equal(existsSync(join(dir, "config.yaml.evil")), false);
+		assert.equal(r[6]!.isError, false, r[6]!.resultText);
+		assert.equal(r[7]!.isError, true);
+		assert.equal(existsSync(join(dir, "bots", "main", "skills", "tidy")), false);
 	} finally {
 		await core.close();
 		await cleanup();

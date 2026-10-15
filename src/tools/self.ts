@@ -1,18 +1,54 @@
 // A bot knowing nHermes: the `about` prompt section (what this is, the bot's live settings, where the
 // docs are, how things change) for bots that have the `self` tool group.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { configView } from "../admin.ts";
+import { ConfigError } from "../config.ts";
 import type { Core, Feature, LateServices } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
+import type { BotPatch, Settings } from "../core/settings.ts";
 import type { Skills } from "../skills/skills.ts";
 
 /** The install directory, resolved from the running code (README.md, ARCHITECTURE.md, docs/). */
 export const INSTALL_DIR = resolve(import.meta.dirname, "..", "..");
 
-export type SelfServices = { skills: Skills; view: Pick<Core, "config" | "toolGroups" | "bots"> };
+export type SelfServices = {
+	skills: Skills;
+	view: Pick<Core, "config" | "toolGroups" | "bots">;
+	settings: () => Settings;
+	/** Whether "provider/model" names a model the gateway can use. */
+	modelExists: (ref: string) => boolean;
+};
+
+/** What `self_update` may change in the calling bot's own entry; the rest grants privileges or reaches other bots' data. */
+export const SELF_FIELDS = ["displayName", "description", "instructions", "model", "thinking", "skills"] as const;
+
+/** A line diff (`-` removed, `+` added, context trimmed) for approval cards. */
+export function lineDiff(before: string, after: string): string {
+	const a = before.split("\n");
+	const b = after.split("\n");
+	if (a.length * b.length > 4_000_000) return `(too long to compare)\n${after.slice(0, 2000)}`;
+	const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+	for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i]![j] = a[i] === b[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+	const out: string[] = [];
+	let i = 0;
+	let j = 0;
+	while (i < a.length || j < b.length) {
+		if (i < a.length && j < b.length && a[i] === b[j]) (out.push(`  ${a[i]}`), i++, j++);
+		else if (j < b.length && (i === a.length || lcs[i]![j + 1]! >= lcs[i + 1]![j]!)) out.push(`+ ${b[j++]}`);
+		else out.push(`- ${a[i++]}`);
+	}
+	const keep = out.map((l, k) => !l.startsWith("  ") || out.slice(Math.max(0, k - 2), k + 3).some((x) => !x.startsWith("  ")));
+	return out.filter((_, k) => keep[k]).join("\n");
+}
+
+function fieldChange(label: string, before: unknown, after: unknown): string {
+	const show = (v: unknown) => (v === undefined || v === null ? "(unset)" : typeof v === "string" ? v : JSON.stringify(v));
+	const [b, a] = [show(before), show(after)];
+	return b.includes("\n") || a.includes("\n") || b.length + a.length > 120 ? `${label}:\n${lineDiff(b === "(unset)" ? "" : b, a)}` : `${label}: ${b} → ${a}`;
+}
 
 /** Where this bot's commands run: here, or over SSH. */
 function whereCommandsRun(bot: Bot): string {
@@ -61,6 +97,22 @@ export function readDoc(file: string): string {
 	return readFileSync(resolve(INSTALL_DIR, rel), "utf8");
 }
 
+/** The change a config tool call would make, for the owner's approval card. */
+export function describeConfigCall(services: SelfServices, bot: Bot, name: string, args: Record<string, unknown>): string | undefined {
+	if (name === "self_update") {
+		const cur = services.view.bots.get(bot.name)?.config;
+		return [`Change ${bot.name}'s own setup:`, ...SELF_FIELDS.filter((k) => args[k] !== undefined).map((k) => fieldChange(k, cur?.[k] ?? (k === "instructions" ? bot.instructions : undefined), args[k]))].join("\n");
+	}
+	if (name === "self_skill_write" || name === "self_skill_delete") {
+		const skillName = String(args.name);
+		const old = join(bot.skillsDir, skillName, "SKILL.md");
+		if (name === "self_skill_delete") return `Delete ${bot.name}'s skill "${skillName}"`;
+		const extra = Object.keys((args.files as object) ?? {});
+		return [`Write ${bot.name}'s skill "${skillName}"${extra.length ? ` (+ files: ${extra.join(", ")})` : ""}:`, lineDiff(existsSync(old) ? readFileSync(old, "utf8") : "", String(args.skillMd ?? ""))].join("\n");
+	}
+	return undefined;
+}
+
 export function selfFeature(late: LateServices, services: SelfServices): Feature {
 	const botOf = (conversationId: number) => {
 		const bot = late.sessions().botOf(conversationId);
@@ -93,8 +145,76 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 		execute: async (args) => text(args.file ? readDoc(args.file) : `${INSTALL_DIR}\n${docFiles().join("\n")}`),
 	});
 
+	const audit = (api: { conversationId: unknown }, bot: Bot, tool: string, detail: unknown) => {
+		const row = late.sessions().byConversation(api.conversationId as number);
+		late.db.run("INSERT INTO audit (at, bot, session_id, kind, detail) VALUES (?, ?, ?, ?, ?)", Date.now() / 1000, bot.name, row?.id ?? null, `config.${tool}`, JSON.stringify(detail).slice(0, 4000));
+	};
+	const wrap = <T>(fn: () => T): T => {
+		try {
+			return fn();
+		} catch (error) {
+			if (error instanceof ConfigError) throw new Error(error.message);
+			throw error;
+		}
+	};
+
+	const update = defineTool({
+		name: "self_update",
+		description:
+			"Change your own setup: displayName, description, instructions (replaces them), model (provider/model), thinking, skills (global skills you opt into, by name). " +
+			"Tools, trust, approvals and the other settings are not yours to change. The owner is asked to approve every change.",
+		parameters: Type.Object({
+			displayName: Type.Optional(Type.String()),
+			description: Type.Optional(Type.String()),
+			instructions: Type.Optional(Type.String()),
+			model: Type.Optional(Type.String()),
+			thinking: Type.Optional(Type.String()),
+			skills: Type.Optional(Type.Array(Type.String())),
+		}),
+		replay: "safe",
+		execute: async (args, api) => {
+			const bot = botOf(api.conversationId as number);
+			const patch = args as Record<string, unknown>;
+			const extra = Object.keys(patch).filter((k) => !(SELF_FIELDS as readonly string[]).includes(k));
+			if (extra.length > 0) throw new Error(`you cannot change ${extra.join(", ")} yourself; ask the owner (or a trusted bot) to`);
+			const keys = SELF_FIELDS.filter((k) => patch[k] !== undefined);
+			if (keys.length === 0) throw new Error("nothing to change");
+			if (typeof args.model === "string" && !services.modelExists(args.model)) throw new Error(`unknown model "${args.model}" (use provider/model)`);
+			const edit = Object.fromEntries(keys.map((k) => [k, patch[k]])) as BotPatch;
+			wrap(() => services.settings().withBackup(() => services.settings().editBot(bot.name, edit)));
+			audit(api, bot, "self_update", { fields: keys, patch: edit });
+			return text(`Updated ${keys.join(", ")}. It applies from your next message.`);
+		},
+	});
+	const skillWrite = defineTool({
+		name: "self_skill_write",
+		description:
+			"Create or replace one of your own skills: name (lowercase, hyphens) and skillMd, the whole SKILL.md including its frontmatter (name, description). " +
+			"files adds supporting files by relative path. The owner is asked to approve.",
+		parameters: Type.Object({ name: Type.String(), skillMd: Type.String(), files: Type.Optional(Type.Record(Type.String(), Type.String())) }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const bot = botOf(api.conversationId as number);
+			const written = services.skills.write(bot.skillsDir, args.name, args.skillMd, args.files);
+			audit(api, bot, "self_skill_write", { skill: args.name, files: written });
+			return text(`Wrote skill "${args.name}" (${written.join(", ")}). It is active from your next message.`);
+		},
+	});
+	const skillDelete = defineTool({
+		name: "self_skill_delete",
+		description: "Delete one of your own skills by name. The owner is asked to approve.",
+		parameters: Type.Object({ name: Type.String() }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const bot = botOf(api.conversationId as number);
+			services.skills.remove(bot.skillsDir, args.name);
+			audit(api, bot, "self_skill_delete", { skill: args.name });
+			return text(`Deleted skill "${args.name}".`);
+		},
+	});
+
 	return {
-		groups: new Map([["self", [info, docs] as ToolRegistration[]]]),
+		groups: new Map([["self", [info, docs, update, skillWrite, skillDelete] as ToolRegistration[]]]),
 		promptParts: [(bot) => (bot.toolGroups.includes("self") ? aboutText(late, services, bot) : undefined)],
 	};
 }

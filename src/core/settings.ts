@@ -2,7 +2,7 @@
 // and the panel make to it. Edits go through the YAML document, so comments and order survive; the
 // result is loaded and checked before it replaces the file, then applied like a reload. Bots and
 // `defaults` apply at once (each prompt reads them); the rest is reported as needing a restart.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Document, isMap, isSeq, parseDocument, type YAMLMap } from "yaml";
 import { type ApprovalMode, type BotConfig, type Config, ConfigError, loadConfig, type ThinkingLevel } from "../config.ts";
@@ -64,9 +64,20 @@ export type SettingsDeps = {
 
 export class Settings {
 	private readonly d: SettingsDeps;
+	private keepPrev = false;
 
 	constructor(deps: SettingsDeps) {
 		this.d = deps;
+	}
+
+	/** Runs an edit that first keeps the current file as config.yaml.prev (one step of undo by hand). */
+	withBackup<T>(edit: () => T): T {
+		this.keepPrev = true;
+		try {
+			return edit();
+		} finally {
+			this.keepPrev = false;
+		}
 	}
 
 	/** Re-reads config.yaml. A file that does not load leaves the running configuration as it was. */
@@ -160,6 +171,7 @@ export class Settings {
 			rmSync(tmp, { force: true });
 			throw error;
 		}
+		if (this.keepPrev && existsSync(path)) copyFileSync(path, `${path}.prev`);
 		renameSync(tmp, path);
 		next.configPath = path;
 		after?.();
