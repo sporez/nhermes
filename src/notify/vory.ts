@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unl
 import { dirname, join, resolve } from "node:path";
 import type { Bots } from "../core/bots.ts";
 import type { Hub, SessionEvent } from "../core/events.ts";
-import type { Sessions } from "../core/sessions.ts";
+import type { SessionRow, Sessions } from "../core/sessions.ts";
 import { srqId } from "../hermes/shapes.ts";
 import { logger, redact } from "../log.ts";
 import type { Notification, OptionalNotifier } from "./notifier.ts";
@@ -275,7 +275,8 @@ export class VoryPush implements OptionalNotifier {
 	}
 
 	private async approvalRequested(r: Extract<SessionEvent, { type: "approval.requested" }>["request"]): Promise<void> {
-		const { profile, bot, title } = this.about(r.sessionId, r.bot);
+		const { row, profile, bot, title } = this.about(r.sessionId, r.bot);
+		if (drivenElsewhere(row)) return;
 		const what = r.description || r.command || "A command is waiting for your decision";
 		const reached = await this.pushAll(
 			"approval",
@@ -305,10 +306,26 @@ export class VoryPush implements OptionalNotifier {
 		);
 	}
 
-	private async turnFinished(sid: string, e: Extract<SessionEvent, { type: "run.finished" }>): Promise<void> {
+	/**
+	 * A turn of a member's bot finished, in a chat this gateway runs for its client (src/federation/proxy.ts).
+	 * The member does not notify for it; this gateway does, as for its own bots. `p` is the member's
+	 * `message.complete` payload.
+	 */
+	remoteFinished(sid: string, p: Record<string, unknown>): void {
+		if (!this.installedVersion()) return;
+		const u = (p.usage ?? {}) as Record<string, unknown>;
+		const n = (v: unknown) => (typeof v === "number" ? v : 0);
+		const status = p.status === "error" || p.status === "interrupted" ? p.status : "complete";
+		const usage = { output: n(u.output), contextUsed: n(u.context_used), contextMax: n(u.context_max) };
+		this.turnFinished(sid, { text: typeof p.text === "string" ? p.text : "", status, error: typeof p.error === "string" ? p.error : undefined, usage }).catch((error) =>
+			log.warn("push failed", { error: String(error).slice(0, 300) }),
+		);
+	}
+
+	private async turnFinished(sid: string, e: { text: string; status: string; error?: string; usage: { output: number; contextUsed: number; contextMax: number } }): Promise<void> {
 		const { row, profile, bot, title } = this.about(sid);
 		// Jobs notify through the scheduler (their own notify policy); delegations answer in their parent chat.
-		if (!row || row.kind !== "chat") return;
+		if (!row || row.kind !== "chat" || drivenElsewhere(row)) return;
 		const failed = e.status === "error";
 		await this.finishLiveActivities(sid, failed ? "error" : "done", e.usage);
 		if (e.status === "interrupted") return;
@@ -470,6 +487,15 @@ export class VoryPush implements OptionalNotifier {
 		t.unref?.();
 		this.timers.add(t);
 	}
+}
+
+/**
+ * A chat another gateway in the network started here (its client chats with our bot through it, or one
+ * of its bots delegated to ours). That gateway notifies for it, so a phone registered on both gets
+ * each notification once.
+ */
+function drivenElsewhere(row: SessionRow | undefined): boolean {
+	return row?.source.startsWith("member:") ?? false;
 }
 
 /** AES-256-GCM with the device's key: base64(nonce ‖ ciphertext ‖ tag), as the app's extension opens it. */

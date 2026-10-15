@@ -248,7 +248,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		extensions,
 	);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor);
-	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub });
+	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
 	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });
 	scheduler = new Scheduler({
 		db,

@@ -13,7 +13,15 @@ import type { Members } from "./members.ts";
 
 const log = logger("proxy");
 
-export type ProxyDeps = { sessions: () => Sessions; bots: Bots; members: Members; approvals: Approvals; hub: Hub };
+export type ProxyDeps = {
+	sessions: () => Sessions;
+	bots: Bots;
+	members: Members;
+	approvals: Approvals;
+	hub: Hub;
+	/** A member's turn finished in a chat run here (its `message.complete` payload): notifications. */
+	finished?: (sessionId: string, payload: Record<string, unknown>) => void;
+};
 
 type Reply = Record<string, unknown>;
 
@@ -152,6 +160,7 @@ export class ProxySessions {
 			case "message.complete":
 				this.setRunning(id, false);
 				this.d.sessions().recordRemote(id, { answer: typeof payload.text === "string" ? payload.text : "" });
+				this.d.finished?.(id, payload);
 				break;
 			case "session.title":
 				if (typeof payload.title === "string") this.d.sessions().recordRemote(id, { title: payload.title });

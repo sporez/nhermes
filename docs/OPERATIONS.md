@@ -74,7 +74,7 @@ notifications itself through the Vory push relay, which only sees encrypted payl
 with Approve once / Deny, finished and failed turns, scheduled-task results and the `notify` tool, and the
 turn's Live Activity is finished. The test button in the setup sends a real push. The device registrations
 and the Companion's files are kept in `<data>/vory/`. Pushover keeps working alongside it when its keys are
-set. Removing the Companion in Vory stops the notifications. This needs a Vory build with the push relay
+set. In a network, set it up on the gateway Vory connects to: that gateway notifies for chats with other machines' bots too, and the machine running the bot stays quiet for them. Scheduled tasks and the `notify` tool notify from the machine they run on, so set it up there too (or use Pushover) to get those. Removing the Companion in Vory stops the notifications. This needs a Vory build with the push relay
 built in. A build without it asks for your own APNs key instead, and the gateway doesn't support that setup.
 
 ## Administration
