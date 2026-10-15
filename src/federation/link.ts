@@ -4,6 +4,7 @@
 // resumed so the member sends their events again.
 import WebSocket from "ws";
 import { logger } from "../log.ts";
+import { HEARTBEAT_MS } from "../remote/peer.ts";
 
 const log = logger("link");
 
@@ -112,6 +113,22 @@ export class MemberLink {
 
 	private async afterOpen(): Promise<void> {
 		await this.rpc("client.capabilities", { server_requests: true });
+		// A member that froze never closes the socket: ping it, and drop the socket when it stops answering.
+		const ws = this.ws!;
+		let waiting = false;
+		const beat = setInterval(() => {
+			if (waiting || this.ws !== ws) return;
+			waiting = true;
+			this.rpc("ping", {}, Math.min(15_000, HEARTBEAT_MS))
+				.catch(() => {
+					if (this.ws !== ws) return;
+					log.warn("member stopped answering; dropping the connection", { member: this.o.name });
+					ws.terminate();
+				})
+				.finally(() => (waiting = false));
+		}, HEARTBEAT_MS);
+		beat.unref();
+		ws.on("close", () => clearInterval(beat));
 		for (const id of this.o.watched()) {
 			await this.rpc("session.resume", { session_id: id }).catch((e: unknown) => log.debug("resume after reconnect failed", { member: this.o.name, session: id, error: String(e) }));
 		}

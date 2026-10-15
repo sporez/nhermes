@@ -9,6 +9,12 @@ import { logger } from "../log.ts";
 
 const log = logger("peer");
 
+/** How often a connection to another machine checks that it is still there (tests shorten it). */
+export let HEARTBEAT_MS = 30_000;
+export function setPeerHeartbeat(ms: number): void {
+	HEARTBEAT_MS = ms;
+}
+
 type Frame = { id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
 
 /** A gateway to reach: with the owner's token (configured peer) or a member's identifying headers. */
@@ -55,7 +61,33 @@ class Socket {
 			});
 		});
 		await s.call("client.capabilities", { server_requests: true });
+		s.startHeartbeat();
 		return s;
+	}
+
+	/**
+	 * A machine that froze or vanished never closes the connection, so a wait on it would never end:
+	 * ping every 30 s and drop the connection when an answer takes over 15 s (the caller reconnects).
+	 */
+	private startHeartbeat(): void {
+		let waiting = false;
+		const beat = setInterval(() => {
+			if (waiting || this.closed) return;
+			waiting = true;
+			const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer to ping")), Math.min(15_000, HEARTBEAT_MS)).unref());
+			Promise.race([this.call("ping", {}), timeout])
+				.then(
+					() => undefined,
+					() => {
+						if (this.closed) return;
+						log.warn("peer stopped answering; dropping the connection");
+						this.ws?.terminate();
+					},
+				)
+				.finally(() => (waiting = false));
+		}, HEARTBEAT_MS);
+		beat.unref();
+		this.ws?.on("close", () => clearInterval(beat));
 	}
 
 	private onFrame(f: Frame, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): void {
@@ -173,6 +205,9 @@ export async function runOnPeer(
 			return { sessionId, text: String(done.payload.text ?? "") };
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
+			// The other machine no longer has this chat (it restarted before saving it): the task is gone there,
+			// and sending it again into a new chat could repeat whatever it was doing, so stop.
+			if (sessionId && /session not found/.test(msg)) throw new Error("the other machine no longer has this task (it may have restarted before saving it); nothing was sent again");
 			if (attempt === 0 && s === undefined && opts.failFast && !/rejected the token/.test(msg)) throw new Error(opts.failFast);
 			if (/rejected the token|run failed|cancelled/.test(msg) || attempt >= (opts.maxAttempts ?? 20)) throw error;
 			log.warn("peer connection problem; retrying", { url: t.url, attempt, error: msg });

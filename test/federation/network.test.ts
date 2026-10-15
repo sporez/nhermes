@@ -3,6 +3,7 @@
 // the owning machine), a member's WebSocket stays within its own chats, and an offline member is
 // reported as offline.
 import assert from "node:assert/strict";
+import { createConnection, createServer, type Socket as NetSocket } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -10,6 +11,7 @@ import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { setPeerHeartbeat } from "../../src/remote/peer.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { collect, tempDir, testConfig, testCore } from "../helpers.ts";
 
@@ -226,6 +228,68 @@ test("a background task to a member's bot survives a restart of the calling gate
 		await a2?.close();
 		await b.server.close();
 		await b.core.close();
+		await cleanup();
+	}
+});
+
+test("a member that freezes mid-task is noticed, and a task it lost is reported instead of waited on", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
+	// A relay between alpha and beta that can freeze its connections without closing them.
+	const pairs: [NetSocket, NetSocket][] = [];
+	const relay = createServer((down) => {
+		const up = createConnection(b.port, "127.0.0.1");
+		down.pipe(up);
+		up.pipe(down);
+		pairs.push([down, up]);
+	});
+	await new Promise<void>((r) => relay.listen(0, "127.0.0.1", () => r()));
+	const relayPort = (relay.address() as { port: number }).port;
+	setPeerHeartbeat(300);
+	let releaseB = () => {};
+	try {
+		await link(a, b);
+		a.core.db.run("UPDATE members SET url = ? WHERE name = 'beta'", `http://127.0.0.1:${relayPort}`);
+		const s = await a.core.sessions.create("main");
+		const ev = collect(a.core.hub, s.id);
+		a.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "nasbot-beta", task: "Long job", wait: false })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Started.")]),
+			fauxAssistantMessage([fauxText("The NAS lost the job.")]),
+		]);
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		releaseB = () => release();
+		b.faux.setResponses([async () => (await gate, fauxAssistantMessage([fauxText("too late")]))]);
+		await a.core.sessions.submit(s.id, "start the long job");
+		await ev.until((e) => e.type === "run.finished", 15000);
+		let remote: string | undefined;
+		for (let i = 0; i < 100 && !remote; i++) {
+			remote = b.core.sessions.list("nasbot", { limit: 1, offset: 0, archived: "include", order: "recent" }).rows.find((r) => b.core.sessions.isRunning(r.id))?.id;
+			if (!remote) await new Promise((r) => setTimeout(r, 50));
+		}
+		assert.ok(remote, "beta is working on it");
+		// beta freezes (connections stay open, nothing moves) and comes back without the chat.
+		for (const [down, up] of pairs) {
+			down.unpipe(up);
+			up.unpipe(down);
+			down.pause();
+			up.pause();
+		}
+		b.core.db.run("UPDATE sessions SET deleted = 1 WHERE id = ?", remote);
+		const reported = await ev.until((e) => e.type === "run.started" && e.prompt.startsWith("[nasbot-beta could not finish"), 20000);
+		if (reported.type !== "run.started") return;
+		assert.match(reported.prompt, /no longer has this task.*nothing was sent again/);
+	} finally {
+		setPeerHeartbeat(30_000);
+		releaseB();
+		for (const [down, up] of pairs) (down.destroy(), up.destroy());
+		relay.close();
+		for (const g of [a, b]) {
+			await g.server.close();
+			await g.core.close();
+		}
 		await cleanup();
 	}
 });

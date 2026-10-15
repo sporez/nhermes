@@ -31,3 +31,15 @@ test("deny rules win over yolo; answers match only their own pattern key; manual
 	assert.equal(decide({ name: "write", arguments: { path: "notes.txt", content: "x" } }, pc(false, "manual")).action, "ask");
 	assert.equal(decide({ name: "read", arguments: { path: "notes.txt" } }, pc(false, "manual")).action, "allow");
 });
+
+test("checking or repairing a disk asks even for trusted bots; reading disk information does not", () => {
+	for (const trusted of [false, true]) {
+		for (const cmd of ["diskutil verifyVolume /", "diskutil repairVolume /System/Volumes/Data", "diskutil apfs deleteVolume disk3s5", "fsck_apfs -n -l /dev/disk3s1", "sudo fsck -n /", "smartctl -t long /dev/sda", "btrfs scrub start /"]) {
+			assert.equal(decide(bash(cmd), pc(trusted)).action, "ask", `${cmd} (trusted: ${trusted})`);
+		}
+		for (const cmd of ["diskutil list", "diskutil info /", "diskutil apfs list", "smartctl -a /dev/disk0", "df -h"]) {
+			assert.equal(decide(bash(cmd), pc(trusted)).action, "allow", `${cmd} (trusted: ${trusted})`);
+		}
+	}
+	assert.equal(decide(bash("diskutil verifyVolume /"), pc(true)).patternKey, "disk check");
+});

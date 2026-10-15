@@ -14,6 +14,14 @@ const SHELL_PATTERNS: Pattern[] = [
 	{ key: "mkfs", re: /\bmkfs(\.\w+)?\b/, description: "format a filesystem", trustedAsks: true },
 	{ key: "wipefs", re: /\b(wipefs|sgdisk\s+--zap|blkdiscard)\b/, description: "wipe a disk", trustedAsks: true },
 	{ key: "partition", re: /\b(fdisk|parted|sfdisk|gdisk)\b/, description: "change partitions", trustedAsks: true },
+	// Checking or repairing a mounted disk can freeze the whole machine (macOS freezes the startup volume
+	// while it is verified), so even "verify only" asks.
+	{
+		key: "disk check",
+		re: /\bdiskutil\s+(verify|repair|erase|reformat|zero|secureErase|partition|resize|split|merge|unmount|eject|apfs\s+(?!list\b)\w+|cs\s+(?!list\b)\w+|ar\s+(?!list\b)\w+)|\bfsck(_\w+)?\b|\b(badblocks|hdparm|newfs(_\w+)?|e2fsck|xfs_repair|btrfs\s+(check|scrub|rescue))\b|\bsmartctl\s+[^|;&]*(-t|--test)\b/i,
+		description: "check, repair or reformat a disk (can freeze the machine)",
+		trustedAsks: true,
+	},
 	{ key: "dd of=", re: /\bdd\b[^|;&]*\bof=\/dev\//, description: "write raw to a device", trustedAsks: true },
 	{ key: "zfs destroy", re: /\b(zfs|zpool)\s+(destroy|labelclear)\b/, description: "destroy ZFS data", trustedAsks: true },
 	{ key: "lvremove", re: /\b(lvremove|vgremove|pvremove)\b/, description: "remove LVM volumes", trustedAsks: true },
