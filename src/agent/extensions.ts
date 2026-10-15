@@ -6,6 +6,7 @@ import { defineExtension, type Extension, hook, section, ToolTask } from "@earen
 import type { Approvals } from "../core/approvals.ts";
 import type { Bot } from "../core/bots.ts";
 import { decide } from "../core/policy.ts";
+import type { JevReviewer, ReviewLog } from "../core/review.ts";
 import type { Sessions } from "../core/sessions.ts";
 import { logger, redact } from "../log.ts";
 
@@ -27,7 +28,33 @@ export type AgentDeps = {
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
 	/** The ground rules every bot gets: the owner's text from config.yaml, or the built-in rules. */
 	groundRules: () => string;
+	/** Jev permission review (answers "ask" decisions it may answer) and its log. */
+	reviewer?: JevReviewer;
+	reviewLog?: ReviewLog;
+	/** The gateway's own files, which bots are asked about (src/core/policy.ts). */
+	gatewayFiles?: RegExp;
+	/** This machine's name in the network (for the reviewer). */
+	machine?: () => string;
 };
+
+/** Messages in a chat that the gateway wrote, not the owner (delegation reports, scheduled prompts). */
+const NOT_THE_OWNER = /^\[(Result from bot|[\w-]+ could not finish|Scheduled task)/;
+
+/** What the reviewer is told: the owner's recent words where the work started, and any delegated task texts. */
+async function reviewContext(sessions: Sessions, sessionId: string, attention: string): Promise<{ humanMessages: string[]; delegated: string[] }> {
+	const humanMessages = (await sessions.rows(attention))
+		.filter((r) => r.role === "user" && r.text.trim() && !NOT_THE_OWNER.test(r.text))
+		.map((r) => r.text)
+		.slice(-8);
+	const delegated: string[] = [];
+	let row = sessions.get(sessionId);
+	for (let i = 0; row && row.id !== attention && i < 20; i++) {
+		const first = (await sessions.rows(row.id)).find((r) => r.role === "user");
+		if (first) delegated.unshift(first.text);
+		row = row.parent_id ? sessions.get(row.parent_id) : undefined;
+	}
+	return { humanMessages, delegated };
+}
 
 function today(tz: string): string {
 	return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" }).format(new Date());
@@ -126,9 +153,10 @@ export function guardExtension(deps: AgentDeps): Extension {
 					// Trust does not cross machines: work a network member started is never trusted here.
 					const fromMember = sessions.get(attention)?.source.startsWith("member:") === true;
 					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted) && !fromMember, approvals: { ...bot.approvals, mode } };
+					const reviewer = deps.reviewer?.active() ? deps.reviewer : undefined;
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
-						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention) },
+						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention), reviewActive: reviewer !== undefined, gatewayFiles: deps.gatewayFiles },
 					);
 					if (decision.action === "allow") return undefined;
 					if (decision.action === "deny") return { block: decision.description };
@@ -137,18 +165,41 @@ export function guardExtension(deps: AgentDeps): Extension {
 					if (unattended === "deny") return { block: `needs the owner's approval (${decision.description}) and nobody is attending this run` };
 					const controller = new AbortController();
 					context.abortSignal?.addEventListener("abort", () => controller.abort(), { once: true });
+					// Jev answers what it may: the owner still gets the destructive group, their own rules, manual
+					// mode, scheduled jobs set to ask, and work another machine started (its human is not here).
+					let reviewId: number | undefined;
+					let note = "";
+					if (reviewer && decision.reviewable && !fromMember && sessions.get(attention)?.kind !== "job") {
+						const ctx = await reviewContext(sessions, row.id, attention);
+						const outcome = await reviewer.review(
+							{
+								bot: { name: bot.name, displayName: bot.displayName, description: bot.description, trusted: effective.trusted, machine: deps.machine?.() ?? "" },
+								tool: call.name,
+								input: call.arguments as Record<string, unknown>,
+								command: decision.command,
+								reasons: decision.description,
+								...ctx,
+							},
+							controller.signal,
+						);
+						reviewId = deps.reviewLog?.record({ sessionId: row.id, attentionId: attention, bot: bot.name, tool: call.name, command: decision.command, reasons: decision.description, outcome });
+						log.info("review", { session: row.id, tool: call.name, pattern: decision.patternKey, outcome: outcome.kind, reason: outcome.reason });
+						if (outcome.kind === "allow") return undefined;
+						note = ` · ${outcome.reason}`;
+					}
 					const choice = await approvals.ask(
 						{
 							sessionId: attention,
 							bot: bot.name,
 							toolName: call.name,
 							command: decision.command,
-							description: attention === row.id ? decision.description : `${decision.description} (asked by ${bot.displayName} in a delegated task)`,
+							description: `${attention === row.id ? decision.description : `${decision.description} (asked by ${bot.displayName} in a delegated task)`}${note}`,
 							patternKey: decision.patternKey,
 						},
 						controller.signal,
 					);
 					log.info("approval", { session: row.id, tool: call.name, pattern: decision.patternKey, choice });
+					if (reviewId !== undefined) deps.reviewLog?.ownerAnswered(reviewId, choice);
 					if (choice === "deny") return { block: `the owner did not approve this (${decision.description})` };
 					return undefined;
 				},

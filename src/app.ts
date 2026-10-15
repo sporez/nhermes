@@ -10,6 +10,8 @@ import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
+import { gatewayFilesPattern } from "./core/policy.ts";
+import { JevReviewer, ReviewLog } from "./core/review.ts";
 import { Secrets } from "./core/secrets.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
@@ -56,6 +58,8 @@ export type Core = {
 	roster: Roster;
 	proxy: ProxySessions;
 	secrets: Secrets;
+	reviewer: JevReviewer;
+	reviewLog: ReviewLog;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -81,6 +85,8 @@ export type CoreOptions = {
 	notifier?: Notifier;
 	browserHeadless?: boolean;
 	browserExecutable?: string;
+	/** Replaces the HTTP call to Jev (tests). */
+	reviewFetch?: typeof fetch;
 	/** Membership clock/transport overrides (tests). */
 	members?: MembersOptions;
 };
@@ -110,6 +116,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const bots = new Bots(config, db);
 	const members = new Members(db, config, options.members);
 	const roster = new Roster(db, members);
+	const reviewer = new JevReviewer(config, { fetch: options.reviewFetch });
+	const reviewLog = new ReviewLog(db);
 	bots.setRemote(() => roster.list());
 	members.onChange(() => void roster.sync());
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
@@ -188,6 +196,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 		unattendedPolicy: (sessionId) => scheduler?.approvalsFor(sessionId) ?? "ask",
 		groundRules: () => config.groundRules ?? groundRules([...new Set([config.configDir, config.dataDir])]),
+		reviewer,
+		reviewLog,
+		gatewayFiles: gatewayFilesPattern(config.configDir, config.dataDir),
+		machine: () => members.self().name,
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
@@ -255,6 +267,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		roster,
 		proxy,
 		secrets: new Secrets(config, db),
+		reviewer,
+		reviewLog,
 		agentFor,
 		close: async () => {
 			members.stop();

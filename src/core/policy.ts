@@ -3,9 +3,33 @@
 // side-effecting tool; "off" allows everything except explicit deny rules.
 import type { Bot } from "./bots.ts";
 
-export type Decision = { action: "allow" | "ask" | "deny"; patternKey: string; description: string; command: string };
+export type Decision = {
+	action: "allow" | "ask" | "deny";
+	patternKey: string;
+	description: string;
+	command: string;
+	/** An "ask" a reviewer (Jev) may answer instead of the owner: no destructive pattern, owner rule or manual mode involved. */
+	reviewable?: boolean;
+};
 
+/** `trustedAsks: true` patterns are the destructive group: they ask even trusted bots and are never left to a reviewer. */
 type Pattern = { key: string; re: RegExp; description: string; trustedAsks: boolean };
+
+/**
+ * Asked only while a reviewer is active (it answers most of them), for trusted bots too: everyday
+ * commands that are fine in context but can do damage or reach outside the task.
+ */
+const REVIEWED_PATTERNS: Pattern[] = [
+	{ key: "delete", re: /(^|[;&|(]\s*|\s)rm\s/, description: "delete files", trustedAsks: true },
+	{ key: "permissions", re: /\b(chmod|chown|chgrp)\s/, description: "change file permissions", trustedAsks: true },
+	{ key: "git write", re: /\bgit\s+(push|commit|reset|rebase|merge|restore|clean|checkout\s+--|branch\s+-[dD]|tag\s+-d|stash\s+(drop|clear))\b/, description: "change a git repository", trustedAsks: true },
+	{ key: "remote access", re: /\b(ssh|scp|sftp|rsync|nc|ncat|socat|telnet)\b/, description: "connect to or copy to/from another machine", trustedAsks: true },
+	{ key: "shell -c", re: /\b(bash|sh|zsh|dash)\s+-c\b/, description: "run a command string in a new shell", trustedAsks: true },
+	{ key: "inline script", re: /\b(python3?|node|perl|ruby|osascript|php)\s+(-[ce]\b|-(\s|$))|<<-?\s*['"]?\w+['"]?/, description: "run an inline script", trustedAsks: true },
+	{ key: "containers", re: /\b(docker|podman)\s+(run|rm|rmi|exec|stop|kill|system\s+prune|volume\s+rm|compose\s+(up|down|rm))\b|\bkubectl\s+(apply|delete|exec|scale)\b|\bterraform\s+(apply|destroy)\b/, description: "change containers or infrastructure", trustedAsks: true },
+	{ key: "publish", re: /\b(npm|pnpm|yarn)\s+publish\b|\b(docker|podman)\s+push\b|\bgh\s+(release\s+create|pr\s+merge|repo\s+(delete|edit))\b/, description: "publish something", trustedAsks: true },
+	{ key: "services", re: /\bsystemctl\s+(start|restart|reload|enable)\b|\blaunchctl\s+(load|unload|bootstrap|bootout|kill|kickstart|remove|enable|disable)\b|\bcrontab\b/, description: "change services or scheduled jobs", trustedAsks: true },
+];
 
 /** High-impact shell patterns. `trustedAsks: false` lets a trusted infrastructure bot run them freely. */
 const SHELL_PATTERNS: Pattern[] = [
@@ -77,7 +101,20 @@ export type PolicyContext = {
 	/** Rules allowed for this bot ("always" answers). */
 	botRules: readonly string[];
 	yolo: boolean;
+	/** A reviewer (Jev) is active: the wider list applies. */
+	reviewActive?: boolean;
+	/** The gateway's own files (config, secrets, databases; not the bots' workspaces). */
+	gatewayFiles?: RegExp;
 };
+
+/** The gateway's own folders and files, as a pattern on commands and paths. Bots' workspaces are excluded. */
+export function gatewayFilesPattern(configDir: string, dataDir: string): RegExp {
+	const esc = (p: string) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const home = process.env.HOME ?? "";
+	const variants = (p: string) => [p, ...(home && p.startsWith(`${home}/`) ? [`~${p.slice(home.length)}`, `$HOME${p.slice(home.length)}`] : [])].map(esc);
+	const dirs = [...variants(configDir), ...variants(dataDir).map((d) => `${d}(?!/workspaces/)`)];
+	return new RegExp(`(${dirs.join("|")})|\\b(secrets\\.env|app\\.sqlite|durable\\.sqlite)\\b|nhermes/(auth|models)\\.json`);
+}
 
 export function decide(call: { name: string; arguments: Record<string, unknown> }, pc: PolicyContext): Decision {
 	const { bot } = pc;
@@ -91,18 +128,22 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 
 	// Everything that would make this call need an answer. Each must be allowed on its own: an answer
 	// for one pattern never covers another pattern in the same command.
-	const reasons: { key: string; description: string }[] = [];
+	// `review: false` reasons always reach the owner.
+	const reasons: { key: string; description: string; review: boolean }[] = [];
 	for (const rule of bot.approvals.ask) {
-		if (ruleMatches(rule, call.name, command)) reasons.push({ key: rule, description: `matches the bot's ask rule "${rule}"` });
+		if (ruleMatches(rule, call.name, command)) reasons.push({ key: rule, description: `matches the bot's ask rule "${rule}"`, review: false });
 	}
 	if (shell !== undefined) {
-		for (const p of SHELL_PATTERNS) if (p.re.test(shell) && (!bot.trusted || p.trustedAsks)) reasons.push({ key: p.key, description: p.description });
+		for (const p of SHELL_PATTERNS) if (p.re.test(shell) && (!bot.trusted || p.trustedAsks)) reasons.push({ key: p.key, description: p.description, review: !p.trustedAsks });
+		if (pc.reviewActive) for (const p of REVIEWED_PATTERNS) if (p.re.test(shell)) reasons.push({ key: p.key, description: p.description, review: true });
+		if (pc.gatewayFiles?.test(shell)) reasons.push({ key: "gateway files", description: "touch the gateway's own config, secrets or databases", review: true });
 	}
-	if ((call.name === "write" || call.name === "edit") && typeof call.arguments.path === "string") {
-		const p = call.arguments.path;
-		if (SENSITIVE_PATHS.some((re) => re.test(p))) reasons.push({ key: `${call.name}:sensitive`, description: "modify a sensitive file" });
+	const path = typeof call.arguments.path === "string" ? call.arguments.path : undefined;
+	if ((call.name === "write" || call.name === "edit") && path !== undefined) {
+		if (SENSITIVE_PATHS.some((re) => re.test(path)) || pc.gatewayFiles?.test(path)) reasons.push({ key: `${call.name}:sensitive`, description: "modify a sensitive file", review: false });
 	}
-	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}` });
+	if (call.name === "read" && path !== undefined && pc.gatewayFiles?.test(path)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
+	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}`, review: false });
 	if (reasons.length === 0) return { action: "allow", patternKey: "", description: "", command };
 
 	// Answers ("session", "always") are stored as the pattern key they were asked for and match only that
@@ -110,5 +151,5 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	if (bot.approvals.allow.some((r) => ruleMatches(r, call.name, command))) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
 	const open = reasons.filter((r) => !pc.botRules.includes(r.key) && !pc.sessionRules.includes(r.key));
 	if (open.length === 0) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
-	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command };
+	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command, reviewable: open.every((r) => r.review) };
 }

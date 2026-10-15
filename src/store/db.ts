@@ -178,6 +178,27 @@ const MIGRATIONS: readonly string[] = [
 		value TEXT NOT NULL
 	);
 	`,
+	// 9: Jev permission reviews (what it was asked, what it answered, what the owner then chose)
+	`
+	CREATE TABLE reviews (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at REAL NOT NULL,
+		session_id TEXT NOT NULL,
+		attention_id TEXT NOT NULL,
+		bot TEXT NOT NULL,
+		tool TEXT NOT NULL,
+		command TEXT NOT NULL,
+		reasons TEXT NOT NULL,
+		outcome TEXT NOT NULL,
+		p_allow REAL,
+		p_deny REAL,
+		confidence REAL,
+		detail TEXT NOT NULL DEFAULT '',
+		elapsed_ms INTEGER NOT NULL DEFAULT 0,
+		owner_choice TEXT
+	);
+	CREATE INDEX reviews_recent ON reviews(id DESC);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;
