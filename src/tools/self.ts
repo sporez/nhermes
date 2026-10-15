@@ -1,6 +1,7 @@
 // A bot knowing nHermes: the `about` prompt section (what this is, the bot's live settings, where the
 // docs are, how things change) for bots that have the `self` tool group.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -96,11 +97,12 @@ export function aboutText(late: LateServices, services: SelfServices, bot: Bot):
 	const c = late.config;
 	const skills = services.skills.active(bot).map((s) => s.name);
 	const jobs = late.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM jobs WHERE bot = ?", bot.name)?.n ?? 0;
-	const where = c.node.url ? c.node.url.replace(/\/$/, "") : `port ${c.server.port}`;
+	const machine = hostname().split(".")[0];
+	const where = c.node.url ? c.node.url.replace(/\/$/, "") : `http://${machine}:${c.server.port}`;
 	const d = (file: string) => `${INSTALL_DIR}/${file}`;
 	return [
 		"About you and nHermes:",
-		`You are a bot in nHermes, a self-hosted agent gateway on the machine "${c.server.publicName}". The owner reaches you through Vory or the web panel (${where}/panel). One process runs the bots, sessions, memory, skills, scheduler and the approval guard.`,
+		`You are a bot in nHermes, a self-hosted agent gateway named "${c.server.publicName}" on the machine "${machine}". The owner reaches you through Vory or the web panel (${where}/panel/). One process runs the bots, sessions, memory, skills, scheduler and the approval guard.`,
 		"Your settings right now:",
 		`- model ${bot.model.provider}/${bot.model.modelId}, thinking ${bot.thinking}; approvals ${bot.approvals.mode}${bot.trusted ? "; trusted (an infrastructure bot)" : ""}`,
 		`- tool groups: ${bot.toolGroups.join(", ") || "none"}; commands run ${whereCommandsRun(bot)}; workspace ${bot.workspace}`,
