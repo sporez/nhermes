@@ -1,10 +1,10 @@
-const TABS = ["bots", "network", "sessions", "memory", "status", "gateway"];
+const TABS = ["bots", "network", "sessions", "memory", "keys", "status", "gateway"];
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const view = document.getElementById("view");
 let state = null;
 let timer = null;
 let tab = "bots";
-const ui = { bot: null, owner: null, sessionBot: "", archived: "exclude", memoryQ: "" };
+const ui = { bot: null, owner: null, sessionBot: "", archived: "exclude", memoryQ: "", reviewFilter: "" };
 
 // ---- helpers ----
 function h(tag, attrs = {}, ...kids) {
@@ -115,7 +115,7 @@ function renderTabs() {
 	nav.replaceChildren(...TABS.map((t) => h("a", { href: `#${t}`, class: t === tab ? "active" : "" }, t[0].toUpperCase() + t.slice(1))));
 }
 
-const SCREENS = { bots: botsScreen, network: networkScreen, sessions: sessionsScreen, memory: memoryScreen, status: statusScreen, gateway: gatewayScreen };
+const SCREENS = { bots: botsScreen, network: networkScreen, sessions: sessionsScreen, memory: memoryScreen, keys: keysScreen, status: statusScreen, gateway: gatewayScreen };
 
 async function route() {
 	if (!state) return;
@@ -273,7 +273,15 @@ function promptCard(bot) {
 // ---- Network ----
 async function networkScreen() {
 	const net = await api("GET", "/network");
+	const sec = await api("GET", "/secrets");
 	const reload = () => networkScreen();
+	const accept = h("input", { type: "checkbox", checked: sec.acceptsFromMembers });
+	accept.addEventListener("change", () => run(async () => {
+		try { await api("PATCH", "/network/settings", { acceptSecrets: accept.checked }); toast("Saved"); }
+		catch (e) { accept.checked = !accept.checked; throw e; }
+	}));
+	const acceptCard = h("div", { class: "card" }, h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
+		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel over the LAN (encrypted only over Tailscale)."));
 	const act = (fn) => () => run(async () => { await fn(); await reload(); });
 	const out = h("div");
 
@@ -301,6 +309,7 @@ async function networkScreen() {
 		h("div", { class: "row between" }, h("h1", {}, "Network"), h("button", { on: { click: act(async () => { await api("POST", "/network/refresh"); toast("Refreshed"); }) } }, "Refresh")),
 		h("h2", {}, "This machine"),
 		h("div", { class: "card" }, h("strong", {}, net.self.name), h("div", { class: "muted small" }, net.self.url)),
+		acceptCard,
 		h("h2", {}, "Members"), members,
 		h("div", { class: "field" }, url),
 		h("div", { class: "row" }, inviteBtn,
@@ -434,9 +443,159 @@ async function memoryScreen() {
 		items.length ? items.map(card) : h("div", { class: "notice" }, ui.memoryQ ? "Nothing matches that search." : "No memories yet."));
 }
 
+// ---- Keys ----
+const GATEWAY_TOKEN_KEY = "NHERMES_TOKEN";
+const KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+function memberChecks(members) {
+	const boxes = members.map((m) => h("input", { type: "checkbox", value: m.name, disabled: !m.reachable }));
+	const el = members.length
+		? h("div", { class: "field" }, h("span", { class: "small muted" }, "Also set on"),
+			h("div", { class: "checks" }, members.map((m, i) => h("label", {}, boxes[i], m.name, m.reachable ? "" : " (unreachable)"))))
+		: null;
+	return { el, picked: () => boxes.filter((b) => b.checked).map((b) => b.value) };
+}
+
+function reportKeySave(r) {
+	const bad = (r.members ?? []).filter((m) => !m.ok);
+	const good = (r.members ?? []).filter((m) => m.ok);
+	const parts = ["Saved."];
+	if (good.length) parts.push(`Also set on ${good.map((m) => m.name).join(", ")}.`);
+	if (bad.length) parts.push(`Failed: ${bad.map((m) => `${m.name} (${m.error ?? "error"})`).join("; ")}.`);
+	if (r.restartNeeded) parts.push("Takes effect after a restart.");
+	toast(parts.join(" "), bad.length > 0);
+}
+
+async function keysScreen() {
+	const data = await api("GET", "/secrets");
+	const redo = () => run(keysScreen);
+	const newToken = h("div");
+
+	const generate = () => run(async () => {
+		if (!confirm("Generate a new gateway token? The old one stops working after the gateway restarts.")) return;
+		const t = await api("POST", "/token/new");
+		const box = h("div", { class: "card" }, h("h3", {}, "New token for ", h("span", { class: "mono" }, t.name)),
+			h("div", { class: "notice warn" }, "Shown only once. Vory and the nhermes command need this new token after the gateway restarts."),
+			h("div", { class: "code mono" }, t.value),
+			h("div", { class: "row" },
+				h("button", { on: { click: () => { navigator.clipboard?.writeText(t.value).then(() => toast("Copied"), () => toast("Copy failed; select the token by hand", true)); } } }, "Copy"),
+				h("button", { on: { click: () => { newToken.replaceChildren(); redo(); } } }, "Done (hide it)")));
+		newToken.replaceChildren(box);
+	});
+
+	const card = (k) => {
+		const wrap = h("div", { class: "card" });
+		const hint = h("span", { class: "mono" });
+		const isToken = k.name === GATEWAY_TOKEN_KEY;
+		const head = h("div", { class: "grow" },
+			h("div", { class: "row" }, h("strong", { class: "mono" }, k.name), badge(k.set ? "set" : "not set", k.set ? "ok" : "warn"),
+				k.source === "environment" && badge("from the environment (read-only)"),
+				k.restartOnly && badge("restart needed to take effect")),
+			k.description && h("div", { class: "muted small" }, k.description),
+			k.usedBy?.length > 0 && h("div", { class: "muted small" }, `used by: ${k.usedBy.join(", ")}`),
+			k.updatedAt && h("div", { class: "muted small" }, `updated ${ago(k.updatedAt)}`),
+			h("div", { class: "small" }, hint));
+		const editable = k.source !== "environment";
+		const identify = () => run(async () => {
+			const r = await api("POST", `/secrets/${encodeURIComponent(k.name)}/hint`);
+			hint.textContent = `ends with ${r.hint}`;
+		});
+		const remove = () => run(async () => {
+			if (!confirm(`Remove ${k.name} from secrets.env?`)) return;
+			const r = await api("DELETE", `/secrets/${encodeURIComponent(k.name)}`);
+			toast(r.restartNeeded ? "Removed. Takes effect after a restart." : "Removed");
+			await keysScreen();
+		});
+		const edit = () => {
+			const value = h("input", { type: "password", autocomplete: "off", placeholder: "New value" });
+			const checks = isToken ? { el: null, picked: () => [] } : memberChecks(data.members);
+			const save = () => run(async () => {
+				if (!value.value) return toast("Enter a value first", true);
+				const body = { value: value.value };
+				const also = checks.picked();
+				if (also.length) body.alsoOn = also;
+				value.value = "";
+				reportKeySave(await api("PUT", `/secrets/${encodeURIComponent(k.name)}`, body));
+				await keysScreen();
+			});
+			const cancel = () => { value.value = ""; draw(); };
+			wrap.replaceChildren(head, h("div", { class: "field" }), field(k.set ? "Replace value" : "Value", value), checks.el,
+				h("div", { class: "row" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { on: { click: cancel } }, "Cancel")));
+		};
+		const draw = () => wrap.replaceChildren(h("div", { class: "row between" }, head,
+			h("div", { class: "row" },
+				editable && !isToken && h("button", { on: { click: edit } }, k.set ? "Replace" : "Set"),
+				isToken && h("button", { on: { click: generate } }, "Generate new token"),
+				k.set && h("button", { class: "link", on: { click: identify } }, "Identify"),
+				k.set && editable && !isToken && h("button", { class: "link danger", on: { click: remove } }, "Remove"))));
+		draw();
+		return wrap;
+	};
+
+	const name = h("input", { type: "text", placeholder: "EXAMPLE_API_KEY", autocapitalize: "off", autocomplete: "off" });
+	const value = h("input", { type: "password", autocomplete: "off" });
+	const addChecks = memberChecks(data.members);
+	const err = h("div", { class: "err" });
+	const add = () => run(async () => {
+		err.textContent = "";
+		const n = name.value.trim();
+		if (!KEY_NAME.test(n)) { err.textContent = "Use letters, digits and underscores, not starting with a digit (max 64 characters)."; return; }
+		if (!value.value) { err.textContent = "Enter a value."; return; }
+		const body = { value: value.value };
+		const also = addChecks.picked();
+		if (also.length) body.alsoOn = also;
+		value.value = "";
+		reportKeySave(await api("PUT", `/secrets/${encodeURIComponent(n)}`, body));
+		await keysScreen();
+	});
+
+	show(h("h1", {}, "Keys"),
+		h("p", { class: "muted" }, "Keys and tokens in this machine's secrets.env. Values can be set but are never shown."),
+		newToken,
+		data.secrets.length ? data.secrets.map(card) : h("div", { class: "notice" }, "No keys yet."),
+		h("details", { class: "card" }, h("summary", {}, "Add a key"), h("div", { class: "field" }),
+			field("Name", name), field("Value", value), addChecks.el, err,
+			h("button", { class: "primary", on: { click: add } }, "Save")));
+}
+
 // ---- Status ----
+const OUTCOMES = { auto_allowed: ["auto-approved", "ok"], asked: ["sent to you", "warn"], unavailable: ["unavailable", ""] };
+
+async function reviewSection() {
+	const q = new URLSearchParams({ limit: "30" });
+	if (ui.reviewFilter) q.set("outcome", ui.reviewFilter);
+	const r = await api("GET", `/reviews?${q}`);
+	const rv = state.review;
+	let line;
+	if (r.active) line = badge("active", "ok");
+	else if (rv && !rv.enabled) line = h("span", { class: "muted small" }, "Turned off. Enable it on the Gateway tab.");
+	else if (rv && !rv.keySet) line = h("span", { class: "muted small" }, "No key set: add ", h("span", { class: "mono" }, rv.keyEnv), " on the ", h("a", { href: "#keys" }, "Keys"), " tab.");
+	else line = h("span", { class: "muted small" }, "Not active. Check the Gateway tab.");
+	const day = r.lastDay ?? {};
+	const filter = select(["", ...Object.keys(OUTCOMES)], ui.reviewFilter, { "": "All", auto_allowed: "Auto-approved", asked: "Sent to you", unavailable: "Unavailable" });
+	filter.addEventListener("change", () => { ui.reviewFilter = filter.value; run(statusScreen); });
+	const item = (x) => {
+		const [label, cls] = OUTCOMES[x.outcome] ?? [x.outcome, ""];
+		return h("div", { class: "card" },
+			h("div", { class: "row" }, h("span", { class: "muted small" }, ago(x.at)), badge(x.bot), badge(label, cls), h("strong", { class: "small" }, x.tool),
+				x.elapsed_ms != null && h("span", { class: "muted small" }, `${x.elapsed_ms} ms`),
+				x.owner_choice && h("span", { class: "small" }, `you chose: ${x.owner_choice}`)),
+			h("div", { class: "mono trunc review-cmd", title: x.command ?? "", on: { click: (e) => e.currentTarget.classList.toggle("trunc") } }, x.command ?? ""),
+			x.reasons?.length > 0 && h("div", { class: "muted small" }, `guard: ${[].concat(x.reasons).join("; ")}`),
+			x.detail && h("div", { class: "muted small" }, x.detail));
+	};
+	return [h("h2", {}, "Permission reviews (Jev)"),
+		h("div", { class: "card" }, h("div", { class: "row between" }, line,
+			h("span", { class: "small" }, `Last day: ${day.auto_allowed ?? 0} auto-approved, ${day.asked ?? 0} sent to you, ${day.unavailable ?? 0} unavailable`))),
+		h("div", { class: "row" }, filter),
+		h("div", { class: "field" }),
+		r.reviews.length ? r.reviews.map(item) : h("div", { class: "muted" }, "No reviews yet.")].flat();
+}
+
 async function statusScreen() {
 	const s = await api("GET", "/status");
+	await loadState();
+	const reviews = await reviewSection();
 	const answer = (a, choice) => () => run(async () => { await api("POST", `/approvals/${a.id}`, { choice }); await statusScreen(); });
 	const approvals = s.approvals.map((a) => h("div", { class: "card" },
 		h("div", { class: "row" }, h("strong", {}, a.tool), badge(a.bot), h("span", { class: "muted small" }, ago(a.createdAt))),
@@ -463,7 +622,8 @@ async function statusScreen() {
 		h("h2", {}, "Scheduled jobs"),
 		s.jobs.length
 			? h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Job"), h("th", {}, "State"), h("th", { class: "hide-s" }, "Next run"), h("th", {}, "Last run"), h("th"))), h("tbody", {}, s.jobs.map(jobRow))))
-			: h("div", { class: "muted" }, "No scheduled jobs."));
+			: h("div", { class: "muted" }, "No scheduled jobs."),
+		reviews);
 	if (!timer) timer = setInterval(() => { if (tab === "status" && !document.hidden) run(statusScreen); }, 5000);
 }
 
@@ -480,6 +640,10 @@ async function gatewayScreen() {
 	const mode = select(["smart", "manual", "off"], g.defaults.approvals);
 	const timeout = h("input", { type: "number", value: g.defaults.approvalTimeoutS, min: 1 });
 	const tz = h("input", { type: "text", value: g.timezone ?? "", placeholder: "America/New_York" });
+	const rv = state.review;
+	const rvOn = h("input", { type: "checkbox", checked: rv.enabled });
+	const rvThr = h("input", { type: "number", value: rv.allowThreshold, min: 0.5, max: 1, step: 0.05 });
+	const rvTime = h("input", { type: "number", value: rv.timeoutMs, min: 500, max: 30000, step: 100 });
 
 	const save = () => run(async () => {
 		const patch = {};
@@ -494,6 +658,11 @@ async function gatewayScreen() {
 		if (Object.keys(server).length) patch.server = server;
 		if (Object.keys(defaults).length) patch.defaults = defaults;
 		if (tz.value.trim() !== (g.timezone ?? "")) patch.timezone = tz.value.trim();
+		const review = {};
+		if (rvOn.checked !== rv.enabled) review.enabled = rvOn.checked;
+		if (Number(rvThr.value) !== rv.allowThreshold) review.allowThreshold = Number(rvThr.value);
+		if (Number(rvTime.value) !== rv.timeoutMs) review.timeoutMs = Number(rvTime.value);
+		if (Object.keys(review).length) patch.review = review;
 		if (!Object.keys(patch).length) return toast("Nothing changed");
 		restartNote(await api("PATCH", "/gateway", patch));
 		await loadState();
@@ -527,6 +696,12 @@ async function gatewayScreen() {
 			h("h3", {}, "Server"),
 			h("div", { class: "grid2" }, field("Host", host), field("Port", port), field("Public name", pname), field("Time zone", tz)),
 			h("div", { class: "hint" }, "Server and time zone changes take effect after a restart."),
+			h("h3", {}, "Permission review (Jev)"),
+			h("div", { class: "checks" }, h("label", {}, rvOn, "Review commands before asking you")),
+			h("div", { class: "grid2" }, field("Auto-approve threshold (0.5 to 1)", rvThr), field("Timeout (ms)", rvTime)),
+			h("div", { class: "field" }, h("span", { class: "small muted" }, "Key variable "), h("span", { class: "mono" }, rv.keyEnv), " ",
+				badge(rv.keySet ? "set" : "not set", rv.keySet ? "ok" : "warn"), " ", h("a", { href: "#keys" }, "Keys")),
+			h("div", { class: "hint" }, "Commands and the owner's recent messages are sent to OpenRouter/TypeSafe for review; known secrets are removed first."),
 			h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save")),
 		h("div", { class: "card" }, h("h3", {}, "Panel password"), pass));
 }
