@@ -13,6 +13,7 @@ import { configView } from "../admin.ts";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
+import type { SessionSpend } from "../core/sessions.ts";
 import { SecretError } from "../core/secrets.ts";
 import { UpdateError } from "../core/updates.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
@@ -49,6 +50,8 @@ export class Panel {
 	private readonly core: Core;
 	readonly auth: PanelAuth;
 	private readonly api: Router;
+	/** A chat's spend, read again only when the chat changed. */
+	private readonly spends = new Map<string, { key: string; spend: SessionSpend }>();
 
 	constructor(core: Core) {
 		this.core = core;
@@ -302,14 +305,27 @@ export class Panel {
 		});
 
 		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)
-		r.on("GET", "/panel/api/sessions", (q) => {
+		r.on("GET", "/panel/api/sessions", async (q) => {
 			const name = q.query.get("bot");
 			const archived = (q.query.get("archived") ?? "exclude") as "exclude" | "only" | "include";
 			const bots = name ? [this.bot(name)] : c.bots.list().filter((b) => !b.isPeer || b.remote);
 			const rows = bots.flatMap((b) => c.sessions.list(b.name, { limit: 100, offset: 0, archived, order: "recent" }).rows);
 			rows.sort((a, b) => b.last_active - a.last_active);
+			const shown = rows.slice(0, 200);
+			// A chat on a member's machine keeps its ledger there: no spend to show here.
+			const spend = async (s: (typeof shown)[number]): Promise<SessionSpend | null> => {
+				if (s.remote_node !== null) return null;
+				const key = `${s.message_count}:${s.last_active}:${s.model_calls}`;
+				let hit = this.spends.get(s.id);
+				if (hit?.key !== key) {
+					hit = { key, spend: await c.sessions.spend(s.id) };
+					this.spends.set(s.id, hit);
+				}
+				return hit.spend.total > 0 ? hit.spend : null;
+			};
+			const spends = await Promise.all(shown.map(spend));
 			return {
-				sessions: rows.slice(0, 200).map((s) => ({
+				sessions: shown.map((s, i) => ({
 					id: s.id,
 					bot: s.bot,
 					kind: s.kind,
@@ -322,6 +338,7 @@ export class Panel {
 					pinned: s.pinned === 1,
 					running: c.sessions.isRunning(s.id),
 					remote: s.remote_node !== null,
+					usage: spends[i],
 				})),
 			};
 		});
@@ -340,7 +357,10 @@ export class Panel {
 			if (c.proxy.isProxy(id)) return { stopped: (await c.proxy.forward(id, "session.interrupt", { session_id: id })).interrupted === true };
 			return { stopped: await c.sessions.interrupt(id) };
 		});
-		r.on("DELETE", "/panel/api/sessions/:id", async (q) => ({ deleted: await c.sessions.delete(q.params.id!) }));
+		r.on("DELETE", "/panel/api/sessions/:id", async (q) => {
+			this.spends.delete(q.params.id!);
+			return { deleted: await c.sessions.delete(q.params.id!) };
+		});
 
 		// Memory (minimal: search, view, add, edit, pin, delete)
 		r.on("GET", "/panel/api/memory", (q) => {

@@ -58,6 +58,8 @@ type Msg = { role: string; content: string | Block[]; usage?: { input: number; o
 
 /** One model call's usage (input counts cache writes; cost in USD). */
 export type UsageEvent = { at: number; model: string; input: number; output: number; cacheRead: number; reasoning: number; cost: number };
+/** A chat's totals to date: input excludes cache reads and writes; models are `provider/modelId`. */
+export type SessionSpend = { models: string[]; input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number; total: number; calls: number; costUsd: number };
 
 function sameNames(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
@@ -361,6 +363,23 @@ export class Sessions {
 			});
 		}
 		return out;
+	}
+
+	/** A chat's spend to date from its usage ledger alone (cheap enough for a list of chats). */
+	async spend(id: string): Promise<SessionSpend> {
+		const row = this.require(id);
+		const state = await this.engine.usage(row.conversation_id);
+		const sum: SessionSpend = { models: Object.keys(state.models), input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 0, calls: row.model_calls, costUsd: 0 };
+		for (const u of Object.values(state.models) as { input: number; output: number; reasoning?: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost?: { total: number } }[]) {
+			sum.input += u.input;
+			sum.output += u.output;
+			sum.reasoning += u.reasoning ?? 0;
+			sum.cacheRead += u.cacheRead;
+			sum.cacheWrite += u.cacheWrite;
+			sum.total += u.totalTokens;
+			sum.costUsd += u.cost?.total ?? 0;
+		}
+		return sum;
 	}
 
 	async usage(id: string): Promise<UsageSummary> {

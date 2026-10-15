@@ -202,9 +202,11 @@ test("sessions, memory and approvals from the panel", async () => {
 		await ev.until((e) => e.type === "run.finished", 10000);
 
 		const list = await panel("GET", "/sessions?bot=ops");
-		const rows = list.json.sessions as { id: string; title: string; running: boolean }[];
+		const rows = list.json.sessions as { id: string; title: string; running: boolean; usage: { total: number; calls: number } | null }[];
 		assert.equal(rows.length, 1);
 		assert.equal(rows[0]!.running, false);
+		assert.ok(rows[0]!.usage && rows[0]!.usage.total > 0, "the chat's spend rides on its line");
+		assert.deepEqual(rows[0]!.usage, await core.sessions.spend(s.id));
 		assert.equal((await panel("PATCH", `/sessions/${s.id}`, { title: "Reboot attempt", archived: true })).status, 200);
 		assert.equal(core.sessions.get(s.id)!.title, "Reboot attempt");
 		assert.equal(((await panel("GET", "/sessions?bot=ops")).json.sessions as unknown[]).length, 0, "archived are hidden by default");
