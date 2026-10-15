@@ -43,3 +43,6 @@ Status per phase: see `docs/STATUS.md`.
   security review, docs.
 - [ ] **7. Federation and control panel**: private bots, runtime config, membership (invite/join),
   roster sync, remote bots as Vory profiles, web control panel at `/panel`. Plan: `docs/FEDERATION.md`.
+- [ ] **8. Secrets in the panel and Jev permission review**: write-only key management (panel, CLI),
+  optional copy to members, Jev review in the approval guard with a wider ask list. Plan:
+  `docs/SECRETS-AND-REVIEW.md`.
