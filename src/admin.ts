@@ -228,7 +228,7 @@ function settingsCall<T>(fn: () => T): T {
 }
 
 /** The gateway's settings and every bot: its config entry, what is in effect, and runtime overrides. */
-export function configView(core: Core) {
+export function configView(core: Pick<Core, "config" | "toolGroups" | "bots">) {
 	const c = core.config;
 	return {
 		configPath: c.configPath,

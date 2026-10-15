@@ -158,7 +158,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const features = [
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
-		selfFeature(late, { skills }),
+		selfFeature(late, { skills, view: { config, toolGroups, bots } }),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),

@@ -1,14 +1,18 @@
 // A bot knowing nHermes: the `about` prompt section (what this is, the bot's live settings, where the
 // docs are, how things change) for bots that have the `self` tool group.
-import { resolve } from "node:path";
-import type { Feature, LateServices } from "../app.ts";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { configView } from "../admin.ts";
+import type { Core, Feature, LateServices } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
 import type { Skills } from "../skills/skills.ts";
 
 /** The install directory, resolved from the running code (README.md, ARCHITECTURE.md, docs/). */
 export const INSTALL_DIR = resolve(import.meta.dirname, "..", "..");
 
-export type SelfServices = { skills: Skills };
+export type SelfServices = { skills: Skills; view: Pick<Core, "config" | "toolGroups" | "bots"> };
 
 /** Where this bot's commands run: here, or over SSH. */
 function whereCommandsRun(bot: Bot): string {
@@ -40,9 +44,57 @@ export function aboutText(late: LateServices, services: SelfServices, bot: Bot):
 	].join("\n");
 }
 
+function text(t: string) {
+	return { output: [{ type: "text" as const, text: t }] };
+}
+
+/** The documents a bot may read: README.md, ARCHITECTURE.md and docs/*.md under the install directory. */
+export function docFiles(): string[] {
+	const docs = existsSync(resolve(INSTALL_DIR, "docs")) ? readdirSync(resolve(INSTALL_DIR, "docs")).filter((f) => f.endsWith(".md")).sort() : [];
+	return [...["README.md", "ARCHITECTURE.md"].filter((f) => existsSync(resolve(INSTALL_DIR, f))), ...docs.map((f) => `docs/${f}`)];
+}
+
+/** Reads one listed document; anything else (traversal, other folders, other types) is refused. */
+export function readDoc(file: string): string {
+	const rel = relative(INSTALL_DIR, resolve(INSTALL_DIR, file));
+	if (!docFiles().includes(rel)) throw new Error(`not a documentation file; available: ${docFiles().join(", ")}`);
+	return readFileSync(resolve(INSTALL_DIR, rel), "utf8");
+}
+
 export function selfFeature(late: LateServices, services: SelfServices): Feature {
+	const botOf = (conversationId: number) => {
+		const bot = late.sessions().botOf(conversationId);
+		if (!bot) throw new Error("this conversation has no bot");
+		return bot;
+	};
+
+	const info = defineTool({
+		name: "self_info",
+		description:
+			"Your own configuration in nHermes: the config.yaml entry, what is in effect and runtime overrides (never secrets). " +
+			"A trusted bot can pass bot to see another bot, or gateway: true for the gateway's settings and every bot.",
+		parameters: Type.Object({ bot: Type.Optional(Type.String()), gateway: Type.Optional(Type.Boolean()) }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = botOf(api.conversationId as number);
+			if ((args.gateway || (args.bot && args.bot !== me.name)) && !me.trusted) throw new Error("only a trusted bot can look at other bots or the gateway");
+			const view = configView(services.view);
+			if (args.gateway) return text(JSON.stringify(view, null, 2));
+			const entry = view.bots.find((b) => b.name === (args.bot ?? me.name));
+			if (!entry) throw new Error(`unknown bot "${args.bot}"`);
+			return text(JSON.stringify({ gateway: view.gateway.timezone, toolGroups: view.toolGroups, bot: entry }, null, 2));
+		},
+	});
+	const docs = defineTool({
+		name: "nhermes_docs",
+		description: "nHermes's own documentation. Without file, lists the documents; with file (as listed), returns the whole document. Read it only when asked about nHermes or yourself.",
+		parameters: Type.Object({ file: Type.Optional(Type.String()) }),
+		replay: "safe",
+		execute: async (args) => text(args.file ? readDoc(args.file) : `${INSTALL_DIR}\n${docFiles().join("\n")}`),
+	});
+
 	return {
-		groups: new Map([["self", []]]),
+		groups: new Map([["self", [info, docs] as ToolRegistration[]]]),
 		promptParts: [(bot) => (bot.toolGroups.includes("self") ? aboutText(late, services, bot) : undefined)],
 	};
 }
