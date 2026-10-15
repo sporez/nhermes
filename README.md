@@ -1,4 +1,4 @@
-# Neil Hermes
+# nHermes
 
 A small, self-hosted personal agent platform. [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)
 runs the agents; the gateway speaks the Hermes dashboard protocol, so the stock

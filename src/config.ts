@@ -42,7 +42,7 @@ export type BotConfig = {
 	private?: boolean;
 	workspace?: string;
 	host?: { ssh: SshHostConfig };
-	/** Mode B: this bot is an independent Neil Hermes gateway elsewhere (its `profile` there). */
+	/** Mode B: this bot is an independent nHermes gateway elsewhere (its `profile` there). */
 	peer?: { url: string; tokenEnv: string; profile?: string };
 	/** Environment variables this bot's http_request may reference as {{secret:NAME}}. */
 	secrets?: string[];
@@ -273,7 +273,7 @@ export function loadConfig(configPath: string): Config {
 			// All interfaces by default, so a headless machine is reachable on the LAN; 127.0.0.1 keeps it local.
 			host: str(server.host, "server.host") ?? "0.0.0.0",
 			port: typeof server.port === "number" ? server.port : 9119,
-			publicName: str(server.name, "server.name") ?? "Neil Hermes",
+			publicName: str(server.name, "server.name") ?? "nHermes",
 		},
 		token,
 		tokenEnv,

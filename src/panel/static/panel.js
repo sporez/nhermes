@@ -107,7 +107,7 @@ function showLogin() {
 		} catch (x) { err.textContent = x.message; }
 	};
 	show(h("form", { class: "card login", on: { submit: go } },
-		h("h1", {}, "nhermes panel"), field("Password", pw), err, h("button", { class: "primary", type: "submit" }, "Sign in")));
+		h("h1", {}, "nHermes panel"), field("Password", pw), err, h("button", { class: "primary", type: "submit" }, "Sign in")));
 }
 
 function renderTabs() {
@@ -132,7 +132,7 @@ async function start() {
 	if (s.passwordSet && !s.signedIn) return showLogin();
 	await loadState();
 	document.getElementById("machine").textContent = state.node.name;
-	document.title = `${state.node.name} - nhermes`;
+	document.title = `${state.node.name} - nHermes`;
 	document.getElementById("top").hidden = false;
 	void refreshUpdateBadge();
 	await route();

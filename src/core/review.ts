@@ -121,7 +121,7 @@ export class JevReviewer {
 			const res = await this.fetchImpl(JEV_ENDPOINT, {
 				method: "POST",
 				redirect: "error",
-				headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "nhermes" },
+				headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "X-Title": "nHermes" },
 				body: JSON.stringify(body),
 				signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
 			});

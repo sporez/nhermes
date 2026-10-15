@@ -1,4 +1,4 @@
-// Mode B: an independent agent on another machine is another Neil Hermes gateway (its own Durable
+// Mode B: an independent agent on another machine is another nHermes gateway (its own Durable
 // store, tools and memory). The central gateway reaches it over the same Hermes JSON-RPC WebSocket
 // Vory uses, so there is no second protocol. Delegation to a peer is idempotent (prompt.submit's
 // idempotency_key becomes the peer's Durable request id) and survives a dropped connection: the

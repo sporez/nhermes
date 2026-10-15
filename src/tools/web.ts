@@ -76,7 +76,7 @@ export function webFeature(late: LateServices): Feature {
 		replay: "safe",
 		execute: async (args, _api, ctx) => {
 			const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(ctx.abortSignal ? [ctx.abortSignal] : [])]);
-			const res = await fetch(args.url, { signal, redirect: "follow", headers: { "user-agent": "nhermes/0.1 (+personal assistant)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" } });
+			const res = await fetch(args.url, { signal, redirect: "follow", headers: { "user-agent": "nHermes/0.1 (+personal assistant)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" } });
 			const { text, truncated } = await readLimited(res, signal);
 			const type = res.headers.get("content-type") ?? "";
 			const body = !args.raw && type.includes("html") ? htmlToText(text) : text;

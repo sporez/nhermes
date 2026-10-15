@@ -1,8 +1,8 @@
 {
-  "name": "neil-hermes",
+  "name": "nhermes",
   "version": "0.1.0",
   "private": true,
-  "description": "A small self-hosted personal agent platform on Pi Durable, speaking the Hermes protocol for Vory.",
+  "description": "nHermes: a small self-hosted personal agent platform on Pi Durable, speaking the Hermes protocol for Vory.",
   "type": "module",
   "engines": {
     "node": ">=24"

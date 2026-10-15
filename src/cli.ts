@@ -1,4 +1,4 @@
-// nhermes: the gateway daemon and its small admin CLI.
+// nHermes: the gateway daemon and its small admin CLI (the `nhermes` command).
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -13,7 +13,9 @@ import { logger } from "./log.ts";
 
 const log = logger("cli");
 
-const USAGE = `nhermes <command> [options]
+const USAGE = `nHermes: your self-hosted agent gateway
+
+nhermes <command> [options]
 
 Commands:
   serve                       Run the gateway (one process owns the data directory)
@@ -46,11 +48,11 @@ Options:
 
 type InitOptions = { name?: string; port?: number; dataDir?: string };
 
-const sampleConfig = (o: InitOptions) => `# Neil Hermes configuration. Secrets go in secrets.env, not here.
+const sampleConfig = (o: InitOptions) => `# nHermes configuration. Secrets go in secrets.env, not here.
 server:
   host: 0.0.0.0          # all interfaces (Vory, other machines, the panel); 127.0.0.1 keeps it on this machine
   port: ${o.port ?? 9119}
-  name: Neil Hermes
+  name: nHermes
 ${o.name ? `node:\n  name: ${o.name}            # this machine in the network (nhermes invite / join)\n` : ""}dataDir: ${o.dataDir ?? "data"}
 timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
 

@@ -1,8 +1,8 @@
-# Neil Hermes on the hermes VM. Secrets: secrets.env (mode 600).
+# nHermes on the hermes VM. Secrets: secrets.env (mode 600).
 server:
   host: 0.0.0.0
   port: 9120
-  name: Neil Hermes
+  name: nHermes
 dataDir: /home/YOU/.local/share/nhermes
 timezone: America/New_York
 browserExecutable: /usr/bin/google-chrome

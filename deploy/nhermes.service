@@ -1,7 +1,7 @@
 # systemd user unit: ~/.config/systemd/user/nhermes.service
 # Enable with: loginctl enable-linger $USER; systemctl --user enable --now nhermes
 [Unit]
-Description=Neil Hermes gateway
+Description=nHermes gateway
 After=network-online.target
 
 [Service]

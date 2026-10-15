@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs or upgrades nhermes for the current user on Linux or macOS, and runs it as a service.
+# Installs or upgrades nHermes for the current user on Linux or macOS, and runs it as a service.
 #
 #   curl -fsSL https://raw.githubusercontent.com/sporez/nhermes/main/scripts/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/sporez/nhermes/main/scripts/install.sh | sh -s -- --join nh1.…
@@ -82,7 +82,7 @@ else
 		say "Moving the existing $DIR (not a git checkout) to $OLD"
 		mv "$DIR" "$OLD"
 	fi
-	say "Downloading nhermes into $DIR"
+	say "Downloading nHermes into $DIR"
 	if command -v git >/dev/null 2>&1; then
 		git clone --quiet --branch "$BRANCH" "$REPO" "$DIR"
 	else
@@ -110,7 +110,7 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/nhermes" <<EOF
 #!/bin/sh
-# Written by nhermes scripts/install.sh
+# Written by the nHermes install script (scripts/install.sh)
 export NHERMES_CONFIG="\${NHERMES_CONFIG:-$NHERMES_CONFIG}"
 exec "$NODE" "$DIR/src/cli.ts" "\$@"
 EOF
@@ -138,9 +138,9 @@ if [ "$SERVICE" = 1 ]; then
 		UNIT="$HOME/.config/systemd/user/nhermes.service"
 		mkdir -p "$(dirname "$UNIT")"
 		cat > "$UNIT" <<EOF
-# Written by nhermes scripts/install.sh
+# Written by the nHermes install script (scripts/install.sh)
 [Unit]
-Description=nhermes gateway
+Description=nHermes gateway
 After=network-online.target
 
 [Service]

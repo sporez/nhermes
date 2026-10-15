@@ -3,7 +3,7 @@
 "Automated" = our suite (`npm test`, 38 tests, faux model, no network). "Live" = exercised against a real
 model (now `neuralwatt/deepseek-v4.1-flash`; earlier runs used `cerebras/gpt-oss-120b`, both via Pi's provider layer) and/or the stock Vory client.
 
-Deployment under test: the **hermes VM** (Debian 13, on the LAN), `nhermes` as a systemd user service on
+Deployment under test: the **hermes VM** (Debian 13, on the LAN), nHermes as a systemd user service on
 port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (trusted, SSH host),
 `desktop` (XFCE on `:0`), `mac` (peer agent on Neil's Mac; since replaced by the network of gateways, `docs/FEDERATION.md`).
 

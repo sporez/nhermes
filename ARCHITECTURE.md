@@ -1,6 +1,6 @@
 # Architecture
 
-Neil Hermes is a small, self-hosted personal agent platform. Pi Durable does the agent work; this
+nHermes is a small, self-hosted personal agent platform. Pi Durable does the agent work; this
 project adds what Pi Durable deliberately leaves to its host (bots, sessions as products, approvals,
 memory, schedules, notifications, remote hosts) and a translation layer that lets the stock Vory app
 drive it as if it were a Hermes gateway.
