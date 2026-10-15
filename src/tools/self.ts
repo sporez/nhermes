@@ -5,10 +5,11 @@ import { join, relative, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { configView } from "../admin.ts";
-import { ConfigError } from "../config.ts";
+import { type BotConfig, ConfigError } from "../config.ts";
 import type { Core, Feature, LateServices } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
-import type { BotPatch, Settings } from "../core/settings.ts";
+import type { BotPatch, GatewayPatch, Settings } from "../core/settings.ts";
+import { UpdateError, type Updates } from "../core/updates.ts";
 import type { Skills } from "../skills/skills.ts";
 
 /** The install directory, resolved from the running code (README.md, ARCHITECTURE.md, docs/). */
@@ -18,6 +19,7 @@ export type SelfServices = {
 	skills: Skills;
 	view: Pick<Core, "config" | "toolGroups" | "bots">;
 	settings: () => Settings;
+	updates: () => Updates;
 	/** Whether "provider/model" names a model the gateway can use. */
 	modelExists: (ref: string) => boolean;
 };
@@ -43,6 +45,40 @@ export function lineDiff(before: string, after: string): string {
 	const keep = out.map((l, k) => !l.startsWith("  ") || out.slice(Math.max(0, k - 2), k + 3).some((x) => !x.startsWith("  ")));
 	return out.filter((_, k) => keep[k]).join("\n");
 }
+
+/**
+ * What gateway_bot_update / gateway_bot_add may set. Left out even for trusted bots: sharedMemory (reaches other
+ * bots' data), secrets and peer (name environment variables that hold secrets, which a bot could then send out).
+ */
+export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop"] as const;
+
+/** Gateway settings a trusted bot may change (no server address or port, no key variable names). */
+function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {
+	const rec = (v: unknown, keys: string[], where: string): Record<string, unknown> => {
+		if (v === undefined) return {};
+		if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error(`${where} must be an object`);
+		const bad = Object.keys(v).filter((k) => !keys.includes(k));
+		if (bad.length > 0) throw new Error(`${where}.${bad.join(", ")} cannot be changed here`);
+		return v as Record<string, unknown>;
+	};
+	const bad = Object.keys(raw).filter((k) => !["defaults", "timezone", "groundRules", "modelLists", "review"].includes(k));
+	if (bad.length > 0) throw new Error(`gateway setting ${bad.join(", ")} cannot be changed here (allowed: defaults, timezone, groundRules, modelLists, review)`);
+	const out: GatewayPatch = {};
+	if (raw.defaults !== undefined) out.defaults = rec(raw.defaults, ["model", "thinking", "approvals"], "defaults") as GatewayPatch["defaults"];
+	if (raw.review !== undefined) out.review = rec(raw.review, ["enabled", "allowThreshold", "timeoutMs"], "review") as GatewayPatch["review"];
+	if (raw.modelLists !== undefined) out.modelLists = rec(raw.modelLists, ["hide"], "modelLists") as GatewayPatch["modelLists"];
+	if (raw.timezone !== undefined) out.timezone = raw.timezone as string;
+	if (raw.groundRules !== undefined) out.groundRules = raw.groundRules as string | null;
+	return out;
+}
+
+function botPatchOf(raw: Record<string, unknown>, what: string): Record<string, unknown> {
+	const bad = Object.keys(raw).filter((k) => !(BOT_FIELDS as readonly string[]).includes(k));
+	if (bad.length > 0) throw new Error(`${bad.join(", ")} cannot be set by a bot (${what}); allowed: ${BOT_FIELDS.join(", ")}`);
+	return raw;
+}
+
+const withoutCredentials = (url: string | undefined) => url?.replace(/\/\/[^@/]+@/, "//");
 
 function fieldChange(label: string, before: unknown, after: unknown): string {
 	const show = (v: unknown) => (v === undefined || v === null ? "(unset)" : typeof v === "string" ? v : JSON.stringify(v));
@@ -109,6 +145,39 @@ export function describeConfigCall(services: SelfServices, bot: Bot, name: strin
 		if (name === "self_skill_delete") return `Delete ${bot.name}'s skill "${skillName}"`;
 		const extra = Object.keys((args.files as object) ?? {});
 		return [`Write ${bot.name}'s skill "${skillName}"${extra.length ? ` (+ files: ${extra.join(", ")})` : ""}:`, lineDiff(existsSync(old) ? readFileSync(old, "utf8") : "", String(args.skillMd ?? ""))].join("\n");
+	}
+	const cur = (n: unknown) => services.view.bots.get(String(n))?.config;
+	if (name === "gateway_bot_update") {
+		const c = cur(args.name);
+		const patch = (args.patch ?? {}) as Record<string, unknown>;
+		return [`Change bot "${args.name}":`, ...Object.entries(patch).map(([k, v]) => fieldChange(k, (c as Record<string, unknown> | undefined)?.[k], v))].join("\n");
+	}
+	if (name === "gateway_bot_add") return `Add bot:\n${JSON.stringify(args.config, null, 2)}`;
+	if (name === "gateway_bot_remove") return `Remove bot "${args.name}" from config.yaml (its sessions, memory and workspace stay on disk)`;
+	if (name === "gateway_update") {
+		const c = services.view.config as unknown as Record<string, unknown>;
+		const lines: string[] = [];
+		for (const [k, v] of Object.entries((args.patch ?? {}) as Record<string, unknown>)) {
+			if (v !== null && typeof v === "object" && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v)) lines.push(fieldChange(`${k}.${k2}`, (c[k] as Record<string, unknown> | undefined)?.[k2], v2));
+			else lines.push(fieldChange(k, k === "groundRules" ? c.groundRules : c[k], v));
+		}
+		return ["Change the gateway's settings:", ...lines].join("\n");
+	}
+	if (name === "gateway_reload") return "Re-read config.yaml and apply it";
+	if (name === "gateway_skill_write" || name === "gateway_skill_delete") {
+		const dir = typeof args.bot === "string" ? services.view.bots.get(args.bot)?.skillsDir : services.view.config.skillsDir;
+		const where = typeof args.bot === "string" ? `${args.bot}'s` : "the global";
+		if (name === "gateway_skill_delete") return `Delete ${where} skill "${args.name}"`;
+		const old = dir ? join(dir, String(args.name), "SKILL.md") : "";
+		const extra = Object.keys((args.files as object) ?? {});
+		return [`Write ${where} skill "${args.name}"${extra.length ? ` (+ files: ${extra.join(", ")})` : ""}:`, lineDiff(old && existsSync(old) ? readFileSync(old, "utf8") : "", String(args.skillMd ?? ""))].join("\n");
+	}
+	if (name === "gateway_software") {
+		const st = services.updates().status();
+		const list = (cs: { hash: string; subject: string }[]) => cs.map((c) => `  ${c.hash} ${c.subject}`).join("\n");
+		return args.action === "rollback"
+			? `Roll nHermes back to ${st.previous ? `${st.previous.hash} ${st.previous.subject}` : "(nothing recorded)"} and restart the gateway`
+			: `Update nHermes from ${st.current?.hash ?? "?"} (${st.available.length} new commits as of the last check) and restart the gateway:\n${list(st.available.slice(0, 15))}`;
 	}
 	return undefined;
 }
@@ -213,8 +282,137 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 		},
 	});
 
+	// Gateway-wide tools: trusted bots only (the guard also refuses them through an untrusted delegation chain).
+	const trusted = (api: { conversationId: unknown }) => {
+		const bot = botOf(api.conversationId as number);
+		if (!bot.trusted) throw new Error("only a trusted bot can change the gateway or other bots");
+		return bot;
+	};
+	const settings = () => services.settings();
+	const Obj = Type.Record(Type.String(), Type.Unknown());
+	const botUpdate = defineTool({
+		name: "gateway_bot_update",
+		description: `Change any bot's setup in config.yaml (fields: ${BOT_FIELDS.join(", ")}); a null value removes a field. Not sharedMemory, secrets or peer. The owner is asked to approve.`,
+		parameters: Type.Object({ name: Type.String(), patch: Obj }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			const patch = botPatchOf(args.patch, "owner only");
+			wrap(() => settings().withBackup(() => settings().editBot(args.name, patch as BotPatch)));
+			audit(api, me, "gateway_bot_update", { bot: args.name, patch });
+			return text(`Updated ${args.name}: ${Object.keys(patch).join(", ")}.`);
+		},
+	});
+	const botAdd = defineTool({
+		name: "gateway_bot_add",
+		description: `Add a bot: config with name and any of ${BOT_FIELDS.join(", ")}. The owner is asked to approve.`,
+		parameters: Type.Object({ config: Obj }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			const { name, ...rest } = args.config;
+			if (typeof name !== "string") throw new Error("config.name is required");
+			const entry = { name, ...botPatchOf(rest, "owner only") } as BotConfig;
+			wrap(() => settings().withBackup(() => settings().addBot(entry)));
+			audit(api, me, "gateway_bot_add", { config: entry });
+			return text(`Added bot ${name}.`);
+		},
+	});
+	const botRemove = defineTool({
+		name: "gateway_bot_remove",
+		description: "Remove a bot from config.yaml (its sessions, memory and workspace stay on disk). Not yourself, not the default bot. The owner is asked to approve.",
+		parameters: Type.Object({ name: Type.String() }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			if (args.name === me.name) throw new Error("a bot cannot remove itself");
+			wrap(() => settings().withBackup(() => settings().removeBot(args.name)));
+			audit(api, me, "gateway_bot_remove", { bot: args.name });
+			return text(`Removed bot ${args.name}.`);
+		},
+	});
+	const gwUpdate = defineTool({
+		name: "gateway_update",
+		description: "Change gateway settings: patch with defaults {model, thinking, approvals}, timezone, groundRules (null restores the built-in rules), modelLists {hide}, review {enabled, allowThreshold, timeoutMs}. The owner is asked to approve.",
+		parameters: Type.Object({ patch: Obj }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			const patch = gatewayPatchOf(args.patch);
+			const result = wrap(() => settings().withBackup(() => settings().setGateway(patch)));
+			audit(api, me, "gateway_update", { patch });
+			return text(`Gateway settings updated${result.restartNeeded.length ? `; needs a restart: ${result.restartNeeded.join(", ")}` : ""}.`);
+		},
+	});
+	const reload = defineTool({
+		name: "gateway_reload",
+		description: "Re-read config.yaml (after the owner changed it by hand) and apply it. The owner is asked to approve.",
+		parameters: Type.Object({}),
+		replay: "safe",
+		execute: async (_args, api) => {
+			const me = trusted(api);
+			const result = wrap(() => settings().reload());
+			audit(api, me, "gateway_reload", result);
+			return text(`Reloaded: ${JSON.stringify(result)}`);
+		},
+	});
+	const skillRoot = (bot: string | undefined) => {
+		if (!bot) return services.view.config.skillsDir;
+		const b = late.bots().get(bot);
+		if (!b || b.remote) throw new Error(`unknown bot "${bot}"`);
+		return b.skillsDir;
+	};
+	const gwSkillWrite = defineTool({
+		name: "gateway_skill_write",
+		description: "Create or replace a skill: a global one (all bots can opt in), or one in a bot's own folder when bot is given. Same arguments as self_skill_write. The owner is asked to approve.",
+		parameters: Type.Object({ name: Type.String(), skillMd: Type.String(), files: Type.Optional(Type.Record(Type.String(), Type.String())), bot: Type.Optional(Type.String()) }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			const written = services.skills.write(skillRoot(args.bot), args.name, args.skillMd, args.files);
+			audit(api, me, "gateway_skill_write", { skill: args.name, bot: args.bot ?? "(global)", files: written });
+			return text(`Wrote skill "${args.name}" (${written.join(", ")}).`);
+		},
+	});
+	const gwSkillDelete = defineTool({
+		name: "gateway_skill_delete",
+		description: "Delete a global skill, or one of a bot's own when bot is given. The owner is asked to approve.",
+		parameters: Type.Object({ name: Type.String(), bot: Type.Optional(Type.String()) }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			services.skills.remove(skillRoot(args.bot), args.name);
+			audit(api, me, "gateway_skill_delete", { skill: args.name, bot: args.bot ?? "(global)" });
+			return text(`Deleted skill "${args.name}".`);
+		},
+	});
+	const software = defineTool({
+		name: "gateway_software",
+		description:
+			"nHermes's own software: action status | check (fetch and list new commits) | update | rollback (the last update). update and rollback ask the owner, are refused while other sessions are running " +
+			"unless force is true, and restart the gateway: your run resumes afterwards; call status to see the new version.",
+		parameters: Type.Object({ action: Type.Union([Type.Literal("status"), Type.Literal("check"), Type.Literal("update"), Type.Literal("rollback")]), force: Type.Optional(Type.Boolean()) }),
+		replay: "safe",
+		execute: async (args, api) => {
+			const me = trusted(api);
+			const show = (v: unknown) => JSON.stringify(v, (k, x) => (k === "remote" ? withoutCredentials(x as string) : x), 2);
+			try {
+				if (args.action === "status") return text(show(services.updates().status()));
+				if (args.action === "check") return text(show(services.updates().check()));
+				const others = late.sessions().runningCount() - 1;
+				if (others > 0 && !args.force) throw new Error(`${others} other session(s) are running and a restart would interrupt them; try again later or pass force: true`);
+				const r = args.action === "update" ? services.updates().update() : services.updates().rollback();
+				audit(api, me, `gateway_software.${args.action}`, { from: r.from, to: r.to });
+				return text(`${args.action === "update" ? "Updated" : "Rolled back"} from ${r.from.hash} (${r.from.subject}) to ${r.to.hash} (${r.to.subject})${r.restarting ? "; the gateway is restarting now, call gateway_software status afterwards" : "; restart the gateway to run it"}.`);
+			} catch (error) {
+				if (error instanceof UpdateError) throw new Error(error.message);
+				throw error;
+			}
+		},
+	});
+
 	return {
-		groups: new Map([["self", [info, docs, update, skillWrite, skillDelete] as ToolRegistration[]]]),
+		groups: new Map([["self", [info, docs, update, skillWrite, skillDelete, botUpdate, botAdd, botRemove, gwUpdate, reload, gwSkillWrite, gwSkillDelete, software] as ToolRegistration[]]]),
 		promptParts: [(bot) => (bot.toolGroups.includes("self") ? aboutText(late, services, bot) : undefined)],
 	};
 }

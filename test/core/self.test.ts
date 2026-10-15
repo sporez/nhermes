@@ -90,7 +90,7 @@ async function setupFile(yaml = YAML) {
 	const path = join(t.dir, "config.yaml");
 	writeFileSync(path, yaml);
 	const { models, faux } = fauxModels();
-	const core = await createCore(loadConfig(path), { models });
+	const core = await createCore(loadConfig(path), { models, updates: { codeDir: t.dir } });
 	const cards: { toolName: string; description: string; command: string; choices: string[] }[] = [];
 	const answer = (choice: "once" | "deny" = "once") => core.hub.subscribeAll((_sid, e) => {
 		if (e.type === "approval.requested") {
@@ -151,6 +151,61 @@ test("self skills: written into the bot's own folder after validation; traversal
 		assert.equal(r[6]!.isError, false, r[6]!.resultText);
 		assert.equal(r[7]!.isError, true);
 		assert.equal(existsSync(join(dir, "bots", "main", "skills", "tidy")), false);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("gateway tools: offered to trusted bots only; edits any bot and the gateway; leaves out sharedMemory, secrets, server", async () => {
+	const { core, path, dir, run, cleanup } = await setupFile();
+	try {
+		const names = (bot: string) => (core.agentFor(core.bots.require(bot)).tools as unknown as { name: string }[]).map((t) => t.name);
+		assert.ok(names("ops").includes("gateway_bot_update") && names("ops").includes("gateway_software"));
+		assert.ok(names("main").includes("self_update") && !names("main").some((n) => n.startsWith("gateway_")));
+		const md = "---\nname: backup-check\ndescription: Check backups\n---\n\nLook.\n";
+		const r = await run("ops", [
+			["gateway_bot_update", { name: "main", patch: { description: "Front desk", trusted: false, tools: ["files", "self"] } }],
+			["gateway_bot_update", { name: "main", patch: { sharedMemory: ["all"] } }],
+			["gateway_bot_update", { name: "main", patch: { secrets: ["X"] } }],
+			["gateway_bot_add", { config: { name: "research", description: "Reads papers", tools: ["files"] } }],
+			["gateway_bot_remove", { name: "ops" }],
+			["gateway_bot_remove", { name: "research" }],
+			["gateway_update", { patch: { timezone: "Europe/London", defaults: { thinking: "high" } } }],
+			["gateway_update", { patch: { server: { port: 1 } } }],
+			["gateway_skill_write", { name: "backup-check", skillMd: md }],
+			["gateway_skill_write", { name: "backup-check", skillMd: md, bot: "main" }],
+			["gateway_skill_delete", { name: "backup-check" }],
+			["gateway_software", { action: "status" }],
+			["gateway_software", { action: "update" }],
+			["gateway_reload", {}],
+		]);
+		const out = r.map((x, i) => `${i}: ${x.isError ? "ERR " : ""}${x.resultText}`).join("\n");
+		const ok = (i: number) => assert.equal(r[i]!.isError, false, out);
+		const bad = (i: number) => assert.equal(r[i]!.isError, true, out);
+		ok(0);
+		assert.equal(core.bots.require("main").description, "Front desk");
+		assert.deepEqual(core.bots.require("main").toolGroups, ["files", "self"]);
+		bad(1);
+		bad(2);
+		ok(3);
+		bad(4);
+		ok(5);
+		assert.equal(core.bots.get("research"), undefined);
+		ok(6);
+		assert.match(readFileSync(path, "utf8"), /timezone: Europe\/London/);
+		bad(7);
+		ok(8);
+		ok(9);
+		assert.equal(existsSync(join(dir, "bots", "main", "skills", "backup-check", "SKILL.md")), true, "the bot-folder skill was not deleted");
+		ok(10);
+		assert.equal(existsSync(join(dir, "skills", "backup-check")), false);
+		ok(11);
+		assert.match(r[11]!.resultText, /"updatable": false/);
+		bad(12);
+		assert.match(r[12]!.resultText, /not a git checkout/);
+		ok(13);
+		assert.deepEqual(core.db.all<{ kind: string }>("SELECT kind FROM audit WHERE kind LIKE 'config.%'").map((a) => a.kind), ["config.gateway_bot_update", "config.gateway_bot_add", "config.gateway_bot_remove", "config.gateway_update", "config.gateway_skill_write", "config.gateway_skill_write", "config.gateway_skill_delete", "config.gateway_reload"]);
 	} finally {
 		await core.close();
 		await cleanup();

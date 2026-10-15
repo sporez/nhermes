@@ -10,7 +10,7 @@ import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
-import { gatewayFilesPattern } from "./core/policy.ts";
+import { GATEWAY_TOOLS, gatewayFilesPattern } from "./core/policy.ts";
 import { JevReviewer, ReviewLog } from "./core/review.ts";
 import { Secrets } from "./core/secrets.ts";
 import { Updates, type UpdatesOptions } from "./core/updates.ts";
@@ -136,7 +136,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		model: bot.model,
 		thinkingLevel: bot.thinking as AgentChange["thinkingLevel"],
 		cwd: HostEnvs.isRemote(bot) ? undefined : bot.workspace,
-		tools: toolsFor(toolGroups, bot.toolGroups),
+		// Gateway-wide tools are not offered to bots that are not trusted.
+		tools: toolsFor(toolGroups, bot.toolGroups).filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name)),
 	});
 	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub };
 
@@ -162,6 +163,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			skills,
 			view: { config, toolGroups, bots },
 			settings: () => settings,
+			updates: () => updates,
 			modelExists: (ref) => {
 				const i = ref.indexOf("/");
 				return i > 0 && models.getModel(ref.slice(0, i), ref.slice(i + 1)) !== undefined;

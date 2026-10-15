@@ -71,6 +71,9 @@ const SENSITIVE_PATHS = [/(^|\/)\.ssh\//, /^\/etc\//, /(^|\/)\.pi\/agent\/auth\.
 /** Tools with side effects outside the transcript (subject to "manual" mode). */
 const SIDE_EFFECT_TOOLS = new Set(["bash", "write", "edit", "http_request", "browser_type", "browser_click", "browser_press", "desktop_click", "desktop_type", "desktop_key", "notify", "schedule_create", "schedule_update", "schedule_delete"]);
 
+/** Tools that exist only for trusted bots: not offered to others, refused through an untrusted delegation chain. */
+export const GATEWAY_TOOLS: ReadonlySet<string> = new Set(["gateway_bot_update", "gateway_bot_add", "gateway_bot_remove", "gateway_update", "gateway_reload", "gateway_skill_write", "gateway_skill_delete", "gateway_software"]);
+
 export function shellCommandOf(name: string, args: Record<string, unknown>): string | undefined {
 	if (name === "bash" && typeof args.command === "string") return args.command;
 	return undefined;
