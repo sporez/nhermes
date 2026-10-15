@@ -188,7 +188,10 @@ run is not submitted twice.
   WebSocket Vory uses (`session.create`, `prompt.submit` with `idempotency_key` → the peer's Durable
   request id, `session.resume` after a dropped connection). A peer is configured as a bot with
   `peer: { url, tokenEnv, profile }`; local bots reach it with `delegate`, and its approval requests are
-  relayed to the owner's chat on the central gateway. Peers are not listed as Vory profiles; to chat
+  relayed to the owner's chat on the central gateway. `wait: false` works for bots on other machines
+  too: a background task (`nh.delegate-remote`) starts the chat there, records its id, submits under a
+  fixed key and waits (reconnecting, for up to a day), then posts the answer into the caller's chat; a
+  restart of either side resumes it without sending the task twice. Peers are not listed as Vory profiles; to chat
   with one directly, add it to Vory as its own gateway.
 - **Network of members (`src/federation/`, `docs/FEDERATION.md`):** gateways join one network of equals
   with `nhermes invite` / `join`; each pair shares a generated secret (`members`), sent as

@@ -74,7 +74,7 @@ test("a member's bots are delegated to with approvals in the caller's chat and n
 		const tool = ev.events.find((e) => e.type === "tool.finished" && e.name === "delegate");
 		assert.ok(tool?.type === "tool.finished" && /nasbot-beta answered \(on beta/.test(tool.resultText), JSON.stringify(tool));
 
-		assert.ok(prompt.includes(JSON.stringify('- nasbot-beta: "Runs on the NAS" (on the machine "beta"; wait: true only)').slice(1, -1)), prompt);
+		assert.ok(prompt.includes(JSON.stringify('- nasbot-beta: "Runs on the NAS" (on the machine "beta")').slice(1, -1)), prompt);
 		assert.match(prompt, /addresses one of them with @name/);
 		assert.doesNotMatch(prompt, /vault/);
 
@@ -138,6 +138,93 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		await ws?.close();
 		await a.server.close();
 		await a.core.close();
+		await b.core.close();
+		await cleanup();
+	}
+});
+
+test("wait: false to a member's bot returns at once; the answer arrives later as a new message", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
+	try {
+		await link(a, b);
+		const s = await a.core.sessions.create("main");
+		const ev = collect(a.core.hub, s.id);
+		a.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "nasbot-beta", task: "Scrub the pool and report", wait: false })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("I asked the NAS bot; I'll tell you when it reports.")]),
+			fauxAssistantMessage([fauxText("The NAS bot says the scrub is clean.")]),
+		]);
+		// beta takes its time: the caller's turn must not wait for it.
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		b.faux.setResponses([async () => (await gate, fauxAssistantMessage([fauxText("Scrub finished: 0 errors.")]))]);
+		await a.core.sessions.submit(s.id, "have the NAS bot scrub the pool");
+		const first = await ev.until((e) => e.type === "run.finished", 15000);
+		if (first.type !== "run.finished") return;
+		assert.equal(first.text, "I asked the NAS bot; I'll tell you when it reports.");
+		const tool = ev.events.find((e) => e.type === "tool.finished" && e.name === "delegate");
+		assert.ok(tool?.type === "tool.finished" && !tool.isError && /answer will arrive as a new message/.test(tool.resultText), JSON.stringify(tool));
+
+		release();
+		const second = await ev.until((e) => e.type === "run.started" && e.prompt.startsWith('[Result from bot "nasbot-beta"'), 20000);
+		if (second.type !== "run.started") return;
+		assert.match(second.prompt, /Scrub finished: 0 errors\./);
+		await ev.until((e) => e.type === "run.finished" && e !== first, 15000);
+		const onB = b.core.sessions.list("nasbot", { limit: 10, offset: 0, archived: "include", order: "recent" });
+		assert.equal(onB.total, 1);
+		assert.equal((await b.core.sessions.rows(onB.rows[0]!.id)).filter((r) => r.role === "user").length, 1, "submitted once");
+	} finally {
+		for (const g of [a, b]) {
+			await g.server.close();
+			await g.core.close();
+		}
+		await cleanup();
+	}
+});
+
+test("a background task to a member's bot survives a restart of the calling gateway", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
+	let a2: Core | undefined;
+	try {
+		await link(a, b);
+		const s = await a.core.sessions.create("main");
+		const ev = collect(a.core.hub, s.id);
+		a.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "nasbot-beta", task: "Long job", wait: false })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Started.")]),
+		]);
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		b.faux.setResponses([async () => (await gate, fauxAssistantMessage([fauxText("Long job done.")]))]);
+		await a.core.sessions.submit(s.id, "start the long job");
+		await ev.until((e) => e.type === "run.finished", 15000);
+		// Wait until beta has the task, then stop alpha while beta is still working.
+		for (let i = 0; i < 100 && !b.core.sessions.list("nasbot", { limit: 1, offset: 0, archived: "include", order: "recent" }).rows.some((r) => b.core.sessions.isRunning(r.id)); i++) await new Promise((r) => setTimeout(r, 50));
+		await a.server.close();
+		await a.core.close();
+
+		const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 500 });
+		const models = createModels();
+		models.setProvider(faux.provider);
+		faux.setResponses([fauxAssistantMessage([fauxText("The long job is done.")])]);
+		a2 = await testCore(join(dir, "alpha"), { models, config: testConfig(join(dir, "alpha"), [{ name: "main", default: true }], { node: { name: "alpha" } }) });
+		await a2.roster.sync();
+		const ev2 = collect(a2.hub, s.id);
+		await a2.sessions.live(s.id);
+		release();
+		const reported = await ev2.until((e) => e.type === "run.started" && e.prompt.startsWith('[Result from bot "nasbot-beta"'), 30000);
+		if (reported.type !== "run.started") return;
+		assert.match(reported.prompt, /Long job done\./);
+		const onB = b.core.sessions.list("nasbot", { limit: 10, offset: 0, archived: "include", order: "recent" });
+		assert.equal(onB.total, 1, "one chat on beta");
+		assert.equal((await b.core.sessions.rows(onB.rows[0]!.id)).filter((r) => r.role === "user").length, 1, "the task was sent once");
+	} finally {
+		await a2?.close();
+		await b.server.close();
 		await b.core.close();
 		await cleanup();
 	}

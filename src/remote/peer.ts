@@ -112,6 +112,17 @@ class Socket {
 	}
 }
 
+/** Starts an empty chat with the peer's bot and returns its id (the first step of a background task). */
+export async function createPeerSession(t: PeerTarget): Promise<string> {
+	const s = await Socket.open(t, async () => undefined);
+	try {
+		const created = await s.call<{ session_id: string }>("session.create", t.profile ? { profile: t.profile, source: "peer" } : { source: "peer" });
+		return created.session_id;
+	} finally {
+		s.close();
+	}
+}
+
 /**
  * Runs one task on a peer and returns its answer. `sessionId` (when given) is a remote session from an
  * earlier attempt of the same task; `key` deduplicates the submission there.
@@ -128,6 +139,8 @@ export async function runOnPeer(
 		timeoutMs?: number;
 		/** When the very first connection fails, give up at once with this message instead of retrying. */
 		failFast?: string;
+		/** Connection attempts before giving up (default 20, about ten minutes of the peer being away). */
+		maxAttempts?: number;
 	},
 ): Promise<{ sessionId: string; text: string }> {
 	const deadline = Date.now() + (opts.timeoutMs ?? 30 * 60_000);
@@ -161,7 +174,7 @@ export async function runOnPeer(
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
 			if (attempt === 0 && s === undefined && opts.failFast && !/rejected the token/.test(msg)) throw new Error(opts.failFast);
-			if (/rejected the token|run failed|cancelled/.test(msg) || attempt >= 20) throw error;
+			if (/rejected the token|run failed|cancelled/.test(msg) || attempt >= (opts.maxAttempts ?? 20)) throw error;
 			log.warn("peer connection problem; retrying", { url: t.url, attempt, error: msg });
 			await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))));
 		} finally {

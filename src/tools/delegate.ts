@@ -5,6 +5,7 @@
 //                  the same submission (request id), so the task is not sent twice.
 //  - wait: false → the child is owned by a background anchor task; a durable reporter task waits for the
 //                  answer and posts it back into the caller's conversation as a follow-up message.
+//                  For a bot on another machine the reporter talks to that machine (remoteReporter).
 import { type AssistantMessage, Type } from "@earendil-works/pi-ai";
 import {
 	type AgentChange,
@@ -21,7 +22,7 @@ import type { Approvals } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Sessions } from "../core/sessions.ts";
 import type { Members } from "../federation/members.ts";
-import { type PeerTarget, runOnPeer } from "../remote/peer.ts";
+import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
 
 export type DelegateDeps = {
 	sessions: () => Sessions;
@@ -103,7 +104,80 @@ const Reporter = defineTask<ReporterInput, ReporterState, null>({
 	abort: (_t, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
 });
 
+type RemoteInput = { bot: string; task: string; key: string; attention: string };
+type RemoteState = { phase: "start" } | { phase: "wait"; sessionId: string } | { phase: "report"; report: string };
+
+/**
+ * wait: false for a bot on another machine. A background task (owned by the caller's conversation)
+ * starts a chat there, records its id, then submits the task under a fixed key and waits for the answer,
+ * reconnecting as needed; after a restart it resumes that same chat and the key keeps the task from being
+ * sent twice. The answer, or why there is none, is posted back into the caller's chat.
+ */
+function remoteReporter(deps: DelegateDeps) {
+	const report = (bot: string, task: string, text: string) => `[Result from bot "${bot}" for the task you delegated: "${task.slice(0, 200)}"]\n\n${text}`;
+	const failed = (bot: string, error: unknown) => `[${bot} could not finish the delegated task: ${error instanceof Error ? error.message : String(error)}]`;
+	return defineTask<RemoteInput, RemoteState, null>({
+		name: "nh.delegate-remote",
+		version: 1,
+		initial: () => ({ phase: "start" }),
+		phases: {
+			start: async (task, runtime, ctx) => {
+				let next: RemoteState;
+				try {
+					const target = deps.bots().get(task.input.bot);
+					if (!target?.isPeer) throw new Error(`${task.input.bot} is no longer in the network`);
+					next = { phase: "wait", sessionId: await createPeerSession(peerTarget(deps, target)) };
+				} catch (error) {
+					next = { phase: "report", report: failed(task.input.bot, error) };
+				}
+				await runtime.commit(() => ({ status: "running", checkpoint: next }), ctx);
+			},
+			wait: async (task, runtime, ctx) => {
+				const { bot, attention } = task.input;
+				const checkpoint = task.state.checkpoint as Extract<RemoteState, { phase: "wait" }>;
+				let text: string;
+				try {
+					const target = deps.bots().get(bot);
+					if (!target?.isPeer) throw new Error(`${bot} is no longer in the network`);
+					const r = await runOnPeer(peerTarget(deps, target), task.input.task, {
+						key: task.input.key,
+						sessionId: checkpoint.sessionId,
+						onApproval: (p) =>
+							deps.approvals().ask(
+								{
+									sessionId: attention,
+									bot,
+									toolName: String(p.tool_name ?? "tool"),
+									command: String(p.command ?? ""),
+									description: `${String(p.description ?? "needs approval")} (asked by ${target.displayName} on another machine, for a task running in the background)`,
+									patternKey: `peer:${bot}:${String(p.pattern_key ?? "")}`,
+								},
+								ctx.abortSignal ?? new AbortController().signal,
+							),
+						signal: ctx.abortSignal,
+						timeoutMs: 24 * 3600_000,
+						maxAttempts: 1000,
+					});
+					text = report(bot, task.input.task, r.text);
+				} catch (error) {
+					if (ctx.abortSignal?.aborted) throw error;
+					text = failed(bot, error);
+				}
+				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "report", report: text } }), ctx);
+			},
+			report: async (task, runtime, ctx) => {
+				const checkpoint = task.state.checkpoint as Extract<RemoteState, { phase: "report" }>;
+				const caller = (await runtime.conversation(runtime.conversationId, ctx))!;
+				await caller.submit({ type: "input", content: checkpoint.report, whenBusy: "followUp", requestId: `delegate-report:${task.id}` }, ctx);
+				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), ctx);
+			},
+		},
+		abort: (_t, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
+	});
+}
+
 export function delegateExtension(deps: DelegateDeps): { extension: Extension; tools: ToolRegistration[] } {
+	const RemoteReporter = remoteReporter(deps);
 	const tool = defineTool({
 		name: "delegate",
 		description:
@@ -128,8 +202,15 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 			}
 			if (target.name === caller.bot) throw new Error("delegate to a different bot; you can do your own work directly");
 			if (depth(sessions, caller.id) >= deps.maxDepth) throw new Error(`delegation depth limit (${deps.maxDepth}) reached`);
+			if (target.isPeer && args.wait === false) {
+				const attention = deps.attentionSession(caller.id);
+				await api.commit(async (tx) => {
+					await tx.createTask(RemoteReporter, { bot: target.name, task: args.task, key: `delegate:${api.taskId}`, attention }, { ownership: { kind: "conversation" }, background: true });
+				}, ctx);
+				await api.details({ peer: target.name, background: true }, ctx);
+				return { output: [{ type: "text", text: `Delegated to ${target.name} on another machine. Its answer will arrive as a new message.` }] };
+			}
 			if (target.isPeer) {
-				if (args.wait === false) throw new Error(`${target.name} is on another machine; delegate to it with wait: true`);
 				const where = peerTarget(deps, target);
 				// The remote session survives a rerun of this call (memo), and the submission key deduplicates it there.
 				const remembered = await api.memo<string>("peer-session", ctx);
@@ -195,7 +276,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 		},
 	});
 	return {
-		extension: defineExtension({ name: "delegation", tasks: [Anchor, Reporter] }),
+		extension: defineExtension({ name: "delegation", tasks: [Anchor, Reporter, RemoteReporter] }),
 		tools: [tool as ToolRegistration],
 	};
 }

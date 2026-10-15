@@ -157,12 +157,13 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			if (others.length === 0) return undefined;
 			const line = (b: Bot) => {
 				// A member's description is text from another machine: shown quoted, as data.
-				if (b.remote) return `- ${b.name}: ${JSON.stringify(b.description || b.displayName)} (on the machine "${b.remote.node}"${b.remote.reachable ? "" : ", offline right now"}; wait: true only)`;
-				return `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine; wait: true only)" : ""}`;
+				if (b.remote) return `- ${b.name}: ${JSON.stringify(b.description || b.displayName)} (on the machine "${b.remote.node}"${b.remote.reachable ? "" : ", offline right now"})`;
+				return `- ${b.name}: ${b.description || b.displayName}${b.isPeer ? " (an independent agent on another machine)" : ""}`;
 			};
 			return (
 				`Other bots you can ask with the delegate tool:\n${others.map(line).join("\n")}\n` +
-				"When the user addresses one of them with @name, they want that bot to do it: delegate the task to it."
+				"When the user addresses one of them with @name, they want that bot to do it: delegate the task to it. " +
+				"Use wait: false for anything that may take more than a minute or two; its answer comes back as a new message."
 			);
 		},
 		...features.flatMap((f) => f.promptParts ?? []),
