@@ -46,6 +46,7 @@ const RESTART_ONLY: [string, (c: Config) => unknown][] = [
 	["pushover", (c) => c.pushover],
 	["node", (c) => c.node],
 	["panel", (c) => c.panel],
+	["secretsFile", (c) => c.secretsPath],
 ];
 
 export type SettingsDeps = {
@@ -177,6 +178,7 @@ export class Settings {
 		const restartNeeded = RESTART_ONLY.filter(([, get]) => JSON.stringify(get(config)) !== JSON.stringify(get(next))).map(([k]) => k);
 		config.bots = next.bots;
 		config.groundRules = next.groundRules;
+		config.review = next.review;
 		config.defaults = { ...next.defaults, approvalTimeoutS: config.defaults.approvalTimeoutS };
 		for (const n of [...changed, ...removed]) this.d.botChanged(n);
 		log.info("configuration applied", { added, removed, changed, restartNeeded });

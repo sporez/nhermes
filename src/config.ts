@@ -59,6 +59,12 @@ export type Config = {
 	server: { host: string; port: number; publicName: string };
 	/** Gateway session token Vory sends as X-Hermes-Session-Token. */
 	token: string;
+	/** The variable that holds it (auth.tokenEnv, default NHERMES_TOKEN). */
+	tokenEnv: string;
+	/** The secrets file (secretsFile, default secrets.env next to config.yaml). */
+	secretsPath: string;
+	/** Jev permission review in the approval guard (active when its key is set). */
+	review: ReviewConfig;
 	pi: { authPath: string; modelsPath: string };
 	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number };
 	skillsDir: string;
@@ -76,6 +82,17 @@ export type Config = {
 };
 
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
+
+export type ReviewConfig = { enabled: boolean; keyEnv: string; allowThreshold: number; timeoutMs: number };
+
+function parseReview(raw: unknown): ReviewConfig {
+	const jev = asRecord(asRecord(raw, "review").jev, "review.jev");
+	const threshold = typeof jev.allowThreshold === "number" ? jev.allowThreshold : 0.8;
+	if (threshold < 0.5 || threshold > 1) throw new ConfigError("review.jev.allowThreshold must be between 0.5 and 1");
+	const timeout = typeof jev.timeoutMs === "number" ? jev.timeoutMs : 3000;
+	if (timeout < 500 || timeout > 30_000) throw new ConfigError("review.jev.timeoutMs must be between 500 and 30000");
+	return { enabled: jev.enabled !== false, keyEnv: str(jev.keyEnv, "review.jev.keyEnv") ?? "OPENROUTER_API_KEY", allowThreshold: threshold, timeoutMs: timeout };
+}
 
 const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
@@ -259,6 +276,9 @@ export function loadConfig(configPath: string): Config {
 			publicName: str(server.name, "server.name") ?? "Neil Hermes",
 		},
 		token,
+		tokenEnv,
+		secretsPath: secretsFile,
+		review: parseReview(doc.review),
 		pi: {
 			authPath: expandPath(str(pi.authPath, "pi.authPath") ?? "~/.pi/agent/auth.json", configDir),
 			modelsPath: expandPath(str(pi.modelsPath, "pi.modelsPath") ?? "~/.pi/agent/models.json", configDir),

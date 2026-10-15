@@ -10,6 +10,7 @@ import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
+import { Secrets } from "./core/secrets.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
 import { ProxySessions } from "./federation/proxy.ts";
@@ -54,6 +55,7 @@ export type Core = {
 	members: Members;
 	roster: Roster;
 	proxy: ProxySessions;
+	secrets: Secrets;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -252,6 +254,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		members,
 		roster,
 		proxy,
+		secrets: new Secrets(config, db),
 		agentFor,
 		close: async () => {
 			members.stop();

@@ -28,6 +28,9 @@ Commands:
   members                     This machine and the other members, with reachability
   members remove <name>       Remove a member from the whole network
   leave                       Leave the network
+  secret list                 The gateway's keys and tokens (names only) and what uses them
+  secret set <NAME>           Set a key in secrets.env (asks for the value without showing it)
+  secret rm <NAME>            Remove a key
   panel password [--clear]    Set (or remove) the web panel's password; without one it is open on the LAN
   host trust <bot>            Show a bot's SSH host key fingerprints and trust them after you confirm
   memory <bot> [search text]  List or search a bot's memories
@@ -140,6 +143,37 @@ async function gatewayRunning(configPath: string): Promise<boolean> {
 	);
 }
 
+/** Reads one line from the terminal without echoing it (falls back to a plain read when stdin is not a terminal). */
+async function readHidden(prompt: string): Promise<string> {
+	process.stdout.write(prompt);
+	if (!process.stdin.isTTY) {
+		const rl = createInterface({ input: process.stdin });
+		const line = await new Promise<string>((resolve) => rl.once("line", resolve));
+		rl.close();
+		return line.trim();
+	}
+	return new Promise((resolve) => {
+		let value = "";
+		process.stdin.setRawMode(true);
+		process.stdin.resume();
+		const onData = (buf: Buffer) => {
+			for (const ch of buf.toString("utf8")) {
+				if (ch === "\r" || ch === "\n" || ch === "\u0004") {
+					process.stdin.setRawMode(false);
+					process.stdin.pause();
+					process.stdin.off("data", onData);
+					process.stdout.write("\n");
+					return resolve(value.trim());
+				}
+				if (ch === "\u0003") process.exit(130);
+				if (ch === "\u007f") value = value.slice(0, -1);
+				else value += ch;
+			}
+		};
+		process.stdin.on("data", onData);
+	});
+}
+
 const print = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
 
 async function main(): Promise<void> {
@@ -221,6 +255,23 @@ async function main(): Promise<void> {
 			for (const m of r.members) process.stdout.write(`${m.name} ${m.url} ${m.reachable ? "reachable" : `unreachable${m.last_error ? `: ${m.last_error}` : ""}`}\n`);
 			if (r.members.length === 0) process.stdout.write("No other members. Add one with nhermes invite.\n");
 			return;
+		}
+		case "secret": {
+			const [sub, name] = rest;
+			if (sub === "list" || !sub) {
+				const r = (await admin(configPath, "GET", "/admin/secrets")) as { secrets: { name: string; set: boolean; source: string; usedBy: string[] }[] };
+				for (const s of r.secrets) process.stdout.write(`${s.set ? "set  " : "unset"} ${s.name}${s.source === "environment" ? " (from the environment)" : ""}${s.usedBy.length ? `  · ${s.usedBy.join(", ")}` : ""}\n`);
+				return;
+			}
+			if (!name) throw new ConfigError("usage: nhermes secret list | set <NAME> | rm <NAME>");
+			if (sub === "rm") {
+				const r = (await admin(configPath, "DELETE", `/admin/secrets/${encodeURIComponent(name)}`)) as { restartNeeded: boolean };
+				return void process.stdout.write(`Removed ${name}.${r.restartNeeded ? " Restart the gateway for it to take effect." : ""}\n`);
+			}
+			if (sub !== "set") throw new ConfigError("usage: nhermes secret list | set <NAME> | rm <NAME>");
+			const value = await readHidden(`Value for ${name} (not shown): `);
+			const r = (await admin(configPath, "PUT", `/admin/secrets/${encodeURIComponent(name)}`, { value })) as { restartNeeded: boolean };
+			return void process.stdout.write(`Set ${name}.${r.restartNeeded ? " Restart the gateway for it to take effect." : " In effect now."}\n`);
 		}
 		case "panel": {
 			if (rest[0] !== "password") throw new ConfigError("usage: nhermes panel password [--clear]");

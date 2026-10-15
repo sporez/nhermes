@@ -328,26 +328,19 @@ export function restRoutes(core: Core): Router {
 		},
 		category_order: ["general", "agent", "security"],
 	}));
+	// The gateway's keys, read-only and redacted (they are managed in the panel or with `nhermes secret`).
 	r.on("GET", "/api/env", () => {
-		const known: [string, string, string?][] = [
-			["NHERMES_TOKEN", "Gateway session token", undefined],
-			["PUSHOVER_USER_KEY", "Pushover user key", undefined],
-			["PUSHOVER_APP_TOKEN", "Pushover application token", undefined],
-			["OPENAI_API_KEY", "OpenAI API key", "openai"],
-			["ANTHROPIC_API_KEY", "Anthropic API key", "anthropic"],
-			["OPENROUTER_API_KEY", "OpenRouter API key", "openrouter"],
-			["CEREBRAS_API_KEY", "Cerebras API key", "cerebras"],
-		];
 		const out: Record<string, unknown> = {};
-		for (const [k, description, provider] of known) {
-			const v = process.env[k];
-			out[k] = {
-				is_set: Boolean(v),
-				redacted_value: v ? `«redacted:${v.slice(0, 4)}...${v.slice(-4)}»` : null,
-				description,
+		for (const sec of core.secrets.list()) {
+			const v = process.env[sec.name];
+			const provider = sec.usedBy.find((u) => u.startsWith("models: "))?.slice(8) ?? null;
+			out[sec.name] = {
+				is_set: sec.set,
+				redacted_value: v ? `«redacted:…${v.slice(-4)}»` : null,
+				description: sec.description,
 				category: provider ? "LLM Providers" : "Gateway",
 				is_password: true,
-				provider: provider ?? null,
+				provider,
 			};
 		}
 		return out;
