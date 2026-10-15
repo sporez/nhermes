@@ -277,12 +277,30 @@ export class Members {
 
 	/** Whether this gateway lets other members set keys in its secrets.env (off until the owner turns it on). */
 	acceptsSecrets(): boolean {
-		return this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'federation.acceptSecrets'")?.value === "1";
+		return this.flag("federation.acceptSecrets");
 	}
 
 	setAcceptsSecrets(on: boolean): void {
-		this.db.run("INSERT INTO settings (key, value) VALUES ('federation.acceptSecrets', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", on ? "1" : "0");
+		this.setFlag("federation.acceptSecrets", on);
 		log.info("keys from members", { accepted: on });
+	}
+
+	/** Whether other members may edit this gateway's bots from their panels (off until the owner turns it on). */
+	acceptsBotEdits(): boolean {
+		return this.flag("federation.acceptBotEdits");
+	}
+
+	setAcceptsBotEdits(on: boolean): void {
+		this.setFlag("federation.acceptBotEdits", on);
+		log.info("bot edits from members", { accepted: on });
+	}
+
+	private flag(key: string): boolean {
+		return this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", key)?.value === "1";
+	}
+
+	private setFlag(key: string, on: boolean): void {
+		this.db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, on ? "1" : "0");
 	}
 
 	hello(): { node_id: string; name: string; members: number } {
@@ -296,13 +314,16 @@ export class Members {
 	}
 
 	/** Calls a member's federation API, signed with the pair's secret. */
-	async call<T = unknown>(m: MemberRow, path: string, body?: unknown, method = "POST"): Promise<T> {
+	async call<T = unknown>(m: MemberRow, path: string, body?: unknown, method = "POST", timeoutMs?: number): Promise<T> {
 		try {
-			const r = await this.request<T>(m.url, method, path, body, this.headersFor(m));
+			const r = await this.request<T>(m.url, method, path, body, this.headersFor(m), timeoutMs);
 			this.seen(m.node_id);
 			return r;
 		} catch (error) {
-			this.db.run("UPDATE members SET last_error = ? WHERE node_id = ?", error instanceof Error ? error.message : String(error), m.node_id);
+			// A refusal (400, 403, 409…) is an answer; only an unreachable member or a lost pairing is a link problem.
+			const answered = error instanceof FederationError && error.status !== 502 && error.status !== 401;
+			if (answered) this.seen(m.node_id);
+			else this.db.run("UPDATE members SET last_error = ? WHERE node_id = ?", error instanceof Error ? error.message : String(error), m.node_id);
 			throw error;
 		}
 	}
@@ -362,14 +383,14 @@ export class Members {
 		this.db.run("INSERT INTO member_outbox (node_id, path, body, created_at) VALUES (?, ?, ?, ?)", nodeId, path, JSON.stringify(body), this.now() / 1000);
 	}
 
-	private async request<T>(base: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
+	private async request<T>(base: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}, timeoutMs = 10_000): Promise<T> {
 		let res: Response;
 		try {
 			res = await this.fetch(`${base}${path}`, {
 				method,
 				headers: { ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) },
 				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: AbortSignal.timeout(10_000),
+				signal: AbortSignal.timeout(timeoutMs),
 			});
 		} catch (error) {
 			throw new FederationError(502, `${base} is not reachable (${error instanceof Error ? error.message : String(error)})`);

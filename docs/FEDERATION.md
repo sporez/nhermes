@@ -184,8 +184,9 @@ Screens:
 
 - **Bots**: local bots (default, private, trusted badges) with an editor for display name, description,
   model and thinking, tool groups, approval mode, private, trusted, default, shared memory spaces and
-  instructions; create and remove bots; reload config.yaml. Members' bots are listed per machine,
-  read-only, with an offline mark.
+  instructions; create and remove bots; reload config.yaml. Members' bots are listed per machine
+  under Remote bots with the same editor when that machine allows edits from other machines
+  (`docs/REMOTE-BOT-EDITS.md`), otherwise view only, with an offline mark.
 - **Network**: this machine and the members with reachability and last seen; invite (shows the code),
   join (preview, then confirm), remove, leave, refresh.
 - **Sessions** (minimal): list by bot and archive state with title, last active and running state;
@@ -197,9 +198,9 @@ Screens:
 - **Gateway**: node name and URL, defaults (model, thinking, approvals, approval timeout), time zone,
   listen address; the panel password.
 
-Not done in this phase (follow-ups): editing a member's bots from another member's panel
-(`allowRemoteEdits`), per-bot skill toggles in the panel (Vory has them), a "recent errors" view (the
-gateway keeps no log store), and a browser smoke test of the page.
+Not done in this phase (follow-ups): a "recent errors" view (the gateway keeps no log store) and a
+browser smoke test of the page. Since done: per-bot skill toggles in the panel, and editing a member's
+bots from another member's panel (`docs/REMOTE-BOT-EDITS.md`).
 
 Tests: `test/panel/panel.test.ts` covers the panel API with and without a password (login, cookie,
 logout, password change), refused writes (no header, foreign Origin, non-JSON, foreign Host), bots,

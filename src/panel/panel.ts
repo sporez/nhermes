@@ -10,7 +10,6 @@ import { hostname, networkInterfaces } from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join } from "node:path";
 import { configView } from "../admin.ts";
-import { groundRules, personaParts, personaText } from "../agent/extensions.ts";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
@@ -23,6 +22,7 @@ import { HttpError, obj, readJson, Router, sendJson } from "../hermes/http.ts";
 import { logger } from "../log.ts";
 import { MemoryAccessError } from "../memory/memory.ts";
 import { PanelAuth } from "./auth.ts";
+import { modelChoices, promptView, skillsView } from "./views.ts";
 
 const log = logger("panel");
 const STATIC_DIR = join(import.meta.dirname, "static");
@@ -121,6 +121,25 @@ export class Panel {
 		return bot;
 	}
 
+	/** Calls a member's bot management API. Its 401 (it no longer knows this machine) must not read as "sign in to the panel". */
+	private async remote(node: string, method: string, path: string, body?: unknown, timeoutMs?: number): Promise<Record<string, unknown>> {
+		const m = this.core.members.byName(node);
+		if (!m) throw new HttpError(404, `no member named "${node}"`);
+		try {
+			return await this.core.members.call<Record<string, unknown>>(m, path, body, method, timeoutMs);
+		} catch (error) {
+			if (error instanceof FederationError && error.status === 401) throw new HttpError(502, `${node} no longer accepts this machine; join it to the network again`);
+			throw error;
+		}
+	}
+
+	/** A change on a member: its roster here is refreshed so names and descriptions follow. */
+	private async remoteWrite(node: string, method: string, path: string, body: unknown): Promise<Record<string, unknown>> {
+		const r = await this.remote(node, method, path, body);
+		void this.core.roster.sync().catch(() => {});
+		return r;
+	}
+
 	/** Who a memory belongs to: a local bot, or a shared space ("shared:<space>"). */
 	private memoryScope(owner: string): { scope: { name: string; sharedMemory: string[] }; space?: string } {
 		if (owner.startsWith("shared:")) {
@@ -153,11 +172,7 @@ export class Panel {
 		// Overview, bots and gateway settings
 		r.on("GET", "/panel/api/state", async () => {
 			const view = configView(c);
-			const all = await c.models.getAvailable();
-			const hidden = new Set(c.config.modelLists.hide);
-			const inUse = new Set([c.config.defaults.model, ...c.bots.list().filter((b) => !b.remote).map((b) => `${b.model.provider}/${b.model.modelId}`)]);
-			const models = all.map((m) => `${m.provider}/${m.id}`).filter((m) => !hidden.has(m.slice(0, m.indexOf("/"))) || inUse.has(m));
-			const providers = [...new Set(all.map((m) => m.provider))].sort().map((name) => ({ name, models: all.filter((m) => m.provider === name).length, shown: !hidden.has(name) }));
+			const { models, providers } = await modelChoices(c);
 			return {
 				node: c.members.self(),
 				gateway: view.gateway,
@@ -179,30 +194,8 @@ export class Panel {
 		});
 		r.on("PATCH", "/panel/api/bots/:name", (q) => c.settings.editBot(q.params.name!, obj(q.body) as BotPatch));
 		r.on("DELETE", "/panel/api/bots/:name", (q) => c.settings.removeBot(q.params.name!));
-		// The bot's system prompt as a new chat gets it: the editable parts (its instructions; the ground
-		// rules, shared by all bots) and the generated ones. Tool descriptions are added by the engine.
-		r.on("GET", "/panel/api/bots/:name/prompt", async (q) => {
-			const bot = this.bot(q.params.name!);
-			if (bot.remote) throw new HttpError(409, `${bot.displayName}'s prompt is on ${bot.remote.node}`);
-			const p = await personaParts(c.deps, bot, "");
-			return {
-				...p,
-				groundRulesCustom: c.config.groundRules !== undefined,
-				builtInGroundRules: groundRules([...new Set([c.config.configDir, c.config.dataDir])]),
-				tools: bot.toolGroups,
-				full: await personaText(c.deps, bot, ""),
-			};
-		});
-		// Skills a bot could use (its own and the global ones), each switched on or off for it.
-		r.on("GET", "/panel/api/bots/:name/skills", (q) => {
-			const bot = this.localBot(q.params.name!);
-			const usage = c.skills.usage(bot.name);
-			return {
-				toolGroupOn: bot.toolGroups.includes("skills"),
-				allGlobal: bot.globalSkills.includes("*"),
-				skills: c.skills.catalog(bot).map((s) => ({ name: s.name, description: s.description, source: s.source, active: s.active, usage: usage.get(s.name) ?? 0 })),
-			};
-		});
+		r.on("GET", "/panel/api/bots/:name/prompt", (q) => promptView(c, this.localBot(q.params.name!)));
+		r.on("GET", "/panel/api/bots/:name/skills", (q) => skillsView(c, this.localBot(q.params.name!)));
 		r.on("PUT", "/panel/api/bots/:name/skills/:skill", (q) => {
 			const enabled = obj(q.body).enabled;
 			if (typeof enabled !== "boolean") throw new HttpError(400, "enabled must be true or false");
@@ -211,8 +204,32 @@ export class Panel {
 		});
 		r.on("PATCH", "/panel/api/gateway", (q) => c.settings.setGateway(obj(q.body) as GatewayPatch));
 
+		// Members' bots, edited on their own machines (src/federation/manage.ts) when those allow it.
+		r.on("GET", "/panel/api/remote", async () => ({
+			members: await Promise.all(
+				c.members.list().map(async (m) => {
+					const base = { node: m.name, reachable: m.reachable };
+					try {
+						return { ...base, reachable: true, editable: true, ...(await this.remote(m.name, "GET", "/federation/manage", undefined, 5000)) };
+					} catch (error) {
+						const e = translate(error);
+						// 403: it answered, but its owner has not allowed edits from other machines.
+						return { ...base, reachable: e.status !== 502, editable: false, error: e.message };
+					}
+				}),
+			),
+		}));
+		r.on("POST", "/panel/api/remote/:node/bots", (q) => this.remoteWrite(q.params.node!, "POST", "/federation/manage/bots", obj(q.body)));
+		r.on("PATCH", "/panel/api/remote/:node/bots/:name", (q) => this.remoteWrite(q.params.node!, "PATCH", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}`, obj(q.body)));
+		r.on("DELETE", "/panel/api/remote/:node/bots/:name", (q) => this.remoteWrite(q.params.node!, "DELETE", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}`, {}));
+		r.on("GET", "/panel/api/remote/:node/bots/:name/skills", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/skills`));
+		r.on("PUT", "/panel/api/remote/:node/bots/:name/skills/:skill", (q) =>
+			this.remote(q.params.node!, "PUT", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/skills/${encodeURIComponent(q.params.skill!)}`, obj(q.body)),
+		);
+		r.on("GET", "/panel/api/remote/:node/bots/:name/prompt", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/prompt`));
+
 		// Network
-		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), members: c.members.list() }));
+		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), members: c.members.list(), acceptsBotEdits: c.members.acceptsBotEdits() }));
 		r.on("POST", "/panel/api/network/invite", (q) => {
 			const url = obj(q.body).url;
 			return c.members.invite({ url: typeof url === "string" && url ? url : undefined });
@@ -275,10 +292,13 @@ export class Panel {
 		r.on("POST", "/panel/api/secrets/:name/hint", (q) => ({ hint: c.secrets.hint(q.params.name!) }));
 		r.on("POST", "/panel/api/token/new", () => c.secrets.newToken());
 		r.on("PATCH", "/panel/api/network/settings", (q) => {
-			const on = obj(q.body).acceptSecrets;
-			if (typeof on !== "boolean") throw new HttpError(400, "acceptSecrets must be true or false");
-			c.members.setAcceptsSecrets(on);
-			return { acceptsFromMembers: on };
+			const { acceptSecrets, acceptBotEdits } = obj(q.body);
+			if (acceptSecrets === undefined && acceptBotEdits === undefined) throw new HttpError(400, "acceptSecrets or acceptBotEdits is required");
+			if (acceptSecrets !== undefined && typeof acceptSecrets !== "boolean") throw new HttpError(400, "acceptSecrets must be true or false");
+			if (acceptBotEdits !== undefined && typeof acceptBotEdits !== "boolean") throw new HttpError(400, "acceptBotEdits must be true or false");
+			if (acceptSecrets !== undefined) c.members.setAcceptsSecrets(acceptSecrets);
+			if (acceptBotEdits !== undefined) c.members.setAcceptsBotEdits(acceptBotEdits);
+			return { acceptsFromMembers: c.members.acceptsSecrets(), acceptsBotEdits: c.members.acceptsBotEdits() };
 		});
 
 		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)

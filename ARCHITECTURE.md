@@ -211,6 +211,11 @@ run is not submitted twice.
   over the WebSocket like a peer. On the owning gateway such a chat has source `member:<node id>`: a
   member's connection sees only those chats and shareable bots, cannot turn approvals off, and the work
   is never trusted.
+- **Editing members' bots (`src/federation/manage.ts`, `docs/REMOTE-BOT-EDITS.md`):** when a gateway's
+  owner allows it (panel, Network), the other members' panels list its bots, private ones included, with
+  the same editor as local bots. The panel calls `/federation/manage/*` on the owning gateway with the
+  pair secret, which applies the edit through its own `Settings` and skills; host, workspace, keys and
+  gateway settings stay editable only on that machine.
 - **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
   answer as if it did not exist; it is not shared with members either. It can still delegate to others
   and is still a Vory profile on its own gateway.

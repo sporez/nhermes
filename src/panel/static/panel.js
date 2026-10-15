@@ -197,57 +197,110 @@ async function refreshUpdateBadge(sw) {
 }
 
 // ---- Bots ----
-async function botsScreen() {
-	const local = state.bots;
-	if (!ui.bot || (ui.bot !== "+new" && !local.some((b) => b.name === ui.bot))) ui.bot = local[0]?.name ?? "+new";
-	const pick = (name) => { ui.bot = name; botsScreen(); };
-	const list = h("ul", { class: "list" }, local.map((b) => h("li", { class: b.name === ui.bot ? "active" : "", on: { click: () => pick(b.name) } },
-		h("div", { class: "trunc" }, b.effective.displayName || b.name),
-		h("div", { class: "row small muted" }, b.name, b.effective.default && badge("default"), b.effective.private && badge("private"), b.effective.trusted && badge("trusted")))));
-	list.append(h("li", { class: ui.bot === "+new" ? "active" : "", on: { click: () => pick("+new") } }, "+ New bot"));
+// Members' bots, as their machines report them for editing (refreshed when the Bots screen opens).
+let remoteMembers = [];
 
-	const remote = h("div");
-	const nodes = [...new Set(state.remoteBots.map((b) => b.node))];
-	for (const node of nodes) {
-		remote.append(h("h2", {}, `On ${node}`));
-		for (const b of state.remoteBots.filter((x) => x.node === node)) {
-			remote.append(h("div", { class: "card" },
-				h("div", { class: "row" }, h("strong", {}, b.displayName || b.name), h("span", { class: "muted small" }, b.name), !b.reachable && badge("offline", "bad"), badge(b.model)),
-				b.description && h("div", { class: "muted small" }, b.description)));
+async function loadRemote() {
+	try { remoteMembers = (await api("GET", "/remote")).members; } catch (e) { if (e instanceof AuthError) throw e; remoteMembers = []; }
+}
+
+/** Where a bot lives and what its editor may offer: this machine, or a member that allows edits. */
+function localCtx() {
+	return { node: null, base: "", models: state.models, toolGroups: state.toolGroups, bots: state.bots, reload: loadState };
+}
+function remoteCtx(m) {
+	return { node: m.node, base: `/remote/${encodeURIComponent(m.node)}`, models: m.models, toolGroups: m.toolGroups, bots: m.bots,
+		reload: async () => { await Promise.all([loadState(), loadRemote()]); } };
+}
+const botKey = (ctx, name) => (ctx.node ? `${ctx.node}/${name}` : name);
+
+async function botsScreen(refresh = true) {
+	if (refresh) await loadRemote();
+	const local = localCtx();
+	const remotes = remoteMembers.filter((m) => m.editable).map(remoteCtx);
+	const ctxs = [local, ...remotes];
+	const find = (key) => {
+		for (const ctx of ctxs) {
+			if (key === botKey(ctx, "+new")) return { ctx, bot: "+new" };
+			const bot = ctx.bots.find((b) => botKey(ctx, b.name) === key);
+			if (bot) return { ctx, bot };
+		}
+		const ro = state.remoteBots.find((b) => `${b.node}/${b.name}` === key);
+		return ro ? { ctx: null, bot: ro } : null;
+	};
+	if (!ui.bot || !find(ui.bot)) ui.bot = local.bots[0]?.name ?? "+new";
+	const pick = (key) => { ui.bot = key; botsScreen(false); };
+	const item = (key, kids) => h("li", { class: key === ui.bot ? "active" : "", on: { click: () => pick(key) } }, kids);
+	const botItem = (ctx, b) => item(botKey(ctx, b.name), [
+		h("div", { class: "trunc" }, b.effective.displayName || b.name),
+		h("div", { class: "row small muted" }, b.name, b.effective.default && badge("default"), b.effective.private && badge("private"), b.effective.trusted && badge("trusted"))]);
+
+	const list = h("ul", { class: "list" }, local.bots.map((b) => botItem(local, b)), item("+new", "+ New bot"));
+
+	// Remote bots: one group per member. Editable when that machine allows edits from this one.
+	const remoteList = h("ul", { class: "list" });
+	for (const m of remoteMembers) {
+		remoteList.append(h("li", { class: "static group" }, h("strong", {}, `On ${m.node}`), " ", !m.reachable && badge("offline", "bad")));
+		if (m.editable) {
+			const ctx = remotes.find((c) => c.node === m.node);
+			remoteList.append(...ctx.bots.map((b) => botItem(ctx, b)), item(botKey(ctx, "+new"), `+ New bot on ${m.node}`));
+			continue;
+		}
+		for (const b of state.remoteBots.filter((x) => x.node === m.node)) {
+			remoteList.append(item(`${b.node}/${b.name}`, [h("div", { class: "trunc" }, b.displayName || b.name), h("div", { class: "row small muted" }, b.name, badge("view only"))]));
 		}
 	}
+
+	const selected = find(ui.bot);
+	let pane;
+	if (!selected.ctx) pane = readOnlyBot(selected.bot, remoteMembers.find((m) => m.node === selected.bot.node));
+	else if (selected.bot === "+new") pane = newBotForm(selected.ctx);
+	else pane = botEditor(selected.bot, selected.ctx);
 
 	const reload = h("button", { on: { click: () => run(async () => { restartNote(await api("POST", "/reload")); await loadState(); botsScreen(); }) } }, "Reload config.yaml");
 	show(
 		h("div", { class: "row between" }, h("h1", {}, "Bots"), reload),
-		h("div", { class: "layout" }, list, ui.bot === "+new" ? newBotForm() : botEditor(local.find((b) => b.name === ui.bot))),
-		remote);
+		h("div", { class: "layout" },
+			h("div", {}, list, remoteMembers.length > 0 && h("h2", {}, "Remote bots"), remoteMembers.length > 0 && remoteList),
+			pane));
 }
 
-function newBotForm() {
+/** A member's bot this machine may not edit: what the roster says, and why it is view only. */
+function readOnlyBot(b, member) {
+	const why = !member || !member.reachable
+		? `${b.node} is offline; its bots can be edited here again when it is back.`
+		: `${b.node} does not accept bot edits from other machines. Turn on "Let other machines edit this machine's bots" in ${b.node}'s panel (Network) to manage its bots from here.`;
+	return h("div", { class: "card" },
+		h("div", { class: "row" }, h("h3", {}, b.displayName || b.name), h("span", { class: "muted small" }, b.name), !b.reachable && badge("offline", "bad"), badge(b.model)),
+		b.description && h("p", { class: "muted" }, b.description),
+		h("div", { class: "notice warn small" }, why));
+}
+
+function newBotForm(ctx) {
 	const name = h("input", { type: "text", placeholder: "my-bot", autocapitalize: "off" });
 	const err = h("div", { class: "err" });
 	const create = () => run(async () => {
 		if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name.value)) { err.textContent = "Use lowercase letters, digits and dashes, starting with a letter or digit (max 41 characters)."; return; }
-		await api("POST", "/bots", { name: name.value });
-		ui.bot = name.value;
-		await loadState();
-		toast("Bot created");
-		botsScreen();
+		await api("POST", `${ctx.base}/bots`, { name: name.value });
+		ui.bot = botKey(ctx, name.value);
+		await ctx.reload();
+		toast(ctx.node ? `Bot created on ${ctx.node}` : "Bot created");
+		botsScreen(false);
 	});
-	return h("div", { class: "card" }, h("h3", {}, "New bot"), field("Name", name, "Lowercase letters, digits and dashes. Cannot be changed later."), err, h("button", { class: "primary", on: { click: create } }, "Create"));
+	return h("div", { class: "card" }, h("h3", {}, ctx.node ? `New bot on ${ctx.node}` : "New bot"), field("Name", name, "Lowercase letters, digits and dashes. Cannot be changed later."), err, h("button", { class: "primary", on: { click: create } }, "Create"));
 }
 
-function botEditor(bot) {
+function botEditor(bot, ctx) {
 	const { config, effective } = bot;
+	const path = `${ctx.base}/bots/${encodeURIComponent(bot.name)}`;
 	const name = h("input", { type: "text", value: effective.displayName ?? "" });
 	const desc = h("input", { type: "text", value: effective.description ?? "" });
 	const initModel = config.model ?? "";
-	const models = ["", ...state.models];
+	const models = ["", ...ctx.models];
 	if (initModel && !models.includes(initModel)) models.push(initModel);
-	const model = select(models, initModel, { "": "(gateway default)" });
+	const model = select(models, initModel, { "": ctx.node ? `(${ctx.node}'s default)` : "(gateway default)" });
 	const thinking = select(THINKING, effective.thinking);
-	const tools = state.toolGroups.map((g) => h("input", { type: "checkbox", value: g, checked: effective.tools.includes(g) }));
+	const tools = ctx.toolGroups.map((g) => h("input", { type: "checkbox", value: g, checked: effective.tools.includes(g) }));
 	const mode = select(["smart", "manual", "off"], effective.approvals);
 	const priv = h("input", { type: "checkbox", checked: effective.private });
 	const trusted = h("input", { type: "checkbox", checked: effective.trusted });
@@ -274,36 +327,38 @@ function botEditor(bot) {
 		if (!same(spaces, config.sharedMemory ?? [])) patch.sharedMemory = spaces.length ? spaces : null;
 		if (instr.value.trim() !== (effective.instructions ?? "")) patch.instructions = instr.value.trim() || null;
 		if (!Object.keys(patch).length) return toast("Nothing changed");
-		restartNote(await api("PATCH", `/bots/${encodeURIComponent(bot.name)}`, patch));
-		await loadState();
-		botsScreen();
+		restartNote(await api("PATCH", path, patch));
+		await ctx.reload();
+		botsScreen(false);
 	});
 	const remove = () => run(async () => {
-		if (!confirm(`Remove "${bot.name}" from the config?\n\nIts chats, memory and workspace stay on disk; they just stop being served.`)) return;
-		restartNote(await api("DELETE", `/bots/${encodeURIComponent(bot.name)}`));
+		const where = ctx.node ? ` on ${ctx.node}` : "";
+		if (!confirm(`Remove "${bot.name}"${where} from the config?\n\nIts chats, memory and workspace stay on disk; they just stop being served.`)) return;
+		restartNote(await api("DELETE", path));
 		ui.bot = null;
-		await loadState();
-		botsScreen();
+		await ctx.reload();
+		botsScreen(false);
 	});
 
 	return h("div", { class: "card" },
-		h("h3", {}, bot.name),
+		h("div", { class: "row" }, h("h3", {}, bot.name), ctx.node && badge(`on ${ctx.node}`)),
 		h("div", { class: "grid2" }, field("Display name", name), field("Description", desc)),
 		h("div", { class: "grid2" }, field("Model", model), field("Thinking", thinking)),
 		field("Tool groups", h("div", { class: "checks" }, tools.map((t) => check(t, t.value)))),
 		h("div", { class: "grid2" }, field("Approval mode", mode), field("Shared memory spaces", shared, "Comma separated")),
-		h("div", { class: "checks" }, check(priv, "Private"), check(trusted, "Trusted"), check(dflt, "Default bot")),
+		h("div", { class: "checks" }, check(priv, "Private"), check(trusted, "Trusted"), check(dflt, ctx.node ? `Default bot on ${ctx.node}` : "Default bot")),
 		h("div", { class: "field" }),
-		field("Instructions", instr, `Currently from ${sourceNote}. Saving writes them to the bot's config entry.`),
+		field("Instructions", instr, `Currently from ${sourceNote}. Saving writes them to the bot's config entry${ctx.node ? ` on ${ctx.node}` : ""}.`),
 		h("div", { class: "row between" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { class: "danger", on: { click: remove } }, "Remove bot")),
-		skillsCard(bot),
-		promptCard(bot));
+		skillsCard(bot, ctx),
+		promptCard(bot, ctx));
 }
 
 /** Every skill this bot could use, its own and the global ones, each switched on or off on the spot. */
-function skillsCard(bot) {
+function skillsCard(bot, ctx) {
 	const body = h("div");
-	const path = `/bots/${encodeURIComponent(bot.name)}/skills`;
+	const botPath = `${ctx.base}/bots/${encodeURIComponent(bot.name)}`;
+	const path = `${botPath}/skills`;
 	const load = () => run(async () => {
 		const r = await api("GET", path);
 		const row = (s) => {
@@ -326,21 +381,21 @@ function skillsCard(bot) {
 		// "Every global skill" is the bot's skills: ["*"] in config.yaml, so new global skills are on too.
 		const all = h("input", { type: "checkbox", checked: r.allGlobal });
 		all.addEventListener("change", () => run(async () => {
-			const named = (state.bots.find((b) => b.name === bot.name)?.config.skills ?? []).filter((s) => s !== "*");
+			const named = (ctx.bots.find((b) => b.name === bot.name)?.config.skills ?? []).filter((s) => s !== "*");
 			const skills = all.checked ? ["*"] : named.length ? named : null;
 			try {
-				restartNote(await api("PATCH", `/bots/${encodeURIComponent(bot.name)}`, { skills }));
+				restartNote(await api("PATCH", botPath, { skills }));
 			} catch (e) {
 				all.checked = !all.checked;
 				throw e;
 			}
-			await loadState();
+			await ctx.reload();
 			await load();
 		}));
 		body.replaceChildren(h("div", {},
 			!r.toolGroupOn && h("div", { class: "notice warn small" }, "The skills tool group is off for this bot, so it cannot load any of these."),
 			group("This bot's own", r.skills.filter((s) => s.source === "bot"), "None. They live in its bots/<name>/skills folder and are on unless switched off."),
-			group("Global", r.skills.filter((s) => s.source === "global"), "No global skills on this machine."),
+			group("Global", r.skills.filter((s) => s.source === "global"), ctx.node ? `No global skills on ${ctx.node}.` : "No global skills on this machine."),
 			h("label", { class: "skill" }, all,
 				h("div", { class: "grow" }, h("strong", {}, "Every global skill"),
 					h("div", { class: "muted small" }, "Includes ones added later. A skill switched off above stays off."))),
@@ -351,28 +406,37 @@ function skillsCard(bot) {
 	return details;
 }
 
-/** The bot's system prompt as a new chat gets it, loaded when opened; the ground rules are edited here too. */
-function promptCard(bot) {
+/** The bot's system prompt as a new chat gets it, loaded when opened; this machine's ground rules are edited here too. */
+function promptCard(bot, ctx) {
 	const body = h("div");
 	const load = () => run(async () => {
-		const p = await api("GET", `/bots/${encodeURIComponent(bot.name)}/prompt`);
-		const rules = h("textarea", { class: "mono tall", value: p.groundRules });
-		const saveRules = () => run(async () => {
-			if (rules.value.trim() === p.groundRules) return toast("Nothing changed");
-			restartNote(await api("PATCH", "/gateway", { groundRules: rules.value.trim() }));
-			await load();
-		});
-		const reset = () => run(async () => {
-			if (!confirm("Go back to the built-in ground rules for every bot?")) return;
-			restartNote(await api("PATCH", "/gateway", { groundRules: null }));
-			await load();
-		});
+		const p = await api("GET", `${ctx.base}/bots/${encodeURIComponent(bot.name)}/prompt`);
 		const block = (title, text, hint) => h("div", { class: "field" }, h("span", {}, title), h("pre", { class: "mono pre-wrap prompt" }, text), hint && h("div", { class: "hint" }, hint));
+		let rulesPart;
+		if (ctx.node) {
+			// Ground rules are a gateway setting: each machine's own panel edits its own.
+			rulesPart = [block("3. Ground rules", p.groundRules, `Shared by every bot on ${ctx.node}${p.groundRulesCustom ? " (its own text)" : " (built-in text)"}; edit them in ${ctx.node}'s panel.`)];
+		} else {
+			const rules = h("textarea", { class: "mono tall", value: p.groundRules });
+			const saveRules = () => run(async () => {
+				if (rules.value.trim() === p.groundRules) return toast("Nothing changed");
+				restartNote(await api("PATCH", "/gateway", { groundRules: rules.value.trim() }));
+				await load();
+			});
+			const reset = () => run(async () => {
+				if (!confirm("Go back to the built-in ground rules for every bot?")) return;
+				restartNote(await api("PATCH", "/gateway", { groundRules: null }));
+				await load();
+			});
+			rulesPart = [
+				field("3. Ground rules", rules, `Shared by every bot on this machine${p.groundRulesCustom ? " (your own text, saved in config.yaml)" : " (built-in text)"}.`),
+				h("div", { class: "row" }, h("button", { class: "primary", on: { click: saveRules } }, "Save ground rules"), p.groundRulesCustom && h("button", { on: { click: reset } }, "Use the built-in rules")),
+			];
+		}
 		body.replaceChildren(
 			block("1. Instructions", p.instructions || "(none)", "This bot's own text; edit it in Instructions above."),
 			block("2. Identity", p.identity, "Generated."),
-			field("3. Ground rules", rules, `Shared by every bot on this machine${p.groundRulesCustom ? " (your own text, saved in config.yaml)" : " (built-in text)"}.`),
-			h("div", { class: "row" }, h("button", { class: "primary", on: { click: saveRules } }, "Save ground rules"), p.groundRulesCustom && h("button", { on: { click: reset } }, "Use the built-in rules")),
+			...rulesPart,
 			...p.generated.map((g, i) => block(`${4 + i}. Generated`, g, "From the bot's settings: other bots, memory, skills.")),
 			h("div", { class: "hint" }, `Tool groups: ${p.tools.join(", ") || "none"}. Each tool's own description is added by the engine.`),
 		);
@@ -391,8 +455,17 @@ async function networkScreen() {
 		try { await api("PATCH", "/network/settings", { acceptSecrets: accept.checked }); toast("Saved"); }
 		catch (e) { accept.checked = !accept.checked; throw e; }
 	}));
-	const acceptCard = h("div", { class: "card" }, h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
-		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel over the LAN (encrypted only over Tailscale)."));
+	const edits = h("input", { type: "checkbox", checked: net.acceptsBotEdits });
+	edits.addEventListener("change", () => run(async () => {
+		try { await api("PATCH", "/network/settings", { acceptBotEdits: edits.checked }); toast("Saved"); }
+		catch (e) { edits.checked = !edits.checked; throw e; }
+	}));
+	const acceptCard = h("div", { class: "card" },
+		h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
+		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel over the LAN (encrypted only over Tailscale)."),
+		h("div", { class: "field" }),
+		h("label", {}, edits, " ", h("strong", {}, "Let other machines edit this machine's bots")),
+		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."));
 	const act = (fn) => () => run(async () => { await fn(); await reload(); });
 	const out = h("div");
 

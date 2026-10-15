@@ -67,6 +67,7 @@ label.field > span { display: block; font-size: .85rem; color: var(--muted); mar
 .list li { padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 8px; margin-bottom: .4rem; background: var(--card); cursor: pointer; }
 .list li.active { border-color: var(--accent); }
 .list li.static { cursor: default; }
+.list li.group { background: none; border-color: transparent; padding: .2rem .2rem 0; }
 .notice { padding: .6rem .8rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); margin-bottom: .8rem; }
 .notice.warn { border-color: var(--warn); }
 .code { font-family: ui-monospace, Menlo, monospace; font-size: 1.7rem; letter-spacing: .08em; word-break: break-all; padding: .6rem 0; }

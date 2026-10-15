@@ -8,6 +8,7 @@ import type { Core } from "../app.ts";
 import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import { type MemberRow, NODE_HEADER, SECRET_HEADER } from "../federation/members.ts";
+import { manageRoutes } from "../federation/manage.ts";
 import { federationRoutes, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
 import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
@@ -43,7 +44,7 @@ export type HermesServer = { server: Server; port: number; close(): Promise<void
 
 /** Extra route sets (the admin API) mounted before the Hermes routes. */
 export async function startHermesServer(core: Core, opts: { host: string; port: number; extraRouters?: Router[] }): Promise<HermesServer> {
-	const federation = federationRoutes(core);
+	const federation = [federationRoutes(core), manageRoutes(core)];
 	const panel = new Panel(core);
 	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
@@ -69,7 +70,7 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 				throw new HttpError(401, "Unauthorized");
 			}
 			let matched: ReturnType<Router["match"]>;
-			for (const r of isFederation ? [federation] : routers) {
+			for (const r of isFederation ? federation : routers) {
 				matched = r.match(method, url.pathname);
 				if (matched) break;
 			}
