@@ -190,8 +190,19 @@ EOF
 </dict>
 </plist>
 EOF
-		launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-		launchctl bootstrap "gui/$(id -u)" "$PLIST"
+		TARGET="gui/$(id -u)/$LABEL"
+		if launchctl print "$TARGET" >/dev/null 2>&1; then
+			# Loaded already: unload, wait until launchd has let go (it does so in the background), load again.
+			launchctl bootout "$TARGET" 2>/dev/null || true
+			i=0
+			while launchctl print "$TARGET" >/dev/null 2>&1 && [ "$i" -lt 30 ]; do i=$((i + 1)); sleep 1; done
+		fi
+		i=0
+		until launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; do
+			i=$((i + 1))
+			[ "$i" -gt 10 ] && die "launchd did not load $PLIST (try: launchctl bootstrap gui/$(id -u) $PLIST)"
+			sleep 1
+		done
 		say "Service: launchctl print gui/$(id -u)/$LABEL · logs: ~/Library/Logs/nhermes.log"
 	fi
 
