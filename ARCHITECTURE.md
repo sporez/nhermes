@@ -222,7 +222,10 @@ run is not submitted twice.
 - REST: `/api/status`, `/api/profiles` (+ `active`, `soul`), `/api/sessions` (list/get/messages/patch/
   delete/search), `/api/model/options`, `/api/skills` (+ toggle), `/api/cron/jobs` (+ runs, pause,
   resume, trigger, update, delete), `/api/config` + `/api/config/schema`, `/api/env` (redacted),
-  `/api/tools/toolsets`. Unknown routes answer 404; nothing is stubbed to look functional.
+  `/api/tools/toolsets`. Vory's settings and maintenance screens (`hermes/manage.ts`): config and tool
+  group writes, the default model, keys, creating and removing bots, update/restart/doctor with
+  `/api/actions/{name}/status`, logs, usage analytics, and a read-only Files browser over the bots'
+  workspaces. Unknown routes answer 404; nothing is stubbed to look functional.
 - WebSocket `/api/ws`: JSON-RPC 2.0, newline-delimited, `gateway.ready` first, `ping`, server→client
   `approval` requests, events with the Hermes envelope. Methods: see `docs/COMPATIBILITY.md`.
 - Auth: session token (`X-Hermes-Session-Token` header, `?token=` on the socket); a wrong token is HTTP

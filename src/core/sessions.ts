@@ -56,6 +56,9 @@ export type Snapshot = {
 type Block = { type: string };
 type Msg = { role: string; content: string | Block[]; usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens: number; cost?: { total: number } } };
 
+/** One model call's usage (input counts cache writes; cost in USD). */
+export type UsageEvent = { at: number; model: string; input: number; output: number; cacheRead: number; reasoning: number; cost: number };
+
 function sameNames(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && [...a].sort().join("\n") === [...b].sort().join("\n");
 }
@@ -339,6 +342,25 @@ export class Sessions {
 
 	async rows(id: string): Promise<TranscriptRow[]> {
 		return projectTranscript(await this.engine.entries(this.require(id).conversation_id));
+	}
+
+	/** Each model call's usage in a chat, with when it happened and on which model (for usage analytics). */
+	async usageEvents(id: string): Promise<UsageEvent[]> {
+		const out: UsageEvent[] = [];
+		for (const e of await this.engine.entries(this.require(id).conversation_id)) {
+			const m = e.model?.[0] as (Msg & { timestamp?: number; provider?: string; model?: string }) | undefined;
+			if (m?.role !== "assistant" || !m.usage || m.usage.totalTokens <= 0) continue;
+			out.push({
+				at: (m.timestamp ?? 0) / 1000,
+				model: m.provider && m.model ? `${m.provider}/${m.model}` : (m.model ?? ""),
+				input: m.usage.input + m.usage.cacheWrite,
+				output: m.usage.output,
+				cacheRead: m.usage.cacheRead,
+				reasoning: m.usage.reasoning ?? 0,
+				cost: m.usage.cost?.total ?? 0,
+			});
+		}
+		return out;
 	}
 
 	async usage(id: string): Promise<UsageSummary> {

@@ -102,8 +102,7 @@ test("Vory notifications through the push relay", async () => {
 	try {
 		await ws.waitEvent("gateway.ready");
 
-		// Only the Companion's files, and no Files browser.
-		assert.equal((await call("GET", "/api/files?path=/")).status, 404);
+		// Uploads take only the Companion's files (the Files browser is read-only, test/hermes/manage.test.ts).
 		assert.equal((await upload(`${home}/notes.txt`, "hi")).status, 403);
 		assert.equal((await upload(`${home}/push/../../escape.json`, "{}")).status, 403);
 		assert.equal((await upload("/etc/push/devices/x.json", "{}")).status, 403);

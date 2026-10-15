@@ -1,26 +1,15 @@
 // Hermes-compatible REST endpoints, translated onto the core services. Routes we do not implement are
 // absent (404), so Vory's own capability checks hide those features.
 import type { Core } from "../app.ts";
-import type { Bot } from "../core/bots.ts";
-import { THINKING_LEVELS } from "../config.ts";
 import { GROUP_LABELS } from "../tools/index.ts";
 import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
+import { botFor, localOnly } from "./lookup.ts";
+import { manageRoutes } from "./manage.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
 import { VoryPushError } from "../notify/vory.ts";
 import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
 
-function botFor(core: Core, profile: string | null | undefined) {
-	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();
-	const bot = core.bots.get(profile);
-	if (!bot || (bot.isPeer && !bot.remote)) throw new HttpError(404, `Profile '${profile}' not found`);
-	return bot;
-}
-
-/** A member's bot is changed on its own machine. */
-function localOnly(bot: Bot): void {
-	if (bot.remote) throw new HttpError(409, `${bot.displayName} belongs to ${bot.remote.node}; change it there`);
-}
 
 /** A member that cannot be reached answers 502 with the reason. */
 async function proxyCall<T>(fn: () => Promise<T>): Promise<T> {
@@ -303,29 +292,7 @@ export function restRoutes(core: Core): Router {
 		return modelOptions(core, bot.model);
 	});
 
-	// Configuration: the settings that exist here, read-only over REST (edit config.yaml or use the CLI).
-	r.on("GET", "/api/config", () => {
-		const def = bots.defaultBot();
-		return {
-			config: {
-				model: `${def.model.provider}/${def.model.modelId}`,
-				approvals: { mode: def.approvals.mode, timeout: core.config.defaults.approvalTimeoutS },
-				agent: { reasoning_effort: def.thinking },
-				timezone: core.config.timezone,
-			},
-		};
-	});
-	r.on("GET", "/api/config/schema", () => ({
-		fields: {
-			model: { type: "string", description: "Default model of the default bot (provider/model)", category: "general" },
-			"approvals.mode": { type: "select", description: "Dangerous action approval mode", category: "security", options: ["manual", "smart", "off"] },
-			"approvals.timeout": { type: "number", description: "Seconds before an unanswered approval is denied", category: "security" },
-			"agent.reasoning_effort": { type: "select", description: "Reasoning effort", category: "agent", options: [...THINKING_LEVELS] },
-			timezone: { type: "string", description: "Time zone for schedules", category: "general" },
-		},
-		category_order: ["general", "agent", "security"],
-	}));
-	// The gateway's keys, read-only and redacted (they are managed in the panel or with `nhermes secret`).
+	// The gateway's keys, redacted (set and cleared in src/hermes/manage.ts, the panel or `nhermes secret`).
 	r.on("GET", "/api/env", () => {
 		const out: Record<string, unknown> = {};
 		for (const sec of core.secrets.list()) {
@@ -356,8 +323,8 @@ export function restRoutes(core: Core): Router {
 		}));
 	});
 
-	// Vory's notification Companion: its files only (devices, markers, plugin), kept by core.vory. The
-	// Files browser stays absent (GET /api/files is 404), so Vory keeps that tab hidden.
+	// Vory's notification Companion: its files only (devices, markers, plugin), kept by core.vory. The Files
+	// browser (listing and downloading the bots' workspaces) is in src/hermes/manage.ts.
 	const voryFiles = <T>(fn: () => T): T => {
 		try {
 			return fn();
@@ -370,9 +337,6 @@ export function restRoutes(core: Core): Router {
 		if (typeof v !== "string" || !v.startsWith("/")) throw new HttpError(400, "path must be absolute");
 		return v;
 	};
-	r.on("GET", "/api/files", () => {
-		throw new HttpError(404, "Not Found");
-	});
 	r.on("POST", "/api/files/upload", (q) => {
 		const b = obj(q.body);
 		const path = pathOf(b.path);
@@ -399,5 +363,6 @@ export function restRoutes(core: Core): Router {
 		return q.params.action === "enable" ? core.vory.enable() : core.vory.disable();
 	});
 
+	manageRoutes(core, r);
 	return r;
 }

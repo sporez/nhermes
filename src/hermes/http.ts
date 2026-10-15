@@ -23,6 +23,29 @@ export type Req = {
 
 export type Handler = (req: Req) => unknown | Promise<unknown>;
 
+/** A handler result sent as bytes rather than JSON (file downloads). */
+export class RawBody {
+	readonly data: Buffer;
+	readonly type: string;
+	readonly filename: string;
+	constructor(data: Buffer, type: string, filename: string) {
+		this.data = data;
+		this.type = type;
+		this.filename = filename;
+	}
+}
+
+export function sendRaw(res: ServerResponse, body: RawBody): void {
+	res.writeHead(200, {
+		"content-type": body.type,
+		"content-length": body.data.length,
+		"cache-control": "no-store",
+		"content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(body.filename)}`,
+		"x-content-type-options": "nosniff",
+	});
+	res.end(body.data);
+}
+
 type Route = { method: string; re: RegExp; keys: string[]; handler: Handler };
 
 export class Router {

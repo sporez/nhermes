@@ -11,7 +11,7 @@ import { type MemberRow, NODE_HEADER, SECRET_HEADER } from "../federation/member
 import { federationRoutes, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
 import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
-import { HttpError, readJson, type Router, sendJson } from "./http.ts";
+import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
 import { restRoutes } from "./rest.ts";
 import { Connection } from "./ws.ts";
 
@@ -77,6 +77,7 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			if (matched === "method") throw new HttpError(405, "Method Not Allowed");
 			const body = await readJson(req);
 			const result = await matched.handler({ method, path: url.pathname, query: url.searchParams, params: matched.params, body, raw: req, member });
+			if (result instanceof RawBody) return sendRaw(res, result);
 			sendJson(res, 200, result ?? {});
 		} catch (error) {
 			if (error instanceof HttpError) return sendJson(res, error.status, { detail: error.message });

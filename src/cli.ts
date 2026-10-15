@@ -105,7 +105,7 @@ async function serve(configPath: string): Promise<void> {
 		}
 	});
 	restart = () => {
-		log.info("restarting after a software change");
+		log.info("restarting");
 		void (async () => {
 			await server.close();
 			await core.close();

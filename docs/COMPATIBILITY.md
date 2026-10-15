@@ -11,6 +11,7 @@ Status legend:
 - **Gated**: not implemented; the client is told so through its own capability checks (error -32601,
   HTTP 404, empty capability list) and hides or degrades the feature.
 - **Deferred**: not implemented and not gated; the client may show an error if the user opens it.
+- **Future**: not implemented yet, but planned (gated or deferred until then).
 
 "Verified with Vory" lists what has been exercised with the real app or Vory's own test suite
 (`VoryTests/GatewayIntegrationTests.swift`), as distinct from our own tests.
@@ -51,7 +52,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Bot instructions | `GET/PUT /api/profiles/{name}/soul` | Tested | | SOUL = bot instructions |
 | Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides; create/delete bots is CLI-only |
 | Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
-| Create / delete / rename bots | `POST/DELETE/PATCH /api/profiles` | Deferred | | CLI manages bots |
+| Create / delete bots | `POST /api/profiles` `{name, clone_from?}`, `DELETE /api/profiles/{name}` | Tested | | Adds or removes the bot in config.yaml, as the panel does. `clone_from` copies the other bot's settings and instructions (not its name, default flag, workspace or chats). Delete keeps the bot's chats, memory and workspace on disk; the default bot cannot be deleted. Renaming is not offered by Vory |
 | Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Instructions, description, model and skills of such a bot answer 409 (change them on its machine); skills and toolsets list empty |
 
 ## Sessions and chat
@@ -89,7 +90,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Withdrawn request | `request.cancel` event | Tested | | On interrupt / timeout |
 | Clarify / sudo / secret / vault prompts | server→client | Gated | | Not in `client.capabilities` result |
 | Per-session YOLO | `config.set yolo` | Partial | | Allows everything except deny rules; held in memory, so it resets on gateway restart |
-| Toolsets | `GET /api/tools/toolsets` | Partial | E2E, UI Tools page | Lists the bot's tool groups; toggling from Vory (`PUT /api/tools/toolsets/{name}`) is not implemented yet |
+| Toolsets | `GET /api/tools/toolsets`, `PUT /api/tools/toolsets/{name}` `{enabled}` | Tested | E2E, UI Tools page | One row per tool group; a toggle writes the selected bot's `tools:` in config.yaml |
 
 ## Models
 
@@ -99,7 +100,8 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Session model switch | `config.set model "<m> --provider <p> --session"` | Tested | | Durable `configure({model})` |
 | Reasoning effort | `config.set reasoning` | Tested | | Durable `thinkingLevel` |
 | Fast mode | `config.set fast` | Gated | | Accepted and reported as unsupported |
-| Default model of a bot | `PUT /api/profiles/{name}/model` | Partial | | Persists as a bot override; existing sessions keep their own model |
+| Default model of a bot | `PUT /api/profiles/{name}/model`, `POST /api/model/set` `{scope:"main"}` | Partial | | Persists as a bot override; existing sessions keep their own model |
+| Auxiliary models | `GET /api/model/auxiliary`, `POST /api/model/set` `{scope:"auxiliary"}` | Gated | | 404 / 400: the Jev reviewer's model is fixed, nothing else is auxiliary |
 
 ## Skills, config, status
 
@@ -109,11 +111,12 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Toggle skill | `PUT /api/skills/toggle` | Tested | | Stored as a bot override |
 | Slash command catalog | `commands.catalog` | Tested | E2E | Built-ins we really run + skills |
 | Slash execution | `slash.exec`, `command.dispatch` | Partial | | `/compact`, `/usage`, `/status`; others return error 4018 |
-| Config read | `GET /api/config`, `/api/config/schema` | Tested | E2E, UI Config page | Real settings only (approvals mode, default model, reasoning) |
-| Config write | `PUT /api/config` | Deferred | | CLI / config file. Vory's Config page shows pickers; saving from it returns 404 for now |
-| Env / keys | `GET /api/env` | Tested | E2E, UI Env page | Redacted; read-only |
-| MCP servers | `/api/mcp/servers` | Deferred | | |
-| Logs | `GET /api/logs` | Deferred | | |
+| Config read | `GET /api/config?profile=`, `/api/config/schema` | Tested | E2E, UI Config page | The selected bot's model, approval mode, reasoning and "always allowed" rules (`command_allowlist`); the approval timeout and time zone are gateway-wide. `dashboard.ws_orphan_reap_grace_s` reads 0: nHermes never stops a turn because the app left |
+| Config write | `PUT /api/config?profile=` `{config:{…}}` | Tested | | Model and reasoning as bot overrides; approval mode in the bot's config.yaml entry; timeout and time zone in config.yaml (after a restart); `command_allowlist` adds and removes the bot's rules. Any other key, or a nonzero away grace, answers 400 with the reason |
+| Env / keys | `GET /api/env`, `PUT /api/env` `{key,value}`, `DELETE /api/env` `{key}` | Tested | E2E, UI Env page | Redacted, write-only, into secrets.env as the panel's Keys tab does; gateway-wide, not per bot. The gateway token is refused (403): it is changed in the panel or with `nhermes` |
+| MCP servers | `/api/mcp/servers` | Future | | Not supported yet; may come later. 404 meanwhile |
+| Logs | `GET /api/logs?lines=` | Tested | | The last 500 log lines this process wrote, as `YYYY-MM-DD HH:MM:SS LEVEL [scope] message`; older ones are in the journal / launchd log |
+| Channels | `GET /api/messaging/platforms` | Gated | | 404: nHermes has no messaging platforms |
 
 ## Scheduled tasks
 
@@ -134,12 +137,14 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 |---|---|---|---|
 | Projects | `projects.list` / `projects.tree` | Gated | -32601 |
 | Kanban board | `/api/plugins/kanban/*` | Gated | 404 |
-| Bot rooms (groups) | `groups.capabilities` | Gated | -32601 → Bot Mode hidden |
+| Bot rooms (groups) | `groups.capabilities` | Future | -32601 → Bot Mode hidden. Planned; group chats between bots are not built yet |
 | Gateway voice (STT/TTS) | `/api/audio/*` | Gated | 404; Vory's on-device voice works |
-| Files browser | `GET /api/files`, `/api/files/download` | Deferred | 404, so the tab stays hidden |
-| Analytics | `/api/analytics/usage` | Deferred | |
+| Files browser | `GET /api/files?path=`, `GET /api/files/download?path=` | Tested | Read-only. `/` lists each local bot's workspace; inside them, folders and files with sizes and dates; downloads up to 50 MB. Anything outside the workspaces, through `..` or a link, answers 403; uploads (`/api/files/upload-stream`) answer 403 |
+| Analytics | `GET /api/analytics/usage?days=&profile=` | Tested | Dashboard, widgets, watch. Per bot: daily tokens, cost, chats and model calls, totals and a per-model breakdown, from every model call in that bot's chats (deleted chats drop out). Each chat is read once and again only when it changed |
 | Notifications (Companion) | `/api/files/upload`, `/api/files/read`, `DELETE /api/files`, `/api/dashboard/agent-plugins/vory-push/{enable,disable}`, `push/status.json` | Tested (protocol) | Through the Vory push relay only, as its Companion plugin does (`src/notify/vory.ts`): approvals, finished and failed turns, scheduled-task results and the `notify` tool; a settled approval's banner is replaced on the other devices; the turn's Live Activity is finished. In a network, the gateway Vory is connected to notifies for its chats with members' bots too, and a member skips chats another gateway drives (`member:` source), so a phone set up on both gets each once. Installing the Companion in Vory stores its files (never run); the files API takes only those paths under a bot's home and keeps them in `<data>/vory`. Not sent: Live Activity progress, push-to-start, watch complications, clarify questions |
-| Plugins hub, update, restart | `/api/dashboard/plugins/hub`, `/api/hermes/update*`, `/api/gateway/restart` | Deferred | systemd manages restarts; the Companion never needs one (its heartbeat reports it reloads in place) |
+| Update, restart | `GET /api/hermes/update/check?force=`, `POST /api/hermes/update`, `POST /api/gateway/restart`, `GET /api/actions/{hermes-update,gateway-restart}/status` | Tested | The same update service as `nhermes update` and the panel: check lists the new commits, update fast-forwards and restarts. The action is "running" until the restarted gateway answers, then done. A gateway not run by systemd or launchd reports `can_apply: false` and refuses restart (409) with the reason. Rollback stays in the panel and CLI |
+| Doctor | `POST /api/ops/doctor`, `GET /api/actions/doctor/status` | Tested | Config loads, each bot's model and its key, keys in use but unset, network members, SSH hosts (port reachable), disk space, failing scheduled tasks, Jev review, software and restart support. One line each, ✓ / ! / ✗; exit code 1 on any ✗ |
+| Plugins hub | `/api/dashboard/plugins/hub` | Gated | 404; nHermes has no plugins |
 
 ## Cadu
 

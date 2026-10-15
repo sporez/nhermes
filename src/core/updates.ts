@@ -172,9 +172,21 @@ export class Updates {
 		this.setSetting("updates.previous", fromFull);
 		const to = this.commit("HEAD")!;
 		log.info("software changed", { from: from.hash, to: to.hash, packagesReinstalled });
-		const restarting = this.managed && this.restartFn !== undefined;
+		const restarting = this.canRestart;
 		if (restarting) setTimeout(() => this.restartFn!(), 500).unref();
 		return { from, to, packagesReinstalled, restarting };
+	}
+
+	/** Whether the gateway can restart itself: a service manager starts it again after it exits. */
+	get canRestart(): boolean {
+		return this.managed && this.restartFn !== undefined;
+	}
+
+	/** Restarts the gateway (Vory's "Restart gateway"); refused when nothing would start it again. */
+	restart(): void {
+		if (!this.canRestart) throw new UpdateError(409, "this gateway is not run by systemd or launchd, so it cannot restart itself; restart it on its machine");
+		log.info("restart requested");
+		setTimeout(() => this.restartFn!(), 500).unref();
 	}
 
 	/** Refuses a version whose package.json needs a newer Node than the one running. */

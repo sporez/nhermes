@@ -41,6 +41,10 @@ export class Approvals {
 		this.db.run("INSERT OR IGNORE INTO approval_rules (scope, rule, created_at) VALUES (?, ?, ?)", scope, rule, Date.now() / 1000);
 	}
 
+	removeRule(scope: string, rule: string): void {
+		this.db.run("DELETE FROM approval_rules WHERE scope = ? AND rule = ?", scope, rule);
+	}
+
 	/** Waits for an answer. Rejects never; aborting resolves "deny". */
 	ask(input: Omit<ApprovalRequest, "requestId" | "createdAt" | "choices"> & { noAlways?: boolean }, signal: AbortSignal): Promise<Choice> {
 		const { noAlways, ...rest } = input;

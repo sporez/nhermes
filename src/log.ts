@@ -27,15 +27,28 @@ export function setLogSink(next: (line: string) => void): void {
 	sink = next;
 }
 
+// The last lines written, for Vory's System screen (the journal or launchd log keeps the rest).
+const RECENT_MAX = 500;
+const recent: string[] = [];
+
+/** The most recent log lines, oldest first, as `2026-10-15 21:30:05 INFO [scope] msg {fields}`. */
+export function recentLogs(limit = 200): string[] {
+	return recent.slice(-limit);
+}
+
 function write(level: Level, scope: string, msg: string, fields?: Record<string, unknown>): void {
 	if (ORDER[level] < ORDER[minLevel]) return;
-	const record: Record<string, unknown> = { t: new Date().toISOString(), level, scope, msg };
+	const t = new Date().toISOString();
+	const record: Record<string, unknown> = { t, level, scope, msg };
 	if (fields) {
 		for (const [k, v] of Object.entries(fields)) {
 			record[k] = v instanceof Error ? { name: v.name, message: v.message } : v;
 		}
 	}
 	sink(redact(JSON.stringify(record)));
+	const rest = fields && Object.keys(fields).length > 0 ? ` ${JSON.stringify(Object.fromEntries(Object.keys(fields).map((k) => [k, record[k]])))}` : "";
+	recent.push(redact(`${t.slice(0, 10)} ${t.slice(11, 19)} ${level.toUpperCase()} [${scope}] ${msg}${rest}`));
+	if (recent.length > RECENT_MAX) recent.splice(0, recent.length - RECENT_MAX);
 }
 
 export type Logger = {

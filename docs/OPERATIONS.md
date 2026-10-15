@@ -93,7 +93,10 @@ chats on their next message; `reload` lists anything that still needs a restart 
 directory, time zone, approval timeout). A file that does not load is refused and the running
 configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gateway`) makes the same edits
 and keeps the file's comments.
-From Vory you can edit a bot's instructions, description, default model, skills and scheduled tasks.
+From Vory you can edit a bot's instructions, description, default model, reasoning, approval mode, "always
+allowed" rules, tool groups, skills and scheduled tasks; create and remove bots; set and clear keys (not
+the gateway token); check for updates, update and restart the gateway; run the doctor and read recent
+logs; see usage analytics; and browse the bots' workspaces read-only (`docs/COMPATIBILITY.md`).
 
 Bots with the `self` tool group can make these edits too, each one shown to you as an approval card with
 the change as a diff. Any such bot can change its own description, instructions, model, thinking, global

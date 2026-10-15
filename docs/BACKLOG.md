@@ -47,6 +47,13 @@ Status per phase: see `docs/STATUS.md`.
   optional copy to members, Jev review in the approval guard with a wider ask list. Plan:
   `docs/SECRETS-AND-REVIEW.md`.
 
+## Future
+
+- **MCP servers.** Vory has an MCP Servers screen (`/api/mcp/servers`: list, enable, test, remove). nHermes
+  has no MCP client yet; the screen gets 404 until it does.
+- **Bot rooms.** Vory's Bot Mode (group chats between bots, probed with `groups.capabilities`) stays hidden
+  until nHermes has rooms; delegation covers bot-to-bot work today.
+
 ## Deferred
 
 - **Per-bot "Bot Chat" (forever-chat).** Hermes keeps one session titled "Bot Chat" per profile and reports
