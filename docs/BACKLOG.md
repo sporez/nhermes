@@ -46,3 +46,10 @@ Status per phase: see `docs/STATUS.md`.
 - [x] **8. Secrets in the panel and Jev permission review**: write-only key management (panel, CLI),
   optional copy to members, Jev review in the approval guard with a wider ask list. Plan:
   `docs/SECRETS-AND-REVIEW.md`.
+
+## Deferred
+
+- **Per-bot "Bot Chat" (forever-chat).** Hermes keeps one session titled "Bot Chat" per profile and reports
+  it as `canonical_session` in `profiles.list`; jobs and bot-to-bot messages can land there. Vory (d99369b)
+  uses it only to open a "Messaged X" notice read-only, so it is deferred until a client relies on it. Today
+  a pinned chat works as a forever thread: Pi Durable compacts automatically.
