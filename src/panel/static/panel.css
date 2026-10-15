@@ -88,3 +88,4 @@ th { font-size: .78rem; color: var(--muted); font-weight: 600; }
 .prompt { margin: 0; padding: .6rem .7rem; border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 8px; max-height: 22rem; overflow: auto; }
 .review-cmd { cursor: pointer; margin: .3rem 0; }
 .review-cmd:not(.trunc) { white-space: pre-wrap; overflow-wrap: anywhere; }
+.update-badge { margin-left: .6rem; text-decoration: none; }

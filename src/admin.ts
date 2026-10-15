@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Core } from "./app.ts";
 import { type BotConfig, ConfigError } from "./config.ts";
 import { SecretError } from "./core/secrets.ts";
+import { UpdateError } from "./core/updates.ts";
 import type { BotPatch, GatewayPatch } from "./core/settings.ts";
 import { PanelAuth } from "./panel/auth.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
@@ -146,6 +147,10 @@ export function adminRoutes(core: Core): Router {
 	r.on("PATCH", "/admin/bots/:name", (q) => settingsCall(() => core.settings.editBot(q.params.name!, botFields(obj(q.body), false))));
 	r.on("DELETE", "/admin/bots/:name", (q) => settingsCall(() => core.settings.removeBot(q.params.name!)));
 	r.on("PATCH", "/admin/gateway", (q) => settingsCall(() => core.settings.setGateway(obj(q.body) as GatewayPatch)));
+	r.on("GET", "/admin/software", () => core.updates.status());
+	r.on("POST", "/admin/software/check", () => updateCall(() => core.updates.check()));
+	r.on("POST", "/admin/software/update", () => updateCall(() => core.updates.update()));
+	r.on("POST", "/admin/software/rollback", () => updateCall(() => core.updates.rollback()));
 	r.on("GET", "/admin/secrets", () => ({ secrets: core.secrets.list() }));
 	r.on("PUT", "/admin/secrets/:name", (q) => secretCall(() => core.secrets.set(q.params.name!, String(obj(q.body).value ?? ""))));
 	r.on("DELETE", "/admin/secrets/:name", (q) => secretCall(() => core.secrets.remove(q.params.name!)));
@@ -193,6 +198,15 @@ function botFields(body: Record<string, unknown>, creating: boolean): BotPatch {
 		out[k] = v;
 	}
 	return out as BotPatch;
+}
+
+function updateCall<T>(fn: () => T): T {
+	try {
+		return fn();
+	} catch (error) {
+		if (error instanceof UpdateError) throw new HttpError(error.status, error.message);
+		throw error;
+	}
 }
 
 function secretCall<T>(fn: () => T): T {

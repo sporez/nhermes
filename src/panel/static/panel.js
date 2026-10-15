@@ -134,7 +134,20 @@ async function start() {
 	document.getElementById("machine").textContent = state.node.name;
 	document.title = `${state.node.name} - nhermes`;
 	document.getElementById("top").hidden = false;
+	void refreshUpdateBadge();
 	await route();
+}
+
+/** A small "update available" mark next to the machine name (from the gateway's last check). */
+async function refreshUpdateBadge(sw) {
+	try {
+		sw ??= await api("GET", "/software");
+		const brand = document.getElementById("machine").parentElement;
+		brand.querySelector(".update-badge")?.remove();
+		if (sw.available?.length) brand.append(h("a", { href: "#gateway", class: "badge warn update-badge" }, `update available (${sw.available.length})`));
+	} catch {
+		// Not important enough to report.
+	}
 }
 
 // ---- Bots ----
@@ -703,7 +716,55 @@ async function gatewayScreen() {
 				badge(rv.keySet ? "set" : "not set", rv.keySet ? "ok" : "warn"), " ", h("a", { href: "#keys" }, "Keys")),
 			h("div", { class: "hint" }, "Commands and the owner's recent messages are sent to OpenRouter/TypeSafe for review; known secrets are removed first."),
 			h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save")),
-		h("div", { class: "card" }, h("h3", {}, "Panel password"), pass));
+		h("div", { class: "card" }, h("h3", {}, "Panel password"), pass),
+		softwareCard());
+}
+
+/** Version, what is new on GitHub, update (the gateway restarts) and going back. */
+function softwareCard() {
+	const body = h("div", {}, h("div", { class: "muted small" }, "Loading…"));
+	const commitLine = (c) => h("div", { class: "row" }, h("span", { class: "mono" }, c.hash), h("span", {}, c.subject), h("span", { class: "muted small" }, ago(c.date)));
+	const waitForRestart = async () => {
+		toast("Updating; the gateway is restarting…");
+		await new Promise((r) => setTimeout(r, 3000));
+		for (let i = 0; i < 40; i++) {
+			try {
+				await api("GET", "/session");
+				location.reload();
+				return;
+			} catch {
+				await new Promise((r) => setTimeout(r, 1500));
+			}
+		}
+		toast("The gateway has not come back yet; check its logs.", true);
+	};
+	const change = (path, question) => run(async () => {
+		if (!confirm(question)) return;
+		const r = await api("POST", path);
+		if (r.restarting) return waitForRestart();
+		toast(`Now at ${r.to.hash}. Restart the gateway to run it.`);
+		render(await api("GET", "/software"));
+	});
+	const render = (sw) => {
+		void refreshUpdateBadge(sw);
+		const running = sw.running ? ` ${sw.running} running chat${sw.running === 1 ? "" : "s"} will pause for a few seconds and carry on.` : "";
+		const restartNote = sw.managed ? `The gateway restarts by itself.${running}` : "This gateway is not running as a service: restart it yourself afterwards.";
+		body.replaceChildren(
+			sw.current ? h("div", {}, h("span", { class: "muted small" }, "Running "), commitLine(sw.current)) : h("div", { class: "muted" }, "Version unknown."),
+			h("div", { class: "muted small" }, `From ${sw.remote ?? "an unknown source"}${sw.branch ? ` (${sw.branch})` : ""} · last checked ${sw.lastCheck ? ago(sw.lastCheck) : "never"}`),
+			sw.updatable ? null : h("div", { class: "notice" }, sw.reason),
+			sw.available.length
+				? h("div", { class: "field" }, h("strong", {}, `${sw.available.length} new commit${sw.available.length === 1 ? "" : "s"}`), ...sw.available.map(commitLine))
+				: h("div", { class: "field muted" }, "Up to date."),
+			h("div", { class: "row" },
+				h("button", { on: { click: () => run(async () => render(await api("POST", "/software/check"))) } }, "Check now"),
+				sw.updatable && sw.available.length > 0 && h("button", { class: "primary", on: { click: () => change("/software/update", `Update to ${sw.available[0].hash}?\n\n${restartNote}`) } }, "Update now"),
+				sw.previous && h("button", { on: { click: () => change("/software/rollback", `Go back to ${sw.previous.hash} (${sw.previous.subject})?\n\n${restartNote}`) } }, `Go back to ${sw.previous.hash}`)),
+			h("div", { class: "hint" }, restartNote),
+		);
+	};
+	run(async () => render(await api("GET", "/software")));
+	return h("div", { class: "card" }, h("h3", {}, "Software"), body);
 }
 
 window.addEventListener("hashchange", route);

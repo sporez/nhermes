@@ -13,6 +13,7 @@ import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
 import { SecretError } from "../core/secrets.ts";
+import { UpdateError } from "../core/updates.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
 import { LinkError } from "../federation/link.ts";
 import { FederationError } from "../federation/members.ts";
@@ -193,6 +194,12 @@ export class Panel {
 		r.on("DELETE", "/panel/api/network/members/:name", async (q) => (await c.members.remove(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
 
+		// Software: version, what is new on GitHub, update (restarts the gateway) and going back.
+		r.on("GET", "/panel/api/software", () => ({ ...c.updates.status(), running: c.sessions.runningCount() }));
+		r.on("POST", "/panel/api/software/check", () => ({ ...c.updates.check(), running: c.sessions.runningCount() }));
+		r.on("POST", "/panel/api/software/update", () => c.updates.update());
+		r.on("POST", "/panel/api/software/rollback", () => c.updates.rollback());
+
 		// Jev permission reviews, newest first, with totals for the last day.
 		r.on("GET", "/panel/api/reviews", (q) => {
 			const outcome = q.query.get("outcome") ?? undefined;
@@ -335,6 +342,7 @@ function translate(error: unknown): { status: number; message: string } {
 	if (error instanceof LinkError) return { status: 502, message: error.message };
 	if (error instanceof MemoryAccessError) return { status: 403, message: error.message };
 	if (error instanceof SecretError) return { status: error.status, message: error.message };
+	if (error instanceof UpdateError) return { status: error.status, message: error.message };
 	if (error instanceof Error && error.name === "UnknownSession") return { status: 404, message: "Session not found" };
 	if (error instanceof Error && error.name === "JobError") return { status: (error as Error & { status: number }).status ?? 400, message: error.message };
 	if (error instanceof Error && /panel password/.test(error.message)) return { status: 400, message: error.message };

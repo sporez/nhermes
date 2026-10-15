@@ -31,6 +31,8 @@ Commands:
   secret list                 The gateway's keys and tokens (names only) and what uses them
   secret set <NAME>           Set a key in secrets.env (asks for the value without showing it)
   secret rm <NAME>            Remove a key
+  update [--check]            Install the latest version from GitHub and restart (--check: only list what is new)
+  update rollback             Go back to the version before the last update
   panel password [--clear]    Set (or remove) the web panel's password; without one it is open on the LAN
   host trust <bot>            Show a bot's SSH host key fingerprints and trust them after you confirm
   memory <bot> [search text]  List or search a bot's memories
@@ -75,10 +77,13 @@ bots:
 async function serve(configPath: string): Promise<void> {
 	const config = loadConfig(configPath);
 	mkdirSync(config.dataDir, { recursive: true });
-	const core = await createCore(config);
+	// After a software update the gateway exits with 75; systemd (Restart=on-failure) and launchd (KeepAlive) start it again.
+	let restart: () => void = () => {};
+	const core = await createCore(config, { updates: { restart: () => restart() } });
 	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
 	core.members.start(() => core.roster.sync());
+	core.updates.start();
 	log.info("gateway ready", { bots: core.bots.names(), port: server.port, dataDir: config.dataDir });
 	let stopping = false;
 	const stop = async (signal: string) => {
@@ -97,6 +102,14 @@ async function serve(configPath: string): Promise<void> {
 			log.error("reload failed; keeping the running configuration", { error: error instanceof Error ? error.message : String(error) });
 		}
 	});
+	restart = () => {
+		log.info("restarting after a software change");
+		void (async () => {
+			await server.close();
+			await core.close();
+			process.exit(75);
+		})();
+	};
 	process.on("SIGTERM", () => void stop("SIGTERM"));
 	process.on("SIGINT", () => void stop("SIGINT"));
 }
@@ -174,6 +187,16 @@ async function readHidden(prompt: string): Promise<string> {
 	});
 }
 
+type SoftwareView = { updatable: boolean; reason?: string; current?: { hash: string; subject: string }; available: { hash: string; subject: string }[] };
+
+function describeSoftware(s: SoftwareView): string {
+	const lines = [`Running ${s.current ? `${s.current.hash} (${s.current.subject})` : "an unknown version"}.`];
+	if (!s.updatable && s.reason) lines.push(`Cannot update here: ${s.reason}.`);
+	if (s.available.length === 0) lines.push("Up to date.");
+	else lines.push(`${s.available.length} new commit${s.available.length === 1 ? "" : "s"}:`, ...s.available.map((c) => `  ${c.hash} ${c.subject}`), "Run nhermes update to install.");
+	return `${lines.join("\n")}\n`;
+}
+
 const print = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
 
 async function main(): Promise<void> {
@@ -188,6 +211,7 @@ async function main(): Promise<void> {
 			url: { type: "string" },
 			clear: { type: "boolean" },
 			yes: { type: "boolean", short: "y" },
+			check: { type: "boolean" },
 			name: { type: "string" },
 			port: { type: "string" },
 			"data-dir": { type: "string" },
@@ -272,6 +296,16 @@ async function main(): Promise<void> {
 			const value = await readHidden(`Value for ${name} (not shown): `);
 			const r = (await admin(configPath, "PUT", `/admin/secrets/${encodeURIComponent(name)}`, { value })) as { restartNeeded: boolean };
 			return void process.stdout.write(`Set ${name}.${r.restartNeeded ? " Restart the gateway for it to take effect." : " In effect now."}\n`);
+		}
+		case "update": {
+			if (values.check) {
+				const s = (await admin(configPath, "POST", "/admin/software/check")) as SoftwareView;
+				return void process.stdout.write(describeSoftware(s));
+			}
+			const path = rest[0] === "rollback" ? "/admin/software/rollback" : "/admin/software/update";
+			const r = (await admin(configPath, "POST", path)) as { from: { hash: string }; to: { hash: string; subject: string }; packagesReinstalled: boolean; restarting: boolean };
+			process.stdout.write(`Updated ${r.from.hash} → ${r.to.hash} (${r.to.subject})${r.packagesReinstalled ? ", packages reinstalled" : ""}.\n`);
+			return void process.stdout.write(r.restarting ? "The gateway is restarting.\n" : "Restart the gateway to run the new version.\n");
 		}
 		case "panel": {
 			if (rest[0] !== "password") throw new ConfigError("usage: nhermes panel password [--clear]");

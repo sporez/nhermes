@@ -13,6 +13,7 @@ import { Sessions } from "./core/sessions.ts";
 import { gatewayFilesPattern } from "./core/policy.ts";
 import { JevReviewer, ReviewLog } from "./core/review.ts";
 import { Secrets } from "./core/secrets.ts";
+import { Updates, type UpdatesOptions } from "./core/updates.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
 import { ProxySessions } from "./federation/proxy.ts";
@@ -60,6 +61,7 @@ export type Core = {
 	secrets: Secrets;
 	reviewer: JevReviewer;
 	reviewLog: ReviewLog;
+	updates: Updates;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -85,6 +87,8 @@ export type CoreOptions = {
 	notifier?: Notifier;
 	browserHeadless?: boolean;
 	browserExecutable?: string;
+	/** Software updates: the checkout, package install and restart (the CLI passes restart; tests replace the rest). */
+	updates?: UpdatesOptions;
 	/** Replaces the HTTP call to Jev (tests). */
 	reviewFetch?: typeof fetch;
 	/** Membership clock/transport overrides (tests). */
@@ -118,6 +122,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const roster = new Roster(db, members);
 	const reviewer = new JevReviewer(config, { fetch: options.reviewFetch });
 	const reviewLog = new ReviewLog(db);
+	const updates = new Updates(db, options.updates);
 	bots.setRemote(() => roster.list());
 	members.onChange(() => void roster.sync());
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
@@ -269,9 +274,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		secrets: new Secrets(config, db),
 		reviewer,
 		reviewLog,
+		updates,
 		agentFor,
 		close: async () => {
 			members.stop();
+			updates.stop();
 			proxy.close();
 			await scheduler!.stop();
 			await browsers.close();
