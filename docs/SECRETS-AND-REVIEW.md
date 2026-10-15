@@ -1,6 +1,6 @@
 # Secrets in the panel, and Jev permission review (plan)
 
-Status: in progress (decisions recorded at the end).
+Status: implemented (S1–S6); decisions recorded at the end.
 
 ## Goal
 
@@ -31,11 +31,11 @@ Status: in progress (decisions recorded at the end).
 ## Steps
 
 - [x] S1. Secrets service and CLI · `ec8a150`
-- [ ] S2. Secrets screen in the panel
-- [ ] S3. Optional: set a key on other members too
+- [x] S2. Secrets screen in the panel · `40bbd68`, `8df3272`
+- [x] S3. Optional: set a key on other members too · `40bbd68`, `8df3272`
 - [x] S4. Jev permission review in the guard · `84cef8a`
 - [x] S5. Wider ask list, reviewed by Jev · `84cef8a`
-- [ ] S6. Review log in the panel
+- [x] S6. Review log in the panel · `965ef27`, `8df3272`
 
 ### S1. Secrets service and CLI
 
