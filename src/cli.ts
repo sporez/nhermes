@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
 import { adminRoutes, restoreBackup } from "./admin.ts";
 import { createCore } from "./app.ts";
-import { ConfigError, loadConfig } from "./config.ts";
+import { ConfigError, loadConfig, NODE_NAME } from "./config.ts";
 import { federationAdminRoutes } from "./federation/routes.ts";
 import { startHermesServer } from "./hermes/server.ts";
 import { logger } from "./log.ts";
@@ -17,13 +17,14 @@ const USAGE = `nhermes <command> [options]
 
 Commands:
   serve                       Run the gateway (one process owns the data directory)
-  init [dir]                  Write a starter config.yaml and secrets.env into dir (default: .)
+  init [dir] [--name n] [--port p] [--data-dir d]
+                              Write a starter config.yaml and secrets.env into dir (default: .)
   status                      Bots, running sessions and scheduled jobs of the running gateway
   reload                      Re-read config.yaml (bots and defaults apply at once; also on SIGHUP)
   backup [--out f] [--secrets]  Consistent backup (.tar.gz) made by the running gateway
   restore <file> [--with-config]  Restore a backup; the gateway must be stopped
   invite [--url u]            A one-time code (10 minutes) for another machine to join this network
-  join <code>                 Join the network a code comes from (asks you to confirm first)
+  join <code> [--yes]         Join the network a code comes from (asks you to confirm first)
   members                     This machine and the other members, with reachability
   members remove <name>       Remove a member from the whole network
   leave                       Leave the network
@@ -38,13 +39,15 @@ Options:
   -h, --help            Show this help
 `;
 
-const SAMPLE_CONFIG = `# Neil Hermes configuration. Secrets go in secrets.env, not here.
+type InitOptions = { name?: string; port?: number; dataDir?: string };
+
+const sampleConfig = (o: InitOptions) => `# Neil Hermes configuration. Secrets go in secrets.env, not here.
 server:
   host: 0.0.0.0          # all interfaces (Vory, other machines, the panel); 127.0.0.1 keeps it on this machine
-  port: 9119
+  port: ${o.port ?? 9119}
   name: Neil Hermes
-dataDir: data
-timezone: America/New_York
+${o.name ? `node:\n  name: ${o.name}            # this machine in the network (nhermes invite / join)\n` : ""}dataDir: ${o.dataDir ?? "data"}
+timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
 
 pi:                      # Pi's provider config; shared safely with the Pi CLI
   authPath: ~/.pi/agent/auth.json
@@ -62,7 +65,7 @@ bots:
     default: true
     description: Personal assistant
     instructions: |
-      You are Neil's personal assistant, running on his own server.
+      You are the owner's personal assistant, running on their own machine.
       Be direct and concise. Use tools to check facts instead of guessing.
 `;
 
@@ -95,13 +98,14 @@ async function serve(configPath: string): Promise<void> {
 	process.on("SIGINT", () => void stop("SIGINT"));
 }
 
-function init(dir: string): void {
+function init(dir: string, o: InitOptions = {}): void {
+	if (o.name !== undefined && !NODE_NAME.test(o.name)) throw new ConfigError(`--name must match ${NODE_NAME}`);
 	const target = resolve(dir);
 	mkdirSync(target, { recursive: true });
 	const cfg = join(target, "config.yaml");
 	const secrets = join(target, "secrets.env");
 	if (existsSync(cfg)) throw new ConfigError(`${cfg} already exists; not overwriting`);
-	writeFileSync(cfg, SAMPLE_CONFIG);
+	writeFileSync(cfg, sampleConfig(o));
 	if (!existsSync(secrets)) {
 		writeFileSync(secrets, `# Gateway session token: paste into Vory (Session token mode)\nNHERMES_TOKEN=${randomBytes(24).toString("base64url")}\n# PUSHOVER_USER_KEY=\n# PUSHOVER_APP_TOKEN=\n`);
 		chmodSync(secrets, 0o600);
@@ -149,6 +153,10 @@ async function main(): Promise<void> {
 			"with-config": { type: "boolean" },
 			url: { type: "string" },
 			clear: { type: "boolean" },
+			yes: { type: "boolean", short: "y" },
+			name: { type: "string" },
+			port: { type: "string" },
+			"data-dir": { type: "string" },
 		},
 	});
 	const [command, ...rest] = positionals;
@@ -161,7 +169,7 @@ async function main(): Promise<void> {
 		case "serve":
 			return serve(configPath);
 		case "init":
-			return init(rest[0] ?? ".");
+			return init(rest[0] ?? ".", { name: values.name, port: values.port ? Number(values.port) : undefined, dataDir: values["data-dir"] });
 		case "status":
 			return print(await admin(configPath, "GET", "/admin/status"));
 		case "reload": {
@@ -192,9 +200,12 @@ async function main(): Promise<void> {
 			const code = rest[0];
 			if (!code) throw new ConfigError("usage: nhermes join <code>");
 			const p = (await admin(configPath, "POST", "/admin/federation/preview", { code })) as { name: string; url: string; members: number };
-			const rl = createInterface({ input: process.stdin, output: process.stdout });
-			const answer = (await rl.question(`Join the network of "${p.name}" (${p.url}, ${p.members} member${p.members === 1 ? "" : "s"})? Its members will be able to use this machine's bots, and this machine theirs. [y/N] `)).trim().toLowerCase();
-			rl.close();
+			let answer = "y";
+			if (!values.yes) {
+				const rl = createInterface({ input: process.stdin, output: process.stdout });
+				answer = (await rl.question(`Join the network of "${p.name}" (${p.url}, ${p.members} member${p.members === 1 ? "" : "s"})? Its members will be able to use this machine's bots, and this machine theirs. [y/N] `)).trim().toLowerCase();
+				rl.close();
+			} else process.stdout.write(`Joining the network of "${p.name}" (${p.url}).\n`);
 			if (answer !== "y" && answer !== "yes") return void process.stdout.write("Not joined.\n");
 			const r = (await admin(configPath, "POST", "/admin/federation/join", { code })) as { members: string[] };
 			return void process.stdout.write(`Joined. Members: ${r.members.join(", ")}\n`);

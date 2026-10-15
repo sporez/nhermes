@@ -94,7 +94,7 @@ test("memory: remember and recall through tools, survive a restart, and stay per
 		const s = await core.sessions.create("main");
 		const c = collect(core.hub, s.id);
 		a.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("remember", { text: "Neil's NAS is a TrueNAS box at 192.168.1.20 with a pool called tank.", tags: ["nas"], pinned: true })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("remember", { text: "Neil's NAS is a TrueNAS box at 10.0.0.20 with a pool called tank.", tags: ["nas"], pinned: true })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("remember", { text: "The thermostat schedule is 68F at night.", space: "household" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Noted both.")]),
 		]);

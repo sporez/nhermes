@@ -66,7 +66,7 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal((await panel("POST", "/reload", {}, { origin: base })).status, 200);
 		assert.equal((await fetch(`${base}/panel/api/reload`, { method: "POST", headers: { "x-nhermes-panel": "1", "content-type": "text/plain" }, body: "x" })).status, 415);
 		assert.equal(localHost("evil.example.com"), false);
-		assert.equal(localHost("192.168.1.20:9119"), true);
+		assert.equal(localHost("10.0.0.20:9119"), true);
 		assert.equal(localHost("hermes:9119"), true);
 		assert.equal(localHost("hermes.local"), true);
 		assert.equal(localHost("hermes.tail1234.ts.net"), true);

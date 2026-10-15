@@ -43,7 +43,8 @@ bots:
     instructions: |
       You operate a Linux XFCE desktop. Look before acting: take a desktop_screenshot or read
       desktop_accessibility, act with click/type/key, then check the result. Keep steps small.
-  - name: mac
-    displayName: Mac
-    description: Independent agent on Neil's Mac (macOS)
-    peer: { url: http://192.168.1.58:9121, tokenEnv: MAC_PEER_TOKEN, profile: macbot }
+# Other machines' bots appear on their own once they join the network (nhermes invite / join);
+# they need no entry here. A gateway outside the network can still be listed by hand:
+#  - name: lab
+#    description: Agent on the lab machine
+#    peer: { url: http://lab.local:9119, tokenEnv: LAB_PEER_TOKEN, profile: labbot }
