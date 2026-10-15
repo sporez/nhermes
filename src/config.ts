@@ -69,6 +69,8 @@ export type Config = {
 	browserExecutable?: string;
 	/** This gateway as a network member: its name (default: the host name) and the URL members use. */
 	node: { name?: string; url?: string };
+	/** Replaces the built-in ground rules every bot's prompt carries (src/agent/extensions.ts). */
+	groundRules?: string;
 	/** The web control panel at /panel (on by default; its password, if any, is set with `nhermes panel password`). */
 	panel: { enabled: boolean };
 };
@@ -274,5 +276,6 @@ export function loadConfig(configPath: string): Config {
 		browserExecutable: str(doc.browserExecutable, "browserExecutable"),
 		node: { name: nodeName, url: str(node.url, "node.url") },
 		panel: { enabled: asRecord(doc.panel, "panel").enabled !== false },
+		groundRules: str(doc.groundRules, "groundRules")?.trim() || undefined,
 	};
 }

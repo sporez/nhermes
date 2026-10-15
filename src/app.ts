@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { type AgentDeps, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
+import { type AgentDeps, groundRules, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
 import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { type Bot, Bots } from "./core/bots.ts";
@@ -184,7 +184,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			return out;
 		},
 		unattendedPolicy: (sessionId) => scheduler?.approvalsFor(sessionId) ?? "ask",
-		gatewayPaths: [...new Set([config.configDir, config.dataDir])],
+		groundRules: () => config.groundRules ?? groundRules([...new Set([config.configDir, config.dataDir])]),
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [

@@ -2,7 +2,7 @@
 // one; changes only from the panel's own page (custom header, matching Origin, a local Host name); and
 // the minimal session, memory, approval and bot controls it offers.
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -37,7 +37,7 @@ async function setup() {
 }
 
 test("the panel is open without a password, and only its own page can change things", async () => {
-	const { core, server, base, panel, cleanup } = await setup();
+	const { core, server, base, panel, path, cleanup } = await setup();
 	try {
 		const page = await fetch(`${base}/panel/`);
 		assert.equal(page.status, 200);
@@ -78,6 +78,19 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal(edited.status, 200, edited.json.detail);
 		assert.equal(core.bots.get("ops")!.private, true);
 		assert.equal((await panel("PATCH", "/bots/ops", { tools: ["teleport"] })).status, 400);
+
+		// The system prompt: shown in parts; the ground rules are editable for every bot and resettable.
+		const prompt = (await panel("GET", "/bots/main/prompt")).json as { groundRules: string; groundRulesCustom: boolean; full: string; identity: string };
+		assert.match(prompt.groundRules, /Work only through the tools you were given/);
+		assert.equal(prompt.groundRulesCustom, false);
+		assert.ok(prompt.full.includes(prompt.identity) && prompt.full.includes(prompt.groundRules));
+		assert.equal((await panel("PATCH", "/gateway", { groundRules: "Never touch the router.\nAsk before buying anything." })).status, 200);
+		assert.match(readFileSync(path, "utf8"), /groundRules: \|\n\s+Never touch the router\.\n\s+Ask before buying anything\./);
+		const custom = (await panel("GET", "/bots/ops/prompt")).json as { groundRules: string; groundRulesCustom: boolean };
+		assert.deepEqual([custom.groundRules, custom.groundRulesCustom], ["Never touch the router.\nAsk before buying anything.", true]);
+		assert.equal((await panel("PATCH", "/gateway", { groundRules: null })).status, 200);
+		assert.equal(((await panel("GET", "/bots/ops/prompt")).json as { groundRulesCustom: boolean }).groundRulesCustom, false);
+		assert.doesNotMatch(readFileSync(path, "utf8"), /groundRules/);
 	} finally {
 		await server.close();
 		await core.close();

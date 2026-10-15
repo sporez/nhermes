@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join } from "node:path";
 import { configView } from "../admin.ts";
+import { groundRules, personaParts, personaText } from "../agent/extensions.ts";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
@@ -162,6 +163,20 @@ export class Panel {
 		});
 		r.on("PATCH", "/panel/api/bots/:name", (q) => c.settings.editBot(q.params.name!, obj(q.body) as BotPatch));
 		r.on("DELETE", "/panel/api/bots/:name", (q) => c.settings.removeBot(q.params.name!));
+		// The bot's system prompt as a new chat gets it: the editable parts (its instructions; the ground
+		// rules, shared by all bots) and the generated ones. Tool descriptions are added by the engine.
+		r.on("GET", "/panel/api/bots/:name/prompt", async (q) => {
+			const bot = this.bot(q.params.name!);
+			if (bot.remote) throw new HttpError(409, `${bot.displayName}'s prompt is on ${bot.remote.node}`);
+			const p = await personaParts(c.deps, bot, "");
+			return {
+				...p,
+				groundRulesCustom: c.config.groundRules !== undefined,
+				builtInGroundRules: groundRules([...new Set([c.config.configDir, c.config.dataDir])]),
+				tools: bot.toolGroups,
+				full: await personaText(c.deps, bot, ""),
+			};
+		});
 		r.on("PATCH", "/panel/api/gateway", (q) => c.settings.setGateway(obj(q.body) as GatewayPatch));
 
 		// Network

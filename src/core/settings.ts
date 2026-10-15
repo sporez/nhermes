@@ -20,6 +20,8 @@ export type GatewayPatch = {
 	server?: { host?: string; port?: number; name?: string };
 	defaults?: { model?: string; thinking?: ThinkingLevel; approvals?: ApprovalMode; approvalTimeoutS?: number };
 	timezone?: string;
+	/** The ground rules for every bot; null goes back to the built-in rules. */
+	groundRules?: string | null;
 };
 
 /** Runtime overrides that shadow a config key; editing the key clears them so the edit shows. */
@@ -129,6 +131,8 @@ export class Settings {
 			for (const [k, v] of Object.entries(patch.server ?? {})) if (v !== undefined) doc.setIn(["server", k], v);
 			for (const [k, v] of Object.entries(patch.defaults ?? {})) if (v !== undefined) doc.setIn(["defaults", k], v);
 			if (patch.timezone !== undefined) doc.set("timezone", patch.timezone);
+			if (patch.groundRules === null || patch.groundRules?.trim() === "") doc.delete("groundRules");
+			else if (patch.groundRules !== undefined) doc.set("groundRules", doc.createNode(`${patch.groundRules.trim()}\n`));
 		});
 	}
 
@@ -172,6 +176,7 @@ export class Settings {
 		const changed = [...after.keys()].filter((n) => before.has(n) && before.get(n) !== after.get(n));
 		const restartNeeded = RESTART_ONLY.filter(([, get]) => JSON.stringify(get(config)) !== JSON.stringify(get(next))).map(([k]) => k);
 		config.bots = next.bots;
+		config.groundRules = next.groundRules;
 		config.defaults = { ...next.defaults, approvalTimeoutS: config.defaults.approvalTimeoutS };
 		for (const n of [...changed, ...removed]) this.d.botChanged(n);
 		log.info("configuration applied", { added, removed, changed, restartNeeded });

@@ -25,8 +25,8 @@ export type AgentDeps = {
 	delegationChain: (sessionId: string) => Bot[];
 	/** Session kinds with no client to ask (jobs): how a needed approval is answered. */
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
-	/** The gateway's own folders (config and data); bots are told to leave them alone. */
-	gatewayPaths: string[];
+	/** The ground rules every bot gets: the owner's text from config.yaml, or the built-in rules. */
+	groundRules: () => string;
 };
 
 function today(tz: string): string {
@@ -49,6 +49,30 @@ export function groundRules(gatewayPaths: readonly string[]): string {
 	].join("\n");
 }
 
+/**
+ * The bot's part of the system prompt: its instructions, who and when it is, the ground rules, and the
+ * features' sections (other bots, memory, skills…). `sessionId` "" gives what a new chat would get.
+ */
+export async function personaText(deps: AgentDeps, bot: Bot, sessionId: string): Promise<string> {
+	const p = await personaParts(deps, bot, sessionId);
+	return [p.instructions, p.identity, p.groundRules, ...p.generated].filter(Boolean).join("\n\n");
+}
+
+/** The same prompt in its pieces: the owner-written ones (instructions, ground rules) and the generated ones. */
+export async function personaParts(deps: AgentDeps, bot: Bot, sessionId: string): Promise<{ instructions: string; identity: string; groundRules: string; generated: string[] }> {
+	const generated: string[] = [];
+	for (const part of deps.promptParts) {
+		const text = await part(bot, sessionId);
+		if (text) generated.push(text.trim());
+	}
+	return {
+		instructions: bot.instructions.trim(),
+		identity: `You are the bot "${bot.displayName}" (id ${bot.name}). Today is ${today(deps.timezone)} (${deps.timezone}).`,
+		groundRules: deps.groundRules().trim(),
+		generated,
+	};
+}
+
 export function personaExtension(deps: AgentDeps): Extension {
 	return defineExtension({
 		name: "persona",
@@ -60,14 +84,7 @@ export function personaExtension(deps: AgentDeps): Extension {
 					const row = sessions.byConversation(input.conversationId as number);
 					const bot = sessions.botOf(input.conversationId as number);
 					if (!bot || !row) return undefined;
-					const parts = [bot.instructions.trim()];
-					parts.push(`You are the bot "${bot.displayName}" (id ${bot.name}). Today is ${today(deps.timezone)} (${deps.timezone}).`);
-					parts.push(groundRules(deps.gatewayPaths));
-					for (const part of deps.promptParts) {
-						const text = await part(bot, row.id);
-						if (text) parts.push(text.trim());
-					}
-					return parts.join("\n\n");
+					return personaText(deps, bot, row.id);
 				},
 				{ tag: false },
 			),

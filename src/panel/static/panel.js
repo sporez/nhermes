@@ -196,7 +196,7 @@ function botEditor(bot) {
 	const shared = h("input", { type: "text", value: (config.sharedMemory ?? []).join(", "), placeholder: "household, work" });
 	const instr = h("textarea", { value: effective.instructions ?? "" });
 	const check = (box, text) => h("label", {}, box, text);
-	const sourceNote = { config: "config.yaml", default: "the gateway default", soul: "its soul file" }[effective.instructionsFrom] ?? effective.instructionsFrom;
+	const sourceNote = { config: "config.yaml", default: "the built-in default", "soul file": "its SOUL.md file", override: "a change made in Vory" }[effective.instructionsFrom] ?? effective.instructionsFrom;
 
 	const save = () => run(async () => {
 		const patch = {};
@@ -236,7 +236,38 @@ function botEditor(bot) {
 		h("div", { class: "checks" }, check(priv, "Private"), check(trusted, "Trusted"), check(dflt, "Default bot")),
 		h("div", { class: "field" }),
 		field("Instructions", instr, `Currently from ${sourceNote}. Saving writes them to the bot's config entry.`),
-		h("div", { class: "row between" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { class: "danger", on: { click: remove } }, "Remove bot")));
+		h("div", { class: "row between" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { class: "danger", on: { click: remove } }, "Remove bot")),
+		promptCard(bot));
+}
+
+/** The bot's system prompt as a new chat gets it, loaded when opened; the ground rules are edited here too. */
+function promptCard(bot) {
+	const body = h("div");
+	const load = () => run(async () => {
+		const p = await api("GET", `/bots/${encodeURIComponent(bot.name)}/prompt`);
+		const rules = h("textarea", { class: "mono tall", value: p.groundRules });
+		const saveRules = () => run(async () => {
+			if (rules.value.trim() === p.groundRules) return toast("Nothing changed");
+			restartNote(await api("PATCH", "/gateway", { groundRules: rules.value.trim() }));
+			await load();
+		});
+		const reset = () => run(async () => {
+			if (!confirm("Go back to the built-in ground rules for every bot?")) return;
+			restartNote(await api("PATCH", "/gateway", { groundRules: null }));
+			await load();
+		});
+		const block = (title, text, hint) => h("div", { class: "field" }, h("span", {}, title), h("pre", { class: "mono pre-wrap prompt" }, text), hint && h("div", { class: "hint" }, hint));
+		body.replaceChildren(
+			block("1. Instructions", p.instructions || "(none)", "This bot's own text; edit it in Instructions above."),
+			block("2. Identity", p.identity, "Generated."),
+			field("3. Ground rules", rules, `Shared by every bot on this machine${p.groundRulesCustom ? " (your own text, saved in config.yaml)" : " (built-in text)"}.`),
+			h("div", { class: "row" }, h("button", { class: "primary", on: { click: saveRules } }, "Save ground rules"), p.groundRulesCustom && h("button", { on: { click: reset } }, "Use the built-in rules")),
+			...p.generated.map((g, i) => block(`${4 + i}. Generated`, g, "From the bot's settings: other bots, memory, skills.")),
+			h("div", { class: "hint" }, `Tool groups: ${p.tools.join(", ") || "none"}. Each tool's own description is added by the engine.`),
+		);
+	});
+	const details = h("details", { class: "card", on: { toggle: () => details.open && load() } }, h("summary", {}, "System prompt (what a new chat gets)"), body);
+	return details;
 }
 
 // ---- Network ----
