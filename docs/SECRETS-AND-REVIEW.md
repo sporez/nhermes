@@ -1,6 +1,6 @@
 # Secrets in the panel, and Jev permission review (plan)
 
-Status: proposed, 2026-10-15. Nothing here is implemented yet.
+Status: in progress (decisions recorded at the end).
 
 ## Goal
 
@@ -125,10 +125,8 @@ Status: proposed, 2026-10-15. Nothing here is implemented yet.
   a separate OS user for the gateway do.
 - Jev is a reviewer, not a sandbox: it judges the command text it is shown.
 
-## Open questions
+## Decisions (owner, 2026-10-15)
 
-1. Should the Keys tab require the panel password (and stay hidden without one), or follow the panel's
-   own setting like the other screens?
-2. Is S3 (copying keys between machines) wanted, or is setting each machine's keys on its own panel
-   enough?
-3. Jev threshold: start in shadow mode for a few days, or go live at 0.8 straight away?
+1. The Keys tab follows the panel's own access setting; no extra password.
+2. S3 is wanted: setting a key on other machines from one panel.
+3. Jev review goes live at once (no shadow period). Its decisions must be visible in the panel (S6).
