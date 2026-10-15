@@ -217,19 +217,8 @@ export function restRoutes(core: Core): Router {
 		const bot = botFor(core, (typeof b.profile === "string" && b.profile) || q.query.get("profile"));
 		localOnly(bot);
 		const name = typeof b.name === "string" ? b.name : "";
-		const skill = core.skills.catalog(bot).find((s) => s.name === name);
-		if (!skill) throw new HttpError(404, `Skill '${name}' not found`);
-		const o = core.bots.overrides(bot.name);
-		const disabled = new Set(o.disabledSkills ?? []);
-		const enabled = new Set(o.enabledSkills ?? []);
-		if (b.enabled === true) {
-			disabled.delete(name);
-			if (skill.source === "global") enabled.add(name);
-		} else {
-			disabled.add(name);
-			enabled.delete(name);
-		}
-		core.bots.setOverrides(bot.name, { disabledSkills: [...disabled], enabledSkills: [...enabled] });
+		if (!core.skills.catalog(bot).some((s) => s.name === name)) throw new HttpError(404, `Skill '${name}' not found`);
+		core.skills.setEnabled(core.bots, bot, name, b.enabled === true);
 		return { ok: true, name, enabled: b.enabled === true };
 	});
 

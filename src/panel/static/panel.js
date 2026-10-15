@@ -296,7 +296,59 @@ function botEditor(bot) {
 		h("div", { class: "field" }),
 		field("Instructions", instr, `Currently from ${sourceNote}. Saving writes them to the bot's config entry.`),
 		h("div", { class: "row between" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { class: "danger", on: { click: remove } }, "Remove bot")),
+		skillsCard(bot),
 		promptCard(bot));
+}
+
+/** Every skill this bot could use, its own and the global ones, each switched on or off on the spot. */
+function skillsCard(bot) {
+	const body = h("div");
+	const path = `/bots/${encodeURIComponent(bot.name)}/skills`;
+	const load = () => run(async () => {
+		const r = await api("GET", path);
+		const row = (s) => {
+			const box = h("input", { type: "checkbox", checked: s.active });
+			box.addEventListener("change", () => run(async () => {
+				try {
+					await api("PUT", `${path}/${encodeURIComponent(s.name)}`, { enabled: box.checked });
+					toast(`${s.name} ${box.checked ? "on" : "off"} for ${bot.name}`);
+				} catch (e) {
+					box.checked = !box.checked;
+					throw e;
+				}
+			}));
+			return h("label", { class: "skill" }, box,
+				h("div", { class: "grow" },
+					h("div", { class: "row" }, h("strong", {}, s.name), s.usage > 0 && h("span", { class: "muted small" }, `used ${s.usage}×`)),
+					s.description && h("div", { class: "muted small" }, s.description)));
+		};
+		const group = (title, list, empty) => h("div", {}, h("h2", {}, title), list.length ? list.map(row) : h("div", { class: "muted small" }, empty));
+		// "Every global skill" is the bot's skills: ["*"] in config.yaml, so new global skills are on too.
+		const all = h("input", { type: "checkbox", checked: r.allGlobal });
+		all.addEventListener("change", () => run(async () => {
+			const named = (state.bots.find((b) => b.name === bot.name)?.config.skills ?? []).filter((s) => s !== "*");
+			const skills = all.checked ? ["*"] : named.length ? named : null;
+			try {
+				restartNote(await api("PATCH", `/bots/${encodeURIComponent(bot.name)}`, { skills }));
+			} catch (e) {
+				all.checked = !all.checked;
+				throw e;
+			}
+			await loadState();
+			await load();
+		}));
+		body.replaceChildren(h("div", {},
+			!r.toolGroupOn && h("div", { class: "notice warn small" }, "The skills tool group is off for this bot, so it cannot load any of these."),
+			group("This bot's own", r.skills.filter((s) => s.source === "bot"), "None. They live in its bots/<name>/skills folder and are on unless switched off."),
+			group("Global", r.skills.filter((s) => s.source === "global"), "No global skills on this machine."),
+			h("label", { class: "skill" }, all,
+				h("div", { class: "grow" }, h("strong", {}, "Every global skill"),
+					h("div", { class: "muted small" }, "Includes ones added later. A skill switched off above stays off."))),
+			h("div", { class: "hint" }, "Changes apply from the bot's next message."),
+		));
+	});
+	const details = h("details", { class: "card", on: { toggle: () => details.open && load() } }, h("summary", {}, "Skills"), body);
+	return details;
 }
 
 /** The bot's system prompt as a new chat gets it, loaded when opened; the ground rules are edited here too. */

@@ -92,3 +92,5 @@ th { font-size: .78rem; color: var(--muted); font-weight: 600; }
 .copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; font-size: 16px; }
 .selectable { user-select: all; -webkit-user-select: all; cursor: text; overflow-wrap: anywhere; }
 .token { overflow-wrap: anywhere; user-select: all; }
+.skill { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.skill input { margin-top: .25rem; }

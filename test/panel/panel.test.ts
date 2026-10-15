@@ -1,8 +1,8 @@
 // The web control panel's API: open on the LAN without a password, closed behind a login cookie with
 // one; changes only from the panel's own page (custom header, matching Origin, a local Host name); and
-// the minimal session, memory, approval and bot controls it offers.
+// the minimal session, memory, approval, bot and skill controls it offers.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -91,6 +91,50 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal((await panel("PATCH", "/gateway", { groundRules: null })).status, 200);
 		assert.equal(((await panel("GET", "/bots/ops/prompt")).json as { groundRulesCustom: boolean }).groundRulesCustom, false);
 		assert.doesNotMatch(readFileSync(path, "utf8"), /groundRules/);
+	} finally {
+		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("panel: every skill a bot could use, switched on and off per bot", async () => {
+	const { dir, core, server, panel, path, cleanup } = await setup();
+	try {
+		const skill = (root: string, name: string) => {
+			mkdirSync(join(root, name), { recursive: true });
+			writeFileSync(join(root, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${name} skill\n---\n\nDo it.\n`);
+		};
+		skill(join(dir, "skills"), "release-notes");
+		skill(join(dir, "bots", "ops", "skills"), "proxmox-health");
+		type List = { toolGroupOn: boolean; allGlobal: boolean; skills: { name: string; source: string; active: boolean }[] };
+		const list = async (bot: string) => (await panel("GET", `/bots/${bot}/skills`)).json as List;
+		let ops = await list("ops");
+		assert.deepEqual([ops.toolGroupOn, ops.allGlobal], [true, false]);
+		assert.deepEqual(ops.skills.map((s) => [s.name, s.source, s.active]), [["proxmox-health", "bot", true], ["release-notes", "global", false]]);
+		assert.deepEqual((await list("main")).skills.map((s) => s.name), ["release-notes"], "another bot's own skills are not listed");
+
+		assert.equal((await panel("PUT", "/bots/ops/skills/release-notes", { enabled: true })).status, 200);
+		assert.equal((await panel("PUT", "/bots/ops/skills/proxmox-health", { enabled: false })).status, 200);
+		ops = await list("ops");
+		assert.deepEqual(ops.skills.map((s) => [s.name, s.active]), [["proxmox-health", false], ["release-notes", true]]);
+		assert.deepEqual(core.bots.overrides("ops"), { disabledSkills: ["proxmox-health"], enabledSkills: ["release-notes"] });
+		assert.equal((await panel("PUT", "/bots/ops/skills/nope", { enabled: true })).status, 404);
+		assert.equal((await panel("PUT", "/bots/ops/skills/release-notes", {})).status, 400);
+		assert.equal((await panel("GET", "/bots/ghost/skills")).status, 404);
+
+		// "Every global skill" is skills: ["*"] in config.yaml; a skill switched off stays off.
+		skill(join(dir, "skills"), "backup-check");
+		core.skills.invalidate();
+		assert.equal((await panel("PATCH", "/bots/main/skills", {})).status, 405);
+		assert.equal((await panel("PATCH", "/bots/main", { skills: ["*"] })).status, 200);
+		assert.match(readFileSync(path, "utf8"), /name: main[\s\S]*skills:\s+- "\*"\n\s+- name: ops/);
+		assert.equal((await panel("PUT", "/bots/main/skills/backup-check", { enabled: false })).status, 200);
+		const main = await list("main");
+		assert.equal(main.allGlobal, true);
+		assert.deepEqual(main.skills.map((s) => [s.name, s.active]), [["backup-check", false], ["release-notes", true]]);
+		assert.equal((await panel("PATCH", "/bots/main", { skills: null })).status, 200);
+		assert.deepEqual((await list("main")).skills.map((s) => s.active), [false, false]);
 	} finally {
 		await server.close();
 		await core.close();

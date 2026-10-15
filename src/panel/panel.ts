@@ -115,6 +115,12 @@ export class Panel {
 		return bot;
 	}
 
+	private localBot(name: string): Bot {
+		const bot = this.bot(name);
+		if (bot.remote) throw new HttpError(409, `${bot.displayName} is on ${bot.remote.node}`);
+		return bot;
+	}
+
 	/** Who a memory belongs to: a local bot, or a shared space ("shared:<space>"). */
 	private memoryScope(owner: string): { scope: { name: string; sharedMemory: string[] }; space?: string } {
 		if (owner.startsWith("shared:")) {
@@ -186,6 +192,22 @@ export class Panel {
 				tools: bot.toolGroups,
 				full: await personaText(c.deps, bot, ""),
 			};
+		});
+		// Skills a bot could use (its own and the global ones), each switched on or off for it.
+		r.on("GET", "/panel/api/bots/:name/skills", (q) => {
+			const bot = this.localBot(q.params.name!);
+			const usage = c.skills.usage(bot.name);
+			return {
+				toolGroupOn: bot.toolGroups.includes("skills"),
+				allGlobal: bot.globalSkills.includes("*"),
+				skills: c.skills.catalog(bot).map((s) => ({ name: s.name, description: s.description, source: s.source, active: s.active, usage: usage.get(s.name) ?? 0 })),
+			};
+		});
+		r.on("PUT", "/panel/api/bots/:name/skills/:skill", (q) => {
+			const enabled = obj(q.body).enabled;
+			if (typeof enabled !== "boolean") throw new HttpError(400, "enabled must be true or false");
+			c.skills.setEnabled(c.bots, this.localBot(q.params.name!), q.params.skill!, enabled);
+			return { ok: true, enabled };
 		});
 		r.on("PATCH", "/panel/api/gateway", (q) => c.settings.setGateway(obj(q.body) as GatewayPatch));
 
@@ -401,6 +423,7 @@ function translate(error: unknown): { status: number; message: string } {
 	if (error instanceof SecretError) return { status: error.status, message: error.message };
 	if (error instanceof UpdateError) return { status: error.status, message: error.message };
 	if (error instanceof Error && error.name === "UnknownSession") return { status: 404, message: "Session not found" };
+	if (error instanceof Error && error.name === "UnknownSkill") return { status: 404, message: error.message };
 	if (error instanceof Error && error.name === "JobError") return { status: (error as Error & { status: number }).status ?? 400, message: error.message };
 	if (error instanceof Error && /panel password/.test(error.message)) return { status: 400, message: error.message };
 	return { status: 500, message: error instanceof Error ? error.message : String(error) };

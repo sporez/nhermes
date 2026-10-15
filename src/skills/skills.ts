@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
-import type { Bot } from "../core/bots.ts";
+import type { Bot, Bots } from "../core/bots.ts";
 import { logger } from "../log.ts";
 import type { AppDb } from "../store/db.ts";
 
@@ -127,6 +127,27 @@ export class Skills {
 		return cat.filter((s) => s.active || attached.includes(s.name));
 	}
 
+	/**
+	 * Switches one skill on or off for a bot (Vory's Skills screen and the panel), as bot overrides: off
+	 * always wins; on clears that and opts into a global skill beyond config.
+	 */
+	setEnabled(bots: Bots, bot: Bot, name: string, enabled: boolean): SkillEntry {
+		const skill = this.catalog(bot).find((s) => s.name === name);
+		if (!skill) throw new UnknownSkill(name);
+		const o = bots.overrides(bot.name);
+		const disabled = new Set(o.disabledSkills ?? []);
+		const on = new Set(o.enabledSkills ?? []);
+		if (enabled) {
+			disabled.delete(name);
+			if (skill.source === "global") on.add(name);
+		} else {
+			disabled.add(name);
+			on.delete(name);
+		}
+		bots.setOverrides(bot.name, { disabledSkills: [...disabled], enabledSkills: [...on] });
+		return skill;
+	}
+
 	find(bot: Bot, name: string, attached: readonly string[] = []): SkillEntry | undefined {
 		return this.active(bot, attached).find((s) => s.name === name);
 	}
@@ -172,5 +193,12 @@ export class Skills {
 
 	usage(bot: string): Map<string, number> {
 		return new Map(this.db.all<{ skill: string; count: number }>("SELECT skill, count FROM skill_usage WHERE bot = ?", bot).map((r) => [r.skill, r.count]));
+	}
+}
+
+export class UnknownSkill extends Error {
+	override name = "UnknownSkill";
+	constructor(skill: string) {
+		super(`Skill '${skill}' not found`);
 	}
 }
