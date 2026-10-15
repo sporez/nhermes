@@ -5,7 +5,7 @@
 // cannot send without a CORS preflight (never granted), a matching Origin, and a Host that is an address
 // or a local name (so a public DNS name pointed at this machine cannot reach it from a browser).
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join } from "node:path";
@@ -364,8 +364,9 @@ export function clientAddresses(c: Core): { label: string; url: string }[] {
 	}
 	const ipv4 = Object.values(networkInterfaces()).flatMap((l) => l ?? []).filter((i) => i.family === "IPv4" && !i.internal).map((i) => i.address);
 	for (const a of ipv4.filter((a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a))) add("Home network", a);
+	// A .local name answers only where an mDNS responder runs: always on macOS, Avahi on Linux.
 	const name = hostname().split(".")[0];
-	if (name) add("Home network, by name", `${name}.local`);
+	if (name && (process.platform === "darwin" || existsSync("/run/avahi-daemon/pid"))) add("Home network, by name", `${name}.local`);
 	for (const a of ipv4.filter((a) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a))) add("Tailscale (away from home)", a);
 	const magic = tailscaleName();
 	if (magic) add("Tailscale, by name", magic);
