@@ -270,3 +270,11 @@ test("config tools: trusted-only tools are refused through an untrusted chain or
 		await cleanup();
 	}
 });
+
+test("ground rules: configuration is changed only through the self and gateway tools", async () => {
+	const { groundRules } = await import("../../src/agent/extensions.ts");
+	const text = groundRules(["/etc/nh", "/var/nh"]);
+	assert.match(text, /Do not touch them with files or the shell/);
+	assert.match(text, /only through the self and gateway tools[^"]*ask the owner/);
+	assert.match(text, /`\/etc\/nh` and `\/var\/nh`/);
+});
