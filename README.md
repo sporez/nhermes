@@ -15,9 +15,16 @@ runs the agents; the gateway speaks the Hermes dashboard protocol, so the stock
 - **Web control panel** at `/panel` on every gateway: bots, network, sessions, memory, approvals.
 - **Computer use**: Playwright browser, X11 desktop control.
 
+Install or upgrade on Linux or macOS (no root; sets up a systemd user service or a launchd agent):
+
 ```sh
-npm ci && bin/nhermes init . && $EDITOR config.yaml secrets.env && bin/nhermes serve
+curl -fsSL https://raw.githubusercontent.com/sporez/nhermes/main/scripts/install.sh | sh
+# add a machine to an existing network in the same step:
+curl -fsSL https://raw.githubusercontent.com/sporez/nhermes/main/scripts/install.sh | sh -s -- --join <code>
 ```
+
+Then give it a model (`~/.config/nhermes/config.yaml` and `secrets.env`) and open `http://<machine>:9119/panel/`.
+By hand: `npm ci && bin/nhermes init . && $EDITOR config.yaml secrets.env && bin/nhermes serve`.
 
 | Doc | |
 |---|---|

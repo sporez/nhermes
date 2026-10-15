@@ -3,7 +3,21 @@
 One process, `nhermes serve`, owns everything: the Hermes-compatible API, the scheduler, and two
 SQLite files. Tested on Debian 13 (the hermes VM) and macOS.
 
-## Install (Debian/Ubuntu, as an unprivileged user)
+## Install with the script (Linux or macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sporez/nhermes/main/scripts/install.sh | sh -s -- [--join <code>] [--name <machine>] [--port <port>]
+```
+
+`scripts/install.sh` installs Node 24 in `~/.local` when the system has none, puts the code in
+`~/nhermes`, writes a starter config in `~/.config/nhermes` (data in `~/.local/share/nhermes`) the first
+time, and runs the gateway as a systemd user service (Linux) or a launchd agent (macOS,
+`com.nhermes.gateway`, logs in `~/Library/Logs/nhermes.log`). With `--join` it joins the network the code
+comes from. Running it again upgrades the code and restarts the service; config and data stay. An
+existing `~/nhermes` that is not a git checkout is moved aside first. Afterwards, set the model and its
+key (below) and reload.
+
+## Install by hand (Debian/Ubuntu, as an unprivileged user)
 
 ```sh
 # Node 24 (official build, user-local)
@@ -11,7 +25,7 @@ cd ~/.local && curl -fsSL https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x
 export PATH=$HOME/.local/node-v24.21.0-linux-x64/bin:$PATH
 
 # Code
-git clone <this repo> ~/nhermes && cd ~/nhermes && npm ci --omit=dev
+git clone https://github.com/sporez/nhermes ~/nhermes && cd ~/nhermes && npm ci --omit=dev
 
 # Optional features
 sudo apt-get install -y google-chrome-stable      # or: npx playwright-core install --with-deps chromium
