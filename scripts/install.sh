@@ -93,7 +93,6 @@ fi
 (cd "$DIR" && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 
 # --- Config (only the first time) ---
-NH="$DIR/bin/nhermes"
 export NHERMES_CONFIG="$CONF_DIR/config.yaml"
 FIRST=0
 if [ ! -f "$NHERMES_CONFIG" ]; then
@@ -105,6 +104,33 @@ if [ ! -f "$NHERMES_CONFIG" ]; then
 	"$NODE" "$DIR/src/cli.ts" "$@"
 fi
 mkdir -p "$DATA_DIR"
+
+# --- The nhermes command: a launcher in ~/.local/bin that knows this config and this Node ---
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+cat > "$BIN_DIR/nhermes" <<EOF
+#!/bin/sh
+# Written by nhermes scripts/install.sh
+export NHERMES_CONFIG="\${NHERMES_CONFIG:-$NHERMES_CONFIG}"
+exec "$NODE" "$DIR/src/cli.ts" "\$@"
+EOF
+chmod +x "$BIN_DIR/nhermes"
+PATH_NOTE=""
+case ":$PATH:" in
+	*":$BIN_DIR:"*) ;;
+	*)
+		# Add ~/.local/bin to the PATH of new shells, once.
+		case "$(basename "${SHELL:-sh}")" in
+			zsh) RCS="$HOME/.zshrc" ;;
+			bash) RCS="$HOME/.bashrc $HOME/.profile" ;;
+			*) RCS="$HOME/.profile" ;;
+		esac
+		for rc in $RCS; do
+			grep -qs 'added by nhermes' "$rc" || printf '\nexport PATH="$HOME/.local/bin:$PATH" # added by nhermes\n' >> "$rc"
+		done
+		PATH_NOTE="Open a new terminal (or run: export PATH=\"\$HOME/.local/bin:\$PATH\") to use the nhermes command."
+		;;
+esac
 
 # --- Service ---
 if [ "$SERVICE" = 1 ]; then
@@ -191,12 +217,13 @@ if [ "$FIRST" = 1 ]; then
 Installed. Next:
   1. Give it a model: edit $CONF_DIR/config.yaml (defaults.model) and put the provider key in
      $CONF_DIR/secrets.env, or point pi.authPath / pi.modelsPath at a Pi auth.json / models.json.
-     Then: $NH reload   (or restart the service)
+     Then: nhermes reload   (or restart the service)
   2. Open the panel: http://<this machine>:${PORT:-9119}/panel/
   3. Vory: add the gateway with the token NHERMES_TOKEN from $CONF_DIR/secrets.env.
 EOF
-	[ -z "$JOIN" ] && echo "  4. Join a network: run 'nhermes invite' on a member, then '$NH join <code>' here."
+	[ -z "$JOIN" ] && echo "  4. Join a network: run 'nhermes invite' on a member, then 'nhermes join <code>' here."
 else
 	echo "Upgraded. Config and data were left as they were."
 fi
-echo "Tip: export NHERMES_CONFIG=$NHERMES_CONFIG and add $DIR/bin to your PATH to use 'nhermes' directly."
+echo "The nhermes command uses $NHERMES_CONFIG (try: nhermes status, nhermes members)."
+[ -z "$PATH_NOTE" ] || echo "$PATH_NOTE"
