@@ -173,3 +173,30 @@ test("sessions, memory and approvals from the panel", async () => {
 		await cleanup();
 	}
 });
+
+test("panel: keys are write-only, review settings and the review log", async () => {
+	const { core, server, panel, path, cleanup } = await setup();
+	try {
+		const set = await panel("PUT", "/secrets/OPENROUTER_API_KEY", { value: "sk-or-panel-0123456789abcdef" });
+		assert.equal(set.status, 200, set.json.detail);
+		const listed = await panel("GET", "/secrets");
+		assert.equal(JSON.stringify(listed.json).includes("sk-or-panel"), false, "no value comes back");
+		assert.ok((listed.json.secrets as { name: string; set: boolean }[]).some((s) => s.name === "OPENROUTER_API_KEY" && s.set));
+		assert.deepEqual((await panel("POST", "/secrets/OPENROUTER_API_KEY/hint")).json, { hint: "…cdef" });
+		const state = (await panel("GET", "/state")).json as { review: { active: boolean; keySet: boolean; allowThreshold: number } };
+		assert.deepEqual([state.review.keySet, state.review.active, state.review.allowThreshold], [true, true, 0.8]);
+		assert.equal((await panel("PATCH", "/gateway", { review: { allowThreshold: 0.9 } })).status, 200);
+		assert.equal(core.config.review.allowThreshold, 0.9);
+		assert.match(readFileSync(path, "utf8"), /review:\n\s+jev:\n\s+allowThreshold: 0\.9/);
+		assert.equal((await panel("PATCH", "/gateway", { review: { allowThreshold: 2 } })).status, 400);
+		const reviews = (await panel("GET", "/reviews")).json as { reviews: unknown[]; active: boolean };
+		assert.deepEqual([reviews.reviews.length, reviews.active], [0, true]);
+		assert.equal((await panel("DELETE", "/secrets/OPENROUTER_API_KEY")).status, 200);
+		assert.equal(((await panel("GET", "/state")).json as { review: { active: boolean } }).review.active, false);
+	} finally {
+		delete process.env.OPENROUTER_API_KEY;
+		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});

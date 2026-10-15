@@ -15,6 +15,13 @@ import { setLogLevel } from "../src/log.ts";
 setLogLevel("warn");
 process.env.NHERMES_TOKEN ??= "panel-dev-token-0123456789";
 const root = mkdtempSync(join(tmpdir(), "nh-panel-"));
+// A stand-in for Jev: approves deleting logs, asks about anything touching the gateway's files.
+process.env.OPENROUTER_API_KEY ??= "sk-or-panel-dev-fake-0123456789";
+const fakeJev = (async (_url: string, init: RequestInit) => {
+	const command = String(JSON.parse(String(init.body)).state.request.command);
+	const p = /secrets|sqlite|ssh/.test(command) ? 0.06 : 0.93;
+	return new Response(JSON.stringify({ answers: { permission: { type: "choice", choice: p > 0.5 ? "allow" : "deny", confidence: Math.max(p, 1 - p), probabilities: { allow: p, deny: 1 - p } } } }));
+}) as typeof fetch;
 
 async function gateway(name: string, port: number, bots: string) {
 	const dir = join(root, name);
@@ -25,7 +32,7 @@ async function gateway(name: string, port: number, bots: string) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 200 });
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const core = await createCore(loadConfig(path), { models });
+	const core = await createCore(loadConfig(path), { models, reviewFetch: fakeJev });
 	const server = await startHermesServer(core, { host: "127.0.0.1", port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
 	core.members.start(() => core.roster.sync(), 15_000);
@@ -78,6 +85,14 @@ while (a.core.sessions.isRunning(s1.id)) await new Promise((r) => setTimeout(r, 
 const s2 = await a.core.sessions.create("ops");
 a.faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command: "sudo reboot" })], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("Not rebooted.")])]);
 await a.core.sessions.submit(s2.id, "Reboot the server");
+
+// Two reviewed calls: one Jev lets through, one it sends to the owner (left waiting in Status).
+for (const [prompt, command] of [["tidy the logs", "rm old.log"], ["how much ram is free", "cat ~/.config/nhermes/secrets.env"]] as const) {
+	const s = await a.core.sessions.create("main");
+	a.faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command })], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("ok")])]);
+	await a.core.sessions.submit(s.id, prompt);
+	await new Promise((r) => setTimeout(r, 300));
+}
 
 console.log(`alpha: http://127.0.0.1:9191/panel/\nbeta:  http://127.0.0.1:9192/panel/\ndata:  ${root}`);
 const stop = async () => {

@@ -155,6 +155,7 @@ export class Panel {
 				remoteBots: c.bots.list().filter((b) => b.remote).map((b) => ({ name: b.name, displayName: b.displayName, description: b.description, node: b.remote!.node, reachable: b.remote!.reachable, model: `${b.model.provider}/${b.model.modelId}` })),
 				spaces: [...new Set(c.config.bots.flatMap((b) => b.sharedMemory ?? []))].sort(),
 				panel: { passwordSet: auth.passwordSet },
+				review: { ...c.config.review, keySet: Boolean(process.env[c.config.review.keyEnv]), active: c.reviewer.active() },
 			};
 		});
 		r.on("POST", "/panel/api/reload", () => c.settings.reload());
@@ -191,6 +192,17 @@ export class Panel {
 		r.on("POST", "/panel/api/network/leave", async () => (await c.members.leave(), { ok: true }));
 		r.on("DELETE", "/panel/api/network/members/:name", async (q) => (await c.members.remove(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
+
+		// Jev permission reviews, newest first, with totals for the last day.
+		r.on("GET", "/panel/api/reviews", (q) => {
+			const outcome = q.query.get("outcome") ?? undefined;
+			const limit = Number(q.query.get("limit") ?? 100);
+			return {
+				reviews: c.reviewLog.list({ limit: Number.isFinite(limit) ? limit : 100, outcome }),
+				lastDay: c.reviewLog.counts(Date.now() / 1000 - 86_400),
+				active: c.reviewer.active(),
+			};
+		});
 
 		// Keys (secrets.env): names, status and where they are used; values go in, never come back out.
 		r.on("GET", "/panel/api/secrets", () => ({ secrets: c.secrets.list(), acceptsFromMembers: c.members.acceptsSecrets(), members: c.members.list().map((m) => ({ name: m.name, reachable: m.reachable })) }));
