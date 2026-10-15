@@ -89,7 +89,13 @@ export class VoryPush implements OptionalNotifier {
 	private off?: () => void;
 
 	constructor(opts: VoryPushOptions) {
-		this.o = { settleDelayMs: 2500, finishIslandMs: 30_000, fetch: globalThis.fetch, ...opts };
+		// Options left undefined (no test override) keep the defaults rather than replacing them.
+		this.o = {
+			...opts,
+			settleDelayMs: opts.settleDelayMs ?? 2500,
+			finishIslandMs: opts.finishIslandMs ?? 30_000,
+			fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+		};
 		mkdirSync(this.o.dir, { recursive: true, mode: 0o700 });
 	}
 

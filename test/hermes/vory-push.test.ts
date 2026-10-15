@@ -29,6 +29,29 @@ async function until<T>(fn: () => T | undefined, ms = 5000): Promise<T> {
 	}
 }
 
+test("without a fetch override the relay is called with the real fetch", async () => {
+	const { dir, cleanup } = await tempDir();
+	const real = globalThis.fetch;
+	const calls: string[] = [];
+	globalThis.fetch = (async (url: string) => (calls.push(url), new Response("{}", { status: 200 }))) as typeof fetch;
+	const { models } = (await import("../helpers.ts")).fauxModels();
+	const core = await testCore(dir, { models }); // as the app builds it: voryFetch undefined
+	try {
+		const home = core.bots.get("main")!.workspace;
+		core.vory.write(`${home}/plugins/vory-push/plugin.yaml`, Buffer.from('version: "1.0.37"\n'));
+		core.vory.write(
+			`${home}/push/devices/A.json`,
+			Buffer.from(JSON.stringify({ device_id: "A", platform: "ios", apns_token: "t", relay: { url: "https://relay.example", install_id: "i", secret: "s" }, payload_key: randomBytes(32).toString("base64") })),
+		);
+		await core.notifier.send({ title: "t", message: "m" });
+		assert.deepEqual(calls, ["https://relay.example/v1/push"]);
+	} finally {
+		globalThis.fetch = real;
+		await core.close();
+		await cleanup();
+	}
+});
+
 test("Vory notifications through the push relay", async () => {
 	const { dir, cleanup } = await tempDir();
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 4000 });
