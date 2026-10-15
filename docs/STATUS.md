@@ -15,7 +15,7 @@ port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (tr
 | 4 | Tool activity + genuine approvals | ✅ | ✅ real model asked to install a package: approval request over Hermes protocol; deny blocked it, once ran it | Approval card in the Vory UI itself not yet driven live |
 | 5 | Disconnect, restart, recover | ✅ mid-answer, pending approval, job mid-run | ✅ sessions survive service restarts | |
 | 6 | Second agent, own identity/model/skills/memory | ✅ | ✅ `ops`, `desktop` | |
-| 7 | Remote VM administration | ✅ (pi-env daemon) | ⚠️ `ops` runs over real SSH via pi-env (key, pinned host key, daemon deployed) — **to the VM itself (loopback)** | Point `ops.host.ssh.host` at another VM once you pick one |
+| 7 | Remote VM administration | ✅ (pi-env daemon) | ✅ `ops` runs on the hermes VM itself (no `host:`) and reaches `pm` and `proxy` with its own SSH key, following the `homelab-vms` skill | Bot `host.ssh` stays available for a bot that should live on another machine |
 | 8 | Delegation and result | ✅ foreground, background, approvals routed to root chat, no privilege escalation | ✅ main → ops, main → mac (peer) | |
 | 9 | SKILL.md skill | ✅ | ✅ `disk-report` loaded and followed | |
 | 10 | Memory across sessions, search, sharing | ✅ incl. boundaries | ✅ remember in one chat, recall in another | |

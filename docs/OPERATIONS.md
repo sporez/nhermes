@@ -84,6 +84,15 @@ configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gate
 and keeps the file's comments.
 From Vory you can edit a bot's instructions, description, default model, skills and scheduled tasks.
 
+Bots with the `self` tool group can make these edits too, each one shown to you as an approval card with
+the change as a diff. Any such bot can change its own description, instructions, model, thinking, global
+skill opt-ins and its own skills (`bots/<name>/skills`). A `trusted` bot can also edit, add and remove
+other bots, change gateway defaults, time zone, ground rules, hidden model providers and Jev settings,
+manage global skills, reload, and update or roll back the software. Never by a bot: secrets, tokens, the
+panel password, the network, backups, host keys and shared memory spaces. Scheduled runs and work from
+other machines cannot change settings. Before each bot-made edit the previous file is kept as
+`config.yaml.prev`; to undo, copy it back and run `nhermes reload`. Each change is in the audit log.
+
 ## Web control panel
 
 Every gateway serves a control panel at `http://<machine>:<port>/panel/` (the root URL redirects there):
