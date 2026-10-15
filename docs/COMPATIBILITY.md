@@ -50,7 +50,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | List bots | `GET /api/profiles`, `profiles.list` | Tested | E2E `restEndpointsAnswerJSON`; UI | One profile per bot, `is_default` for the primary bot |
 | Active bot | `GET /api/profiles/active` | Tested | | |
 | Bot instructions | `GET/PUT /api/profiles/{name}/soul` | Tested | | SOUL = bot instructions |
-| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides; create/delete bots is CLI-only |
+| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides |
 | Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
 | Create / delete bots | `POST /api/profiles` `{name, clone_from?}`, `DELETE /api/profiles/{name}` | Tested | | Adds or removes the bot in config.yaml, as the panel does. `clone_from` copies the other bot's settings and instructions (not its name, default flag, workspace or chats). Delete keeps the bot's chats, memory and workspace on disk; the default bot cannot be deleted. Renaming is not offered by Vory |
 | Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Its Tools, Skills, Config, instructions, description, model and usage go over the member link to its machine, which answers with its own handlers (`src/federation/vory.ts`): reads always, changes only when that machine allows bot edits from members (its panel: Network), else 403 saying so |
@@ -124,7 +124,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 |---|---|---|---|---|
 | List jobs | `GET /api/cron/jobs` | Tested | | All bots by default, `?profile=` filters |
 | One job / runs | `GET /api/cron/jobs/{id}`, `/runs` | Tested | | `/runs` returns `{runs:[{run_id,status,trigger,started_at,finished_at,summary,error}]}` |
-| Edit | `PUT /api/cron/jobs/{id}` `{updates}` | Tested | | `{updates:{…}}`; unknown/read-only keys from Vory's raw editor are ignored; invalid schedule → 400 |
+| Edit | `PUT /api/cron/jobs/{id}` `{updates}` | Tested | | `{updates:{…}}`; unknown/read-only keys from Vory's raw editor are ignored; invalid schedule → 400. `context: fresh|continue` (also in the job's shape) chooses a fresh context per run or one thread across runs |
 | Pause / resume | `POST .../pause`, `.../resume` | Tested | | Resume computes the next run from now (no catch-up of paused time) |
 | Run now | `POST .../trigger` | Tested | | Held up to 25 s, then answers with `state: running`; 409 while a run is going |
 | Delete | `DELETE /api/cron/jobs/{id}` | Tested | E2E cleanup test | |

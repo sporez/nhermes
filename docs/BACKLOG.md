@@ -41,11 +41,15 @@ Status per phase: see `docs/STATUS.md`.
 - [x] **5. Computer use**: Playwright browser tools + E2E; Linux desktop tools over SSH + E2E.
 - [x] **6. Reliability and polish**: backup/restore, systemd/Podman, upgrade/migrations, Vory UI pass,
   security review, docs.
-- [ ] **7. Federation and control panel**: private bots, runtime config, membership (invite/join),
-  roster sync, remote bots as Vory profiles, web control panel at `/panel`. Plan: `docs/FEDERATION.md`.
+- [x] **7. Federation and control panel**: private bots, runtime config, membership (invite/join),
+  roster sync, remote bots as Vory profiles, web control panel at `/panel`. Plan: `docs/FEDERATION.md`
+  (open: Vory E2E and UI pass with a remote profile, a panel "recent errors" view, a browser smoke test).
 - [x] **8. Secrets in the panel and Jev permission review**: write-only key management (panel, CLI),
   optional copy to members, Jev review in the approval guard with a wider ask list. Plan:
   `docs/SECRETS-AND-REVIEW.md`.
+- [x] **9. Vory settings, notifications and remote bot edits**: Vory push relay notifications, Vory's
+  settings and maintenance screens, per-bot skill toggles in the panel, editing members' bots from any
+  panel and from Vory. Plan: `docs/REMOTE-BOT-EDITS.md`.
 
 ## Future
 

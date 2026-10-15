@@ -1,6 +1,6 @@
-# Status (2026-10-14)
+# Status (2026-10-15)
 
-"Automated" = our suite (`npm test`, 38 tests, faux model, no network). "Live" = exercised against a real
+"Automated" = our suite (`npm test`, 90 tests, faux model, no network). "Live" = exercised against a real
 model (now `neuralwatt/deepseek-v4.1-flash`; earlier runs used `cerebras/gpt-oss-120b`, both via Pi's provider layer) and/or the stock Vory client.
 
 Deployment under test: the **hermes VM** (Debian 13, on the LAN), nHermes as a systemd user service on
@@ -20,7 +20,7 @@ port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (tr
 | 9 | SKILL.md skill | ✅ | ✅ `disk-report` loaded and followed | |
 | 10 | Memory across sessions, search, sharing | ✅ incl. boundaries | ✅ remember in one chat, recall in another | |
 | 11 | Recurring task from agent/Vory, unattended, history | ✅ | ✅ created from chat, Run now from the cron API, history | |
-| 12 | Pushover notification | ✅ (recording transport) | ❌ skipped by owner (no keys) | `PushoverNotifier` untested against the real API |
+| 12 | Notifications | ✅ Pushover (recording transport); Vory push relay incl. member bots (`test/hermes/vory-push.test.ts`, `test/federation/vory-push.test.ts`) | Pushover ❌ skipped by owner (no keys) | `PushoverNotifier` untested against the real API; Vory push (`src/notify/vory.ts`) is the main channel |
 | 13 | Browser workflow | ✅ local site, multi-tab, refs, persistence | ✅ Wikipedia search → article → infobox → screenshot | |
 | 14 | Remote desktop interaction | – | ✅ hermes VM XFCE: open Mousepad, type, verify via AT-SPI | The editor restored an unsaved draft from an earlier run, so the document was not empty |
 | 15 | Independent VM-resident agent | ✅ two gateways, relayed approval, dropped connection | ✅ peer on the Mac, registered with the VM gateway, answered a delegated task | The peer runs on a Mac, not a VM |
@@ -51,6 +51,9 @@ chat picked its own in Vory.
 - Pick a second VM for `ops` (real remote host) and, if wanted, move the Mac peer to a VM.
 - Pushover keys for a live notification test.
 - Drive an approval card and the cron screens in the Vory UI by hand once.
-- Vory screens backed by unimplemented endpoints (Tools toggles, Config edits, Files, Analytics, Projects)
-  answer 404; see `docs/COMPATIBILITY.md`.
+- Vory's settings and maintenance screens (Tools, Config, Env, Files, Analytics, update/restart/doctor, logs)
+  are implemented, also for members' bots (`docs/REMOTE-BOT-EDITS.md`); Projects, MCP servers and bot rooms
+  still answer 404 / -32601. See `docs/COMPATIBILITY.md`.
+- Federation F5: Vory's E2E suite and a UI pass with a remote profile selected are not run yet
+  (`docs/FEDERATION.md`).
 - Hermes on the VM still runs on 9119. Stopping it is a later step (owner allowed it if needed).

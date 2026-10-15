@@ -110,11 +110,13 @@ other machines cannot change settings. Before each bot-made edit the previous fi
 ## Web control panel
 
 Every gateway serves a control panel at `http://<machine>:<port>/panel/` (the root URL redirects there):
-bots and their settings, the network (invite, join, remove), sessions, memory, pending approvals,
-scheduled jobs and gateway settings. It is open to anyone on the LAN until you set a password with
-`nhermes panel password` (or on its Gateway screen); `nhermes panel password --clear` removes it. Set
-`panel: { enabled: false }` to turn it off, or `server.host: 127.0.0.1` to keep the whole gateway on the
-machine. The panel never shows or needs the gateway token.
+bots with their settings, skills and system prompt (and other machines' bots under Remote bots, where
+those machines allow it in their Network tab), the network (invite, join, remove), sessions, memory, keys,
+pending approvals and the Jev review log, scheduled jobs, gateway settings and software updates. It is
+open to anyone on the LAN until you set a password with `nhermes panel password` (or on its Gateway
+screen); `nhermes panel password --clear` removes it. Set `panel: { enabled: false }` to turn it off, or
+`server.host: 127.0.0.1` to keep the whole gateway on the machine. The panel never needs the gateway
+token; Gateway → Connect a client shows the addresses to enter in Vory and the token on request.
 
 ## Keys and tokens
 
@@ -148,6 +150,8 @@ Every machine runs the same gateway; together they form one network of equals (`
 - Members find each other at `node.url` (config) or, without it, the machine's LAN address and port.
   Set `node.url` when that guess is wrong (several interfaces, Tailscale only). `node.name` defaults to
   the host name.
+- "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
+  panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`).
 
 ## Data
 
@@ -160,6 +164,7 @@ Every machine runs the same gateway; together they form one network of equals (`
 | `workspaces/<bot>/` | each local bot's working directory |
 | `browser/<bot>/` | browser profile (cookies, logins) and screenshots — treat as sensitive |
 | `ssh/known_hosts` | pinned host keys for remote bots |
+| `vory/` | Vory push device registrations and the Companion's stored files |
 
 ## Backup, restore, upgrade
 

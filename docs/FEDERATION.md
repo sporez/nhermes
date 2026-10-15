@@ -150,8 +150,10 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 - After a dropped connection the link reconnects and resumes the chats being watched. While the member
   is offline, opening or starting a chat answers "<node> is offline" (decision: an error rather than a
   read-only view; the chat list still shows the last known titles).
-- Instructions, description, model and skill edits for a remote profile answer 409 ("change it on its
-  machine"); per-chat model and reasoning switches go to the member.
+- Per-chat model and reasoning switches go to the member. Vory's settings for a remote profile (Tools,
+  Skills, Config, instructions, description, model, usage) were first refused with 409; they now go over
+  the member link to the owning machine (`src/federation/vory.ts`, `docs/REMOTE-BOT-EDITS.md`), and
+  changes need that machine's "Let other machines edit this machine's bots" switch.
 - Acceptance: Vory's E2E suite run against a gateway with a remote profile selected; a manual pass in the
   Vory UI for streaming, an approval card and a reconnect.
 
@@ -172,7 +174,8 @@ Listening and access:
   HttpOnly, SameSite=Strict cookie for 30 days, signed with a key in `app.sqlite`; changing the password
   signs every browser out. `nhermes panel password --clear` removes it.
 - The page calls its own endpoints under `/panel/api/*` (`src/panel/panel.ts`), which call the gateway's
-  services in-process. The gateway token is never sent to the browser or shown in the panel.
+  services in-process. The panel never needs the gateway token; it is sent to the browser only when the
+  owner asks for it (Gateway → Connect a client) or generates a new one (Keys).
 - Even without a password, every change must come from the panel's own page: a custom
   `x-nhermes-panel` header (a cross-site page cannot send it without a CORS preflight, which is never
   granted), an `Origin` matching the gateway's host when present, a JSON body, and a `Host` that is an IP
@@ -184,7 +187,8 @@ Screens:
 
 - **Bots**: local bots (default, private, trusted badges) with an editor for display name, description,
   model and thinking, tool groups, approval mode, private, trusted, default, shared memory spaces and
-  instructions; create and remove bots; reload config.yaml. Members' bots are listed per machine
+  instructions; a Skills section with per-bot toggles and "Every global skill"; the bot's system prompt
+  (ground rules editable there); create and remove bots; reload config.yaml. Members' bots are listed per machine
   under Remote bots with the same editor when that machine allows edits from other machines
   (`docs/REMOTE-BOT-EDITS.md`), otherwise view only, with an offline mark.
 - **Network**: this machine and the members with reachability and last seen; invite (shows the code),
@@ -193,10 +197,13 @@ Screens:
   rename, archive, stop a run, delete. Reading or continuing a chat stays in Vory.
 - **Memory** (minimal, local bots and shared spaces): search, view, add, edit, pin/unpin, delete,
   through the same store the `memory` tools and `nhermes memory` use.
+- **Keys**: `secrets.env` write-only, optionally copied to members that accept keys
+  (`docs/SECRETS-AND-REVIEW.md`).
 - **Status**: running count, pending approvals (answerable from the panel), scheduled jobs with their
-  last result, pause/resume.
+  last result, pause/resume, the Jev review log.
 - **Gateway**: node name and URL, defaults (model, thinking, approvals, approval timeout), time zone,
-  listen address; the panel password.
+  listen address, Jev review settings, model lists (hidden providers), connect a client (addresses and
+  the token on request), software updates; the panel password.
 
 Not done in this phase (follow-ups): a "recent errors" view (the gateway keeps no log store) and a
 browser smoke test of the page. Since done: per-bot skill toggles in the panel, and editing a member's

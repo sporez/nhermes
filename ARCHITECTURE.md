@@ -12,6 +12,8 @@ drive it as if it were a Hermes gateway.
  ┌──────────────────────────── nhermes serve (one Node process) ───────────────────────────┐
  │  hermes/        Hermes-compatible REST + /api/ws JSON-RPC  (translation only)           │
  │  admin/         small JSON API used by the CLI                                          │
+ │  panel/         web control panel at /panel (static page + /panel/api/*)                 │
+ │  federation/    members: invite/join, roster, proxy chats, /federation/manage            │
  │──────────────────────────────────────────────────────────────────────────────────────── │
  │  core/          bots · sessions · runs/events hub · approvals · scheduler · notifier     │
  │  memory/        per-bot memory + explicit shared notes (SQLite FTS5)                    │
@@ -126,10 +128,10 @@ with only the high-impact patterns asking.
 |---|---|---|
 | `files`, `shell` | `read`, `write`, `edit`, `bash` | Pi Durable's own, run in the bot's env (local or SSH) |
 | `web` | `web_fetch`, `http_request` | `fetch` with size/time limits; credentials as `{{secret:NAME}}` for env vars the bot lists under `secrets:`, scrubbed from results |
-| `memory` | `remember`, `recall`, `forget`, `memory_list` | Scoped to the bot; shared spaces only when granted |
-| `skills` | `skill` (load a SKILL.md by name), `skill_list` | The prompt lists names + descriptions only |
-| `schedule` | `schedule_create/list/update/delete/run` | Same service the Vory cron screens use |
-| `delegate` | `delegate` (ask another bot, wait or not), `delegate_result` | Durable child conversations / peer HTTP |
+| `memory` | `remember`, `recall`, `forget`, `memory_list`, `memory_update` | Scoped to the bot; shared spaces only when granted |
+| `skills` | `skill` (load a SKILL.md by name) | The prompt lists names + descriptions only |
+| `schedule` | `schedule_create/list/update/delete/run/history` | Same service the Vory cron screens use |
+| `delegate` | `delegate` (ask another bot, wait or not) | Durable child conversations / peer HTTP |
 | `notify` | `notify` (Vory and/or Pushover) | |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
@@ -147,7 +149,8 @@ Standard `SKILL.md` directories, loaded with Pi's loader:
   and `skills:` on a job (attached to that job's runs only).
 - The system prompt carries only the index (name, description); the `skill` tool returns the body when
   the model decides it is relevant. `GET /api/skills?profile=` shows which are active for a bot, and
-  `PUT /api/skills/toggle` enables or disables one per bot.
+  `PUT /api/skills/toggle` enables or disables one per bot; the panel's Skills section uses the same
+  path (`Skills.setEnabled`, stored as bot overrides).
 
 ## Memory
 
@@ -215,7 +218,8 @@ run is not submitted twice.
   owner allows it (panel, Network), the other members' panels list its bots, private ones included, with
   the same editor as local bots. The panel calls `/federation/manage/*` on the owning gateway with the
   pair secret, which applies the edit through its own `Settings` and skills; host, workspace, keys and
-  gateway settings stay editable only on that machine.
+  gateway settings stay editable only on that machine. Vory's settings requests for a `<bot>-<node>`
+  profile follow the same path (`src/federation/vory.ts`): reads always, changes under the same switch.
 - **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
   answer as if it did not exist; it is not shared with members either. It can still delegate to others
   and is still a Vory profile on its own gateway.
@@ -240,7 +244,8 @@ run is not submitted twice.
 
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and
 forward-only migrations), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
-`logs/`. Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
+`vory/` (Vory push registrations); logs go to stderr (journal / launchd log), with the last 500 lines
+kept in memory for `/api/logs`. Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
 they are never in prompts, transcripts or logs (the logger redacts known secret values).
 
 Backup: `nhermes backup` asks the running service (over its admin API) for consistent copies
@@ -250,6 +255,6 @@ restore <file>`, start. Deployment: one systemd unit (or a rootless Podman quadl
 ## Why not more
 
 No Postgres, Redis, broker or orchestrator: one owner, one process, two SQLite files. No vector store:
-FTS5 is enough until a concrete recall failure shows otherwise. No web dashboard: Vory and the CLI cover
-administration. No messaging-platform integrations: Vory for conversation and its own notifications (through the
+FTS5 is enough until a concrete recall failure shows otherwise. The web panel (`src/panel/`) is static
+HTML, CSS and JavaScript with no framework or build step. No messaging-platform integrations: Vory for conversation and its own notifications (through the
 Vory push relay, `src/notify/vory.ts`), Pushover as an optional second channel.

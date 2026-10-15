@@ -12,7 +12,8 @@ runs the agents; the gateway speaks the Hermes dashboard protocol, so the stock
   **scheduled tasks** with history, Vory's own notifications (and/or Pushover), **delegation** between bots.
 - **Remote hosts** over SSH (pi-env), and a **network of gateways**: machines join with a one-time code,
   every bot on every machine can delegate to the others, and Vory on any machine lists them all.
-- **Web control panel** at `/panel` on every gateway: bots, network, sessions, memory, approvals.
+- **Web control panel** at `/panel` on every gateway: bots (members' bots too), network, sessions, memory,
+  keys, approvals and Jev permission review, software updates.
 - **Computer use**: Playwright browser, X11 desktop control.
 
 Install or upgrade on Linux or macOS (no root; sets up a systemd user service or a launchd agent):
@@ -32,8 +33,11 @@ By hand: `npm ci && bin/nhermes init . && $EDITOR config.yaml secrets.env && bin
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Install, service, Vory, backup/restore, upgrade |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Hermes/Vory feature matrix |
 | [docs/FEDERATION.md](docs/FEDERATION.md) | Network of gateways and the web panel |
+| [docs/REMOTE-BOT-EDITS.md](docs/REMOTE-BOT-EDITS.md) | Editing members' bots from any panel or Vory |
+| [docs/SECRETS-AND-REVIEW.md](docs/SECRETS-AND-REVIEW.md) | Keys in the panel and Jev permission review |
 | [docs/COMPUTER_USE.md](docs/COMPUTER_USE.md) | Browser and desktop automation |
 | [docs/STATUS.md](docs/STATUS.md) | What is verified, and how |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Phases and what is next |
 | [UPSTREAM.md](UPSTREAM.md) | Pinned upstream versions |
 
 Tests: `npm test` (faux model, no network), `npm run typecheck`. Live checks: `scripts/smoke.ts`,
