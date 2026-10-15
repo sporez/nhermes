@@ -81,7 +81,7 @@ test("the panel is open without a password, and only its own page can change thi
 
 		// The system prompt: shown in parts; the ground rules are editable for every bot and resettable.
 		const prompt = (await panel("GET", "/bots/main/prompt")).json as { groundRules: string; groundRulesCustom: boolean; full: string; identity: string };
-		assert.match(prompt.groundRules, /Work only through the tools you were given/);
+		assert.match(prompt.groundRules, /do not fake a capability you were not given/);
 		assert.equal(prompt.groundRulesCustom, false);
 		assert.ok(prompt.full.includes(prompt.identity) && prompt.full.includes(prompt.groundRules));
 		assert.equal((await panel("PATCH", "/gateway", { groundRules: "Never touch the router.\nAsk before buying anything." })).status, 200);

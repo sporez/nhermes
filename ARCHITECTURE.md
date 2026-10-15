@@ -103,9 +103,10 @@ If the gateway restarts while a call waits, the call has no intent yet, so Pi Du
 phase and the question is asked again; nothing ran. Scheduled runs (no client) use the job's
 `approvals: deny|allow` policy and notify on a denied action instead of waiting.
 
-Every bot's prompt carries fixed ground rules (`groundRules` in `src/agent/extensions.ts`): use only the
-tools it has and say so when one is missing, reach other bots only through `delegate`, and leave the
-gateway's own config, secrets and databases alone. A bot's shell runs as the gateway's user, so these
+Every bot's prompt carries fixed ground rules (`groundRules` in `src/agent/extensions.ts`): do ordinary
+work on the owner's machine and apps with the tools it has, but say so rather than fake a missing reach
+(another bot, gateway or machine), reach other bots only through `delegate`, and leave the gateway's own
+config, secrets, databases and API alone. A bot's shell runs as the gateway's user, so these
 rules, the approval guard and the operating-system user are what keep it from the gateway's secrets.
 
 Jev permission review (`src/core/review.ts`): when the guard would ask and the reasons are all

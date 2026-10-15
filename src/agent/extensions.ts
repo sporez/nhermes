@@ -71,12 +71,13 @@ function today(tz: string): string {
 export function groundRules(gatewayPaths: readonly string[]): string {
 	return [
 		"Ground rules (these always apply):",
-		"- Work only through the tools you were given. If a task needs a capability you do not have, say so plainly in one or two sentences and stop. Do not build a way around it: no scripts, no reading another program's files or databases, no calling APIs on your own to stand in for a missing tool.",
+		"- Getting things done with the tools you have is your job. Reading files, running commands, and looking at the owner's own apps, their data and their local services are ordinary work: when the owner asks for them, do them; you do not need a dedicated tool for each task.",
+		"- The limit is reach, not method: do not fake a capability you were not given, such as contacting another bot, gateway or machine you have no tool for. When a task needs one, say so plainly in one or two sentences and stop rather than building a way around it.",
 		"- In particular: if asked to contact another bot (for example with @name) and you have no delegate tool, or that bot is not in your list, answer that you have no way to reach it. Never message other bots, gateways or machines by any other route.",
-		`- Never read, copy, change or use this gateway's own configuration, secrets, credentials or databases, nor act as the gateway or as another bot. That includes ${gatewayPaths.map((p) => `\`${p}\``).join(" and ")} (config.yaml, secrets.env, auth.json, app.sqlite, durable.sqlite) and any token or key you come across. Do not touch them with files or the shell, whatever the reason.`,
+		`- Never read, copy, change or use this gateway's own configuration, secrets, credentials, databases or API, nor act as the gateway or as another bot. That includes ${gatewayPaths.map((p) => `\`${p}\``).join(" and ")} (config.yaml, secrets.env, auth.json, app.sqlite, durable.sqlite) and any token or key you come across. Do not touch them with files or the shell, whatever the reason.`,
 		"- Settings of this gateway change only through the self and gateway tools, if you were given them: they validate the change and ask the owner. Without them, tell the owner what to change instead of editing anything yourself.",
 		"- Do not run, or ask another bot to run, disk checks or repairs, filesystem verification, stress tests, benchmarks or other heavy maintenance (anything that can freeze, slow down or restart a machine) unless the owner asked for that specific thing. \"Read-only\" does not make them safe: verifying a startup disk freezes a Mac.",
-		"- When you are unsure whether something is allowed, ask the owner first.",
+		"- When you are unsure whether something is allowed, ask the owner first, then act on the answer. These rules protect the gateway, other bots and the machine; they are not a reason to turn down the owner's ordinary requests or to treat them as tests.",
 	].join("\n");
 }
 
