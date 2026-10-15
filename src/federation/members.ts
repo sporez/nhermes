@@ -275,6 +275,16 @@ export class Members {
 		this.changed();
 	}
 
+	/** Whether this gateway lets other members set keys in its secrets.env (off until the owner turns it on). */
+	acceptsSecrets(): boolean {
+		return this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'federation.acceptSecrets'")?.value === "1";
+	}
+
+	setAcceptsSecrets(on: boolean): void {
+		this.db.run("INSERT INTO settings (key, value) VALUES ('federation.acceptSecrets', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", on ? "1" : "0");
+		log.info("keys from members", { accepted: on });
+	}
+
 	hello(): { node_id: string; name: string; members: number } {
 		const me = this.self();
 		return { node_id: me.id, name: me.name, members: this.rows().length + 1 };

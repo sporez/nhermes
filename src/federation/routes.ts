@@ -3,7 +3,11 @@
 // the server before the handler runs (`req.member`). The owner's side lives under `/admin/` (token).
 import type { Core } from "../app.ts";
 import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
+import { SecretError } from "../core/secrets.ts";
+import { logger } from "../log.ts";
 import { FederationError, type MemberRow } from "./members.ts";
+
+const log = logger("federation");
 import { publish } from "./roster.ts";
 
 export const OPEN_FEDERATION_PATHS = new Set(["/federation/hello", "/federation/join"]);
@@ -33,6 +37,22 @@ export function federationRoutes(core: Core): Router {
 	r.on("POST", "/federation/introduce", (q) => federationCall(() => (m.introduce(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/forget", (q) => federationCall(() => (m.forget(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/removed", (q) => (m.removed(member(q)), { ok: true }));
+	// Another member sets a key here (only when this gateway's owner allowed it).
+	r.on("POST", "/federation/secrets", (q) => {
+		const from = member(q);
+		const b = obj(q.body);
+		if (!m.acceptsSecrets()) throw new HttpError(403, `${m.self().name} does not accept keys from other machines; turn that on in its panel (Network)`);
+		const name = String(b.name ?? "");
+		if (name === core.config.tokenEnv) throw new HttpError(400, "each machine keeps its own gateway token");
+		try {
+			const r = core.secrets.set(name, String(b.value ?? ""));
+			log.info("key set by a member", { name, by: from.name });
+			return r;
+		} catch (error) {
+			if (error instanceof SecretError) throw new HttpError(error.status, error.message);
+			throw error;
+		}
+	});
 	return r;
 }
 

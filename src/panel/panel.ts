@@ -12,6 +12,7 @@ import { groundRules, personaParts, personaText } from "../agent/extensions.ts";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
+import { SecretError } from "../core/secrets.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
 import { LinkError } from "../federation/link.ts";
 import { FederationError } from "../federation/members.ts";
@@ -191,6 +192,39 @@ export class Panel {
 		r.on("DELETE", "/panel/api/network/members/:name", async (q) => (await c.members.remove(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
 
+		// Keys (secrets.env): names, status and where they are used; values go in, never come back out.
+		r.on("GET", "/panel/api/secrets", () => ({ secrets: c.secrets.list(), acceptsFromMembers: c.members.acceptsSecrets(), members: c.members.list().map((m) => ({ name: m.name, reachable: m.reachable })) }));
+		r.on("PUT", "/panel/api/secrets/:name", async (q) => {
+			const b = obj(q.body);
+			const name = q.params.name!;
+			const value = String(b.value ?? "");
+			const alsoOn = Array.isArray(b.alsoOn) ? b.alsoOn.filter((x): x is string => typeof x === "string") : [];
+			if (alsoOn.length > 0 && name === c.config.tokenEnv) throw new HttpError(400, "each machine keeps its own gateway token");
+			const result = c.secrets.set(name, value);
+			const members = await Promise.all(
+				alsoOn.map(async (member) => {
+					const m = c.members.byName(member);
+					if (!m) return { name: member, ok: false, error: "not a member" };
+					try {
+						await c.members.call(m, "/federation/secrets", { name, value });
+						return { name: member, ok: true };
+					} catch (error) {
+						return { name: member, ok: false, error: error instanceof Error ? error.message : String(error) };
+					}
+				}),
+			);
+			return { ...result, members };
+		});
+		r.on("DELETE", "/panel/api/secrets/:name", (q) => c.secrets.remove(q.params.name!));
+		r.on("POST", "/panel/api/secrets/:name/hint", (q) => ({ hint: c.secrets.hint(q.params.name!) }));
+		r.on("POST", "/panel/api/token/new", () => c.secrets.newToken());
+		r.on("PATCH", "/panel/api/network/settings", (q) => {
+			const on = obj(q.body).acceptSecrets;
+			if (typeof on !== "boolean") throw new HttpError(400, "acceptSecrets must be true or false");
+			c.members.setAcceptsSecrets(on);
+			return { acceptsFromMembers: on };
+		});
+
 		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)
 		r.on("GET", "/panel/api/sessions", (q) => {
 			const name = q.query.get("bot");
@@ -288,6 +322,7 @@ function translate(error: unknown): { status: number; message: string } {
 	if (error instanceof FederationError) return { status: error.status, message: error.message };
 	if (error instanceof LinkError) return { status: 502, message: error.message };
 	if (error instanceof MemoryAccessError) return { status: 403, message: error.message };
+	if (error instanceof SecretError) return { status: error.status, message: error.message };
 	if (error instanceof Error && error.name === "UnknownSession") return { status: 404, message: "Session not found" };
 	if (error instanceof Error && error.name === "JobError") return { status: (error as Error & { status: number }).status ?? 400, message: error.message };
 	if (error instanceof Error && /panel password/.test(error.message)) return { status: 400, message: error.message };

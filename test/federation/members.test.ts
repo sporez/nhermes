@@ -128,3 +128,30 @@ test("expired codes, name clashes and an offline member during an introduction",
 		await cleanup();
 	}
 });
+
+test("a key set in one panel can go to other machines that accept keys", async () => {
+	const { dir, cleanup } = await tempDir();
+	const [a, b, c] = [await gateway(dir, "alpha"), await gateway(dir, "beta"), await gateway(dir, "gamma")];
+	const panel = (g: Gw, method: string, path: string, body?: unknown) =>
+		fetch(`${g.url}/panel/api${path}`, { method, headers: { "content-type": "application/json", "x-nhermes-panel": "1" }, body: JSON.stringify(body ?? {}) });
+	try {
+		await b.core.members.join((await (await a.admin("POST", "/admin/federation/invite")).json() as { code: string }).code);
+		await c.core.members.join((await (await a.admin("POST", "/admin/federation/invite")).json() as { code: string }).code);
+		await a.core.members.flush();
+		// beta accepts keys from members; gamma does not.
+		assert.equal((await panel(b, "PATCH", "/network/settings", { acceptSecrets: true })).status, 200);
+		const r = await panel(a, "PUT", "/secrets/SHARED_TEST_KEY", { value: "shared-value-0123456789", alsoOn: ["beta", "gamma"] });
+		assert.equal(r.status, 200);
+		const body = (await r.json()) as { members: { name: string; ok: boolean; error?: string }[] };
+		assert.deepEqual(body.members.map((m) => [m.name, m.ok]), [["beta", true], ["gamma", false]]);
+		assert.match(body.members[1]!.error!, /does not accept keys/);
+		assert.ok(b.core.secrets.list().some((s) => s.name === "SHARED_TEST_KEY" && s.set));
+		assert.equal(c.core.secrets.list().some((s) => s.name === "SHARED_TEST_KEY"), false);
+		// The gateway token never travels.
+		assert.equal((await panel(a, "PUT", "/secrets/NHERMES_TOKEN", { value: "x".repeat(24), alsoOn: ["beta"] })).status, 400);
+	} finally {
+		delete process.env.SHARED_TEST_KEY;
+		await close(a, b, c);
+		await cleanup();
+	}
+});

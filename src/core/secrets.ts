@@ -13,6 +13,9 @@ const log = logger("secrets");
 
 export const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
+/** Names set through this module in this process (so they are not mistaken for the service's own environment). */
+const setHere = new Set<string>();
+
 export class SecretError extends Error {
 	readonly status: number;
 	constructor(status: number, message: string) {
@@ -136,7 +139,7 @@ export class Secrets {
 		const info = this.list().find((s) => s.name === name);
 		// A variable the service's own environment sets wins over secrets.env at every start; changing the file would not stick.
 		const env = process.env[name];
-		if (env !== undefined && env !== this.inFile().get(name)) throw new SecretError(409, `${name} is set by the service's environment, not secrets.env; change it there`);
+		if (env !== undefined && env !== this.inFile().get(name) && !setHere.has(name)) throw new SecretError(409, `${name} is set by the service's environment, not secrets.env; change it there`);
 		if (name === this.config.tokenEnv && value.length < 16) throw new SecretError(400, "the gateway token needs at least 16 characters");
 		const lines = this.read();
 		const line = `${name}=${encode(value)}`;
@@ -148,6 +151,7 @@ export class Secrets {
 		}
 		this.write(lines);
 		process.env[name] = value;
+		setHere.add(name);
 		secretEnvNames.add(name);
 		registerSecret(value);
 		this.touch(name);
