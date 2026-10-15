@@ -10,6 +10,8 @@ export type Decision = {
 	command: string;
 	/** An "ask" a reviewer (Jev) may answer instead of the owner: no destructive pattern, owner rule or manual mode involved. */
 	reviewable?: boolean;
+	/** The owner may answer this once or for the session, never "always" (config changes). */
+	noAlways?: boolean;
 };
 
 /** `trustedAsks: true` patterns are the destructive group: they ask even trusted bots and are never left to a reviewer. */
@@ -74,6 +76,19 @@ const SIDE_EFFECT_TOOLS = new Set(["bash", "write", "edit", "http_request", "bro
 /** Tools that exist only for trusted bots: not offered to others, refused through an untrusted delegation chain. */
 export const GATEWAY_TOOLS: ReadonlySet<string> = new Set(["gateway_bot_update", "gateway_bot_add", "gateway_bot_remove", "gateway_update", "gateway_reload", "gateway_skill_write", "gateway_skill_delete", "gateway_software"]);
 
+/** Tools that change nHermes's own configuration or software; each call asks the owner, whatever the approval mode. */
+const CONFIG_TOOLS: ReadonlySet<string> = new Set(["self_update", "self_skill_write", "self_skill_delete", ...GATEWAY_TOOLS]);
+
+export function isConfigCall(name: string, args: Record<string, unknown>): boolean {
+	if (name === "gateway_software") return args.action === "update" || args.action === "rollback";
+	return CONFIG_TOOLS.has(name);
+}
+
+/** Calls only a trusted bot may make: the gateway tools, and looking at other bots or the gateway with self_info. */
+export function needsTrust(name: string, args: Record<string, unknown>, botName: string): boolean {
+	return GATEWAY_TOOLS.has(name) || (name === "self_info" && (args.gateway === true || (typeof args.bot === "string" && args.bot !== botName)));
+}
+
 export function shellCommandOf(name: string, args: Record<string, unknown>): string | undefined {
 	if (name === "bash" && typeof args.command === "string") return args.command;
 	return undefined;
@@ -126,6 +141,13 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 
 	for (const rule of bot.approvals.deny) {
 		if (ruleMatches(rule, call.name, command)) return { action: "deny", patternKey: rule, description: `blocked by the bot's deny rule "${rule}"`, command };
+	}
+	// Changing the configuration is the owner's call: it asks in every approval mode (even YOLO), no rule or
+	// "always" answer covers it, a reviewer never answers it, and only a "session" answer carries on.
+	if (isConfigCall(call.name, call.arguments)) {
+		const key = `config:${call.name}`;
+		if (pc.sessionRules.includes(key)) return { action: "allow", patternKey: key, description: "", command };
+		return { action: "ask", patternKey: key, description: `change nHermes's configuration (${call.name})`, command, reviewable: false, noAlways: true };
 	}
 	if (pc.yolo || bot.approvals.mode === "off") return { action: "allow", patternKey: "", description: "", command };
 

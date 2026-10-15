@@ -42,8 +42,9 @@ export class Approvals {
 	}
 
 	/** Waits for an answer. Rejects never; aborting resolves "deny". */
-	ask(input: Omit<ApprovalRequest, "requestId" | "createdAt" | "choices">, signal: AbortSignal): Promise<Choice> {
-		const request: ApprovalRequest = { ...input, requestId: randomUUID().slice(0, 12), createdAt: Date.now() / 1000, choices: ["once", "session", "always", "deny"] };
+	ask(input: Omit<ApprovalRequest, "requestId" | "createdAt" | "choices"> & { noAlways?: boolean }, signal: AbortSignal): Promise<Choice> {
+		const { noAlways, ...rest } = input;
+		const request: ApprovalRequest = { ...rest, requestId: randomUUID().slice(0, 12), createdAt: Date.now() / 1000, choices: noAlways ? ["once", "session", "deny"] : ["once", "session", "always", "deny"] };
 		this.audit(request, "asked");
 		return new Promise<Choice>((resolve) => {
 			const finish = (choice: Choice, reason: "answered" | "timeout" | "cancelled") => {
@@ -71,7 +72,8 @@ export class Approvals {
 	answer(requestId: string, choice: Choice): boolean {
 		const p = this.pending.get(requestId);
 		if (!p) return false;
-		p.finish(choice, "answered");
+		// An answer the card did not offer ("always" for a config change) counts as the nearest one offered.
+		p.finish(p.request.choices.includes(choice) ? choice : "session", "answered");
 		return true;
 	}
 

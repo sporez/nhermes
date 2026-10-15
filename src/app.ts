@@ -32,7 +32,7 @@ import { webFeature } from "./tools/web.ts";
 import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
 import { desktopFeature } from "./tools/desktop.ts";
-import { selfFeature } from "./tools/self.ts";
+import { describeConfigCall, type SelfServices, selfFeature } from "./tools/self.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -156,19 +156,20 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
 	const notifier: Notifier = options.notifier ?? (config.pushover ? new PushoverNotifier(config.pushover) : new NullNotifier());
 	let scheduler: Scheduler | undefined;
+	const selfServices: SelfServices = {
+		skills,
+		view: { config, toolGroups, bots },
+		settings: () => settings,
+		updates: () => updates,
+		modelExists: (ref) => {
+			const i = ref.indexOf("/");
+			return i > 0 && models.getModel(ref.slice(0, i), ref.slice(i + 1)) !== undefined;
+		},
+	};
 	const features = [
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
-		selfFeature(late, {
-			skills,
-			view: { config, toolGroups, bots },
-			settings: () => settings,
-			updates: () => updates,
-			modelExists: (ref) => {
-				const i = ref.indexOf("/");
-				return i > 0 && models.getModel(ref.slice(0, i), ref.slice(i + 1)) !== undefined;
-			},
-		}),
+		selfFeature(late, selfServices),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),
@@ -215,6 +216,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		groundRules: () => config.groundRules ?? groundRules([...new Set([config.configDir, config.dataDir])]),
 		reviewer,
 		reviewLog,
+		describeConfig: (bot, name, args) => describeConfigCall(selfServices, bot, name, args),
 		gatewayFiles: gatewayFilesPattern(config.configDir, config.dataDir),
 		machine: () => members.self().name,
 	};

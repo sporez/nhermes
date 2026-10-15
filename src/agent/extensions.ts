@@ -5,7 +5,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { defineExtension, type Extension, hook, section, ToolTask } from "@earendil-works/pi-durable";
 import type { Approvals } from "../core/approvals.ts";
 import type { Bot } from "../core/bots.ts";
-import { decide } from "../core/policy.ts";
+import { decide, isConfigCall, needsTrust } from "../core/policy.ts";
 import type { JevReviewer, ReviewLog } from "../core/review.ts";
 import type { Sessions } from "../core/sessions.ts";
 import { logger, redact } from "../log.ts";
@@ -33,6 +33,8 @@ export type AgentDeps = {
 	reviewLog?: ReviewLog;
 	/** The gateway's own files, which bots are asked about (src/core/policy.ts). */
 	gatewayFiles?: RegExp;
+	/** The change a config tool call would make, shown on its approval card (diffs). */
+	describeConfig?: (bot: Bot, name: string, args: Record<string, unknown>) => string | undefined;
 	/** This machine's name in the network (for the reviewer). */
 	machine?: () => string;
 };
@@ -153,6 +155,16 @@ export function guardExtension(deps: AgentDeps): Extension {
 					// Trust does not cross machines: work a network member started is never trusted here.
 					const fromMember = sessions.get(attention)?.source.startsWith("member:") === true;
 					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted) && !fromMember, approvals: { ...bot.approvals, mode } };
+					const args = call.arguments as Record<string, unknown>;
+					// Trusted-only tools are refused, not asked, when the work is not trusted end to end.
+					if (needsTrust(call.name, args, bot.name) && !effective.trusted) {
+						return { block: `${call.name} is only available to trusted work: ${fromMember ? "a network member started this" : chain.some((b) => !b.trusted) ? "a bot that is not trusted delegated it" : "this bot is not trusted"}` };
+					}
+					// Configuration never changes in a run nobody attends, or in work another machine started.
+					const config = isConfigCall(call.name, args);
+					if (config && (sessions.get(attention)?.kind === "job" || fromMember)) {
+						return { block: `${call.name} changes the configuration, which needs the owner present: ${fromMember ? "this work came from another machine" : "scheduled runs cannot do it"}` };
+					}
 					const reviewer = deps.reviewer?.active() ? deps.reviewer : undefined;
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
@@ -192,7 +204,8 @@ export function guardExtension(deps: AgentDeps): Extension {
 							sessionId: attention,
 							bot: bot.name,
 							toolName: call.name,
-							command: decision.command,
+							command: config ? (deps.describeConfig?.(effective, call.name, args) ?? decision.command) : decision.command,
+							noAlways: decision.noAlways,
 							description: `${attention === row.id ? decision.description : `${decision.description} (asked by ${bot.displayName} in a delegated task)`}${note}`,
 							patternKey: decision.patternKey,
 						},

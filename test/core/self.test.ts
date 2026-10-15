@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createCore } from "../../src/app.ts";
+import { decide } from "../../src/core/policy.ts";
 import { loadConfig } from "../../src/config.ts";
 import { INSTALL_DIR } from "../../src/tools/self.ts";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
@@ -99,8 +100,8 @@ async function setupFile(yaml = YAML) {
 		}
 	});
 	const off = answer();
-	const run = async (bot: string, calls: [string, Parameters<typeof fauxToolCall>[1]][]) => {
-		const s = await core.sessions.create(bot);
+	const run = async (bot: string, calls: [string, Parameters<typeof fauxToolCall>[1]][], opts: Parameters<typeof core.sessions.create>[1] = {}) => {
+		const s = await core.sessions.create(bot, opts);
 		const c = collect(core.hub, s.id);
 		faux.setResponses([...calls.map(([n, a]) => fauxAssistantMessage([fauxToolCall(n, a)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
 		await core.sessions.submit(s.id, "go");
@@ -206,6 +207,64 @@ test("gateway tools: offered to trusted bots only; edits any bot and the gateway
 		assert.match(r[12]!.resultText, /not a git checkout/);
 		ok(13);
 		assert.deepEqual(core.db.all<{ kind: string }>("SELECT kind FROM audit WHERE kind LIKE 'config.%'").map((a) => a.kind), ["config.gateway_bot_update", "config.gateway_bot_add", "config.gateway_bot_remove", "config.gateway_update", "config.gateway_skill_write", "config.gateway_skill_write", "config.gateway_skill_delete", "config.gateway_reload"]);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("config tools: always a card for the owner (even with approvals off), never \"always\", with a diff; deny changes nothing", async () => {
+	const { core, path, cards, run, off, answer, cleanup } = await setupFile(`${YAML}    approvals: { mode: off }\n`);
+	try {
+		const r = await run("ops", [["gateway_bot_update", { name: "main", patch: { description: "Front desk" } }]]);
+		assert.equal(r[0]!.isError, false);
+		assert.equal(cards.length, 1, "asked although the bot's approvals are off");
+		assert.deepEqual(cards[0]!.choices, ["once", "session", "deny"]);
+		assert.match(cards[0]!.command, /Change bot "main"/);
+		assert.match(cards[0]!.command, /description: \(unset\) → Front desk/);
+		// A trusted bot's ordinary calls are untouched.
+		assert.equal(decide({ name: "self_info", arguments: {} }, { bot: core.bots.require("ops"), sessionRules: [], botRules: [], yolo: true }).action, "allow");
+		// The decision is never reviewable, yolo does not skip it, and a bot rule does not cover it.
+		const d = decide({ name: "self_update", arguments: { description: "x" } }, { bot: core.bots.require("main"), sessionRules: [], botRules: ["config:self_update"], yolo: true, reviewActive: true });
+		assert.equal(d.action, "ask");
+		assert.equal(d.reviewable, false);
+		assert.equal(d.noAlways, true);
+		off();
+		const stop = answer("deny");
+		const denied = await run("main", [["self_update", { description: "Hacked" }]]);
+		stop();
+		assert.equal(denied[0]!.isError, true);
+		assert.notEqual(core.bots.require("main").description, "Hacked");
+		assert.equal(cards.length, 2);
+		// An "always" answer to a card that did not offer it counts as "session".
+		const s = await core.sessions.create("main");
+		const ask = core.approvals.ask({ sessionId: s.id, bot: "main", toolName: "self_update", command: "x", description: "x", patternKey: "config:self_update", noAlways: true }, new AbortController().signal);
+		core.approvals.answer(core.approvals.pendingFor(s.id)[0]!.requestId, "always");
+		assert.equal(await ask, "session");
+		assert.deepEqual(core.approvals.rules("bot:main"), []);
+		assert.deepEqual(core.approvals.rules(`session:${s.id}`), ["config:self_update"]);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("config tools: trusted-only tools are refused through an untrusted chain or a member; jobs cannot change config", async () => {
+	const { core, cards, run, cleanup } = await setupFile();
+	try {
+		const parent = await core.sessions.create("main");
+		const viaUntrusted = await run("ops", [["gateway_bot_update", { name: "main", patch: { description: "x" } }], ["self_info", { gateway: true }]], { parentId: parent.id });
+		assert.deepEqual(viaUntrusted.map((x) => x.isError), [true, true]);
+		const fromMember = await run("ops", [["gateway_update", { patch: { timezone: "UTC" } }], ["self_update", { description: "x" }]], { source: "member:abc" });
+		assert.deepEqual(fromMember.map((x) => x.isError), [true, true]);
+		const job = await run("ops", [["gateway_reload", {}], ["self_update", { description: "x" }], ["self_info", {}]], { kind: "job" });
+		assert.deepEqual(job.map((x) => x.isError), [true, true, false]);
+		assert.equal(cards.length, 0, "refused, not asked");
+		assert.notEqual(core.bots.require("main").description, "x");
+		// An untrusted bot that is somehow given a gateway tool call is refused too.
+		const direct = await run("main", [["gateway_reload", {}]]);
+		assert.equal(direct[0]!.isError, true);
+		assert.equal(cards.length, 0);
 	} finally {
 		await core.close();
 		await cleanup();
