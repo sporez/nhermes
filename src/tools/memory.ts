@@ -7,7 +7,7 @@ import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { NOT_THE_OWNER } from "../agent/extensions.ts";
 import type { Feature, LateServices } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
-import type { SessionRow } from "../core/sessions.ts";
+import { autoTitle, type SessionRow } from "../core/sessions.ts";
 import type { TranscriptRow } from "../core/transcript.ts";
 import { formatItem, type MemoryStore } from "../memory/memory.ts";
 
@@ -120,7 +120,9 @@ export function memoryFeature(late: LateServices, store: MemoryStore): Feature {
 		const lines: string[] = [];
 		for (const c of chats) {
 			const asked = ownerWords(await sessions.rows(c.id)).at(-1)?.text ?? "";
-			lines.push(`- ${heading(c)}: last asked ${JSON.stringify(clip(asked, RECAP_SNIPPET))}; last answer ${JSON.stringify(clip(c.preview, RECAP_SNIPPET))}`);
+			// A chat of one question already has it as its title.
+			const question = asked && autoTitle(asked) !== c.title ? `last asked ${JSON.stringify(clip(asked, RECAP_SNIPPET))}; ` : "";
+			lines.push(`- ${heading(c)}: ${question}last answer ${JSON.stringify(clip(c.preview, RECAP_SNIPPET))}`);
 		}
 		return (
 			"Recent chats: your latest conversations with the owner, newest first, as they stood when this chat began. " +

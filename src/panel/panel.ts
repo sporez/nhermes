@@ -357,6 +357,7 @@ export class Panel {
 					running: c.sessions.isRunning(s.id),
 					remote: s.remote_node !== null,
 					usage: spends[i],
+					recap: s.recap || null,
 				})),
 			};
 		});

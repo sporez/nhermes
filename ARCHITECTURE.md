@@ -170,6 +170,8 @@ bot and work a member started are left out. The section is worked out at the cha
 in `sessions.recap`, so the prompt stays the same (and cacheable) for the life of the chat; chats from
 before this feature keep `''`. `chat_search` (whole text of the latest 40 chats, titles and last answers
 of older ones) and `chat_read` (one chat in pages, latest first) reach the rest, limited to the same chats.
+In the panel: Recent chats in the bot editor, the section in its System prompt view, and each chat's
+saved list under Sessions.
 
 ## Scheduling
 

@@ -78,6 +78,15 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal(edited.status, 200, edited.json.detail);
 		assert.equal(core.bots.get("ops")!.private, true);
 		assert.equal((await panel("PATCH", "/bots/ops", { tools: ["teleport"] })).status, 400);
+		// Recent chats: shown to the editor, saved to config.yaml, validated, removed with null.
+		const effectiveOf = async (name: string) => ((await panel("GET", "/state")).json.bots as { name: string; effective: { recentChats: number } }[]).find((b) => b.name === name)!.effective;
+		assert.equal((await effectiveOf("ops")).recentChats, 5);
+		assert.equal((await panel("PATCH", "/bots/ops", { recentChats: 2 })).status, 200);
+		assert.equal((await effectiveOf("ops")).recentChats, 2);
+		assert.match(readFileSync(path, "utf8"), /recentChats: 2/);
+		assert.equal((await panel("PATCH", "/bots/ops", { recentChats: 99 })).status, 400);
+		assert.equal((await panel("PATCH", "/bots/ops", { recentChats: null })).status, 200);
+		assert.equal((await effectiveOf("ops")).recentChats, 5);
 
 		// The system prompt: shown in parts; the ground rules are editable for every bot and resettable.
 		const prompt = (await panel("GET", "/bots/main/prompt")).json as { groundRules: string; groundRulesCustom: boolean; full: string; identity: string };
@@ -207,6 +216,16 @@ test("sessions, memory and approvals from the panel", async () => {
 		assert.equal(rows[0]!.running, false);
 		assert.ok(rows[0]!.usage && rows[0]!.usage.total > 0, "the chat's spend rides on its line");
 		assert.deepEqual(rows[0]!.usage, await core.sessions.spend(s.id));
+		// The next chat started with that one in its Recent chats, and the list shows it.
+		const s2 = await core.sessions.create("ops");
+		const ev2 = collect(core.hub, s2.id);
+		faux.setResponses([fauxAssistantMessage([fauxText("Hello.")])]);
+		await core.sessions.submit(s2.id, "hi");
+		await ev2.until((e) => e.type === "run.finished", 10000);
+		const both = (await panel("GET", "/sessions?bot=ops")).json.sessions as { id: string; recap: string | null }[];
+		assert.match(both.find((r) => r.id === s2.id)!.recap ?? "", /Recent chats:[\s\S]*Reboot the server/);
+		assert.equal(both.find((r) => r.id === s.id)!.recap, null, "the first chat had none to see");
+		await core.sessions.delete(s2.id);
 		assert.equal((await panel("PATCH", `/sessions/${s.id}`, { title: "Reboot attempt", archived: true })).status, 200);
 		assert.equal(core.sessions.get(s.id)!.title, "Reboot attempt");
 		assert.equal(((await panel("GET", "/sessions?bot=ops")).json.sessions as unknown[]).length, 0, "archived are hidden by default");

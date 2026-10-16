@@ -245,6 +245,7 @@ export function configView(core: Pick<Core, "config" | "toolGroups" | "bots">) {
 				thinking: b.thinking,
 				tools: b.toolGroups,
 				approvals: b.approvals.mode,
+				recentChats: b.recentChats,
 				trusted: b.trusted,
 				private: b.private,
 				default: b.isDefault,

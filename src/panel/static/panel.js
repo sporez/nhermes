@@ -311,6 +311,8 @@ function botEditor(bot, ctx) {
 	const trusted = h("input", { type: "checkbox", checked: effective.trusted });
 	const dflt = h("input", { type: "checkbox", checked: effective.default });
 	const shared = h("input", { type: "text", value: (config.sharedMemory ?? []).join(", "), placeholder: "household, work" });
+	// A member on an older version has no recentChats: the field stays hidden for its bots.
+	const recent = effective.recentChats !== undefined && h("input", { type: "number", min: 0, max: 20, step: 1, value: effective.recentChats });
 	const instr = h("textarea", { value: effective.instructions ?? "" });
 	const check = (box, text) => h("label", {}, box, text);
 	const sourceNote = { config: "config.yaml", default: "the built-in default", "soul file": "its SOUL.md file", override: "a change made in Vory" }[effective.instructionsFrom] ?? effective.instructionsFrom;
@@ -330,6 +332,12 @@ function botEditor(bot, ctx) {
 		if (dflt.checked !== effective.default) patch.default = dflt.checked;
 		const spaces = shared.value.split(",").map((s) => s.trim()).filter(Boolean);
 		if (!same(spaces, config.sharedMemory ?? [])) patch.sharedMemory = spaces.length ? spaces : null;
+		if (recent && Number(recent.value) !== effective.recentChats) {
+			const n = Number(recent.value);
+			if (recent.value.trim() === "" || !Number.isInteger(n) || n < 0 || n > 20) return toast("Recent chats must be a whole number from 0 to 20", true);
+			// The default (5) is left out of config.yaml.
+			patch.recentChats = n === 5 ? null : n;
+		}
 		if (instr.value.trim() !== (effective.instructions ?? "")) patch.instructions = instr.value.trim() || null;
 		if (!Object.keys(patch).length) return toast("Nothing changed");
 		restartNote(await api("PATCH", path, patch));
@@ -351,6 +359,8 @@ function botEditor(bot, ctx) {
 		h("div", { class: "grid2" }, field("Model", model), field("Thinking", thinking)),
 		field("Tool groups", h("div", { class: "checks" }, tools.map((t) => check(t, t.value)))),
 		h("div", { class: "grid2" }, field("Approval mode", mode), field("Shared memory spaces", shared, "Comma separated")),
+		recent && h("div", { class: "grid2" }, field("Recent chats", recent,
+			`How many of its latest chats a new chat is told about (0 turns it off; default 5).${effective.tools.includes("memory") ? "" : " Needs the memory tool group, which is off."}`)),
 		h("div", { class: "checks" }, check(priv, "Private"), check(trusted, "Trusted"), check(dflt, ctx.node ? `Default bot on ${ctx.node}` : "Default bot")),
 		h("div", { class: "field" }),
 		field("Instructions", instr, `Currently from ${sourceNote}. Saving writes them to the bot's config entry${ctx.node ? ` on ${ctx.node}` : ""}.`),
@@ -411,6 +421,19 @@ function skillsCard(bot, ctx) {
 	return details;
 }
 
+/** A generated prompt section's name: the words before the colon that opens it ("Memory", "Recent chats"…). */
+function sectionTitle(text) {
+	const m = /^([^:\n]{1,60}):/.exec(text);
+	return m ? m[1] : undefined;
+}
+
+const SECTION_HINTS = {
+	Memory: "Generated: pinned memories (Memory tab) and how to use the memory tools.",
+	"Recent chats": "Generated: the bot's latest chats as they stand now. Each chat keeps the list it started with (shown with the chat in Sessions); set how many under Recent chats above.",
+	Skills: "Generated from the skills switched on above.",
+	"About you and nHermes": "Generated for bots with the self tool group.",
+};
+
 /** The bot's system prompt as a new chat gets it, loaded when opened; this machine's ground rules are edited here too. */
 function promptCard(bot, ctx) {
 	const body = h("div");
@@ -442,7 +465,10 @@ function promptCard(bot, ctx) {
 			block("1. Instructions", p.instructions || "(none)", "This bot's own text; edit it in Instructions above."),
 			block("2. Identity", p.identity, "Generated."),
 			...rulesPart,
-			...p.generated.map((g, i) => block(`${4 + i}. Generated`, g, "From the bot's settings: other bots, memory, skills.")),
+			...p.generated.map((g, i) => {
+				const title = sectionTitle(g);
+				return block(`${4 + i}. ${title ?? "Generated"}`, g, SECTION_HINTS[title] ?? "Generated from the bot's settings.");
+			}),
 			h("div", { class: "hint" }, `Tool groups: ${p.tools.join(", ") || "none"}. Each tool's own description is added by the engine.`),
 		);
 	});
@@ -591,7 +617,9 @@ async function sessionsScreen() {
 				h("div", { class: "row" }, h("strong", { class: "trunc" }, s.title || "Untitled"), badge(s.bot), s.kind !== "chat" && badge(s.kind), s.running && badge("running", "ok"), s.archived && badge("archived"), s.remote && badge("remote")),
 				h("div", { class: "muted small" }, `${ago(s.lastActive)} - ${s.messages} messages`),
 				s.usage && spendLine(s.usage),
-				s.preview && h("div", { class: "muted small trunc" }, s.preview)),
+				s.preview && h("div", { class: "muted small trunc" }, s.preview),
+				s.recap && h("details", { class: "small" }, h("summary", { class: "muted" }, "Recent chats it started with"),
+					h("pre", { class: "mono pre-wrap prompt" }, s.recap))),
 			h("div", { class: "row" },
 				h("button", { class: "link", on: { click: () => {
 					const t = prompt("Rename chat", s.title || "");
@@ -663,6 +691,7 @@ async function memoryScreen() {
 	});
 
 	show(h("h1", {}, "Memory"),
+		h("p", { class: "muted" }, "Pinned memories are in every chat's prompt; the rest are found with recall. A new chat also sees the bot's latest chats (Recent chats in Bots), and chat_search and chat_read reach older ones."),
 		h("div", { class: "grid2" }, field("Whose memory", ownerSel), field("Search (Enter)", search)),
 		h("details", { class: "card" }, h("summary", {}, "Add a memory"), h("div", { class: "field" }), field("Title", title), field("Text", text),
 			h("div", { class: "row between" }, h("label", {}, pinned, " Pin"), h("button", { class: "primary", on: { click: add } }, "Add"))),

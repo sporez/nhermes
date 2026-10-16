@@ -14,7 +14,7 @@ import type { MemberRow } from "./members.ts";
 const log = logger("manage");
 
 /** The bot settings a member may change: what the panel's bot editor sends. */
-export const MEMBER_BOT_KEYS = new Set<string>(["displayName", "description", "model", "thinking", "tools", "skills", "sharedMemory", "approvals", "trusted", "private", "default", "instructions"]);
+export const MEMBER_BOT_KEYS = new Set<string>(["displayName", "description", "model", "thinking", "tools", "skills", "sharedMemory", "recentChats", "approvals", "trusted", "private", "default", "instructions"]);
 
 function fields(body: Record<string, unknown>, creating: boolean): BotPatch {
 	const out: Record<string, unknown> = {};

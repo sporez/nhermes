@@ -160,6 +160,10 @@ test("recent chats: a new chat is told about the bot's latest chats with the own
 	};
 	try {
 		const garage = await chat("main", "help me plan the garage shelves", "Use 2x4 uprights every 16 inches.");
+		const more = collect(core.hub, garage.id);
+		faux.setResponses([fauxAssistantMessage([fauxText("Make them 16 inches deep.")])]);
+		await core.sessions.submit(garage.id, "and how deep?");
+		await more.until((e) => e.type === "run.finished");
 		await chat("main", "what was the dentist's number", "It is 555-0100.");
 		const archived = await chat("main", "secret archived topic", "ok");
 		core.sessions.update(archived.id, { archived: true });
@@ -170,8 +174,9 @@ test("recent chats: a new chat is told about the bot's latest chats with the own
 		const next = await chat("main", "back to the shelves", "Sure.");
 		const prompt = await promptOf("main", next.id);
 		assert.match(prompt, /Recent chats:/);
-		assert.match(prompt, new RegExp(`help me plan the garage shelves.*\\(id ${garage.id}\\): last asked "help me plan the garage shelves"; last answer "Use 2x4 uprights`));
-		assert.match(prompt, /dentist/);
+		assert.match(prompt, new RegExp(`help me plan the garage shelves.*\\(id ${garage.id}\\): last asked "and how deep\\?"; last answer "Make them 16 inches deep\\."`));
+		// A chat of one question: its title is the question, so it is not repeated.
+		assert.match(prompt, /"what was the dentist's number" \(id [^)]+\): last answer "It is 555-0100\."/);
 		assert.doesNotMatch(prompt, /secret archived|scheduled thing|proxmox/);
 
 		// Fixed for the life of the chat: a later chat does not change it.

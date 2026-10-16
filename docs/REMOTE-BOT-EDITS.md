@@ -37,7 +37,7 @@ management.
    lose a bot the moment it is made private. Peer entries (`peer:`) and B's own remote bots are not
    listed: only B's real local bots.
 4. **The same fields the panel editor sends, nothing more.** `displayName`, `description`, `model`,
-   `thinking`, `tools`, `skills`, `sharedMemory`, `approvals`, `trusted`, `private`, `default`,
+   `thinking`, `tools`, `skills`, `sharedMemory`, `recentChats`, `approvals`, `trusted`, `private`, `default`,
    `instructions`. Settings that point at the owning machine's files, hosts or credentials (`host`,
    `peer`, `workspace`, `soulFile`, `secrets`, `browser`, `desktop`) answer 400 from a member. Gateway
    settings (ground rules, defaults) stay on each machine's own panel; the prompt view is read-only for a
