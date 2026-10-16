@@ -19,7 +19,8 @@ Status: implemented (S1–S6); decisions recorded at the end.
   (`secretEnvNames`, `scrubbedShellEnv`). Values do not override variables already set in the
   environment.
 - Readers: `NHERMES_TOKEN` (startup), `PUSHOVER_*` (startup), provider keys referenced from Pi's
-  `models.json` as `$NAME` (read when Pi resolves the provider), a bot's `secrets:` list for
+  `models.json` as `$NAME` and catalog provider keys such as `NEURALWATT_API_KEY` (read when Pi
+  resolves the provider; setting or removing a catalog key also adds or withdraws its models), a bot's `secrets:` list for
   `http_request` (`{{secret:NAME}}`, at call time), a configured peer's `tokenEnv` (at call time).
 - `GET /api/env` lists a fixed set of names for Vory with redacted values; nothing can change them.
 - The approval guard (`src/core/policy.ts`, `guardExtension`) asks for about 20 high-impact command
@@ -46,7 +47,7 @@ Status: implemented (S1–S6); decisions recorded at the end.
   unsets it. Variables read only at startup (`NHERMES_TOKEN`, `PUSHOVER_*`) report "takes effect
   after a restart", like config edits do.
 - A catalogue of known names, each with a description and where it is used: the built-ins above,
-  `$NAME` references found in `models.json`, every bot's `secrets:` list, every peer `tokenEnv`, and
+  `$NAME` references found in `models.json`, the keys of the catalog providers (`src/models/`), every bot's `secrets:` list, every peer `tokenEnv`, and
   `OPENROUTER_API_KEY` (S4). Unknown names in the file are listed as "not used by anything".
 - Each entry shows: set or not, set in `secrets.env` or by the process environment (then read-only
   here), last changed, and the last four characters only when the owner asks to identify a key.

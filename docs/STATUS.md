@@ -44,7 +44,9 @@ port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (tr
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own
 `models.json` listing Neuralwatt's full library (27 models), generated with `scripts/neuralwatt-models.ts`;
 the key is read from `NEURALWATT_API_KEY` in `secrets.env`. Sessions follow their bot's model unless a
-chat picked its own in Vory.
+chat picked its own in Vory. Neuralwatt is now a catalog provider (`src/models/neuralwatt.ts`): the key
+alone brings its live list. Those `models.json` files still win while they define `neuralwatt`; remove
+that entry (or the file, and `pi.modelsPath` with it) to switch a machine to the automatic list.
 
 ## Open items
 

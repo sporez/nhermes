@@ -20,6 +20,7 @@ import { ProxySessions } from "./federation/proxy.ts";
 import { Roster } from "./federation/roster.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
+import { type ProviderCatalog, ProviderCatalogs } from "./models/catalogs.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
@@ -63,6 +64,8 @@ export type Core = {
 	roster: Roster;
 	proxy: ProxySessions;
 	secrets: Secrets;
+	/** Providers whose model list is fetched once their key is set. */
+	catalogs: ProviderCatalogs;
 	reviewer: JevReviewer;
 	reviewLog: ReviewLog;
 	updates: Updates;
@@ -99,6 +102,9 @@ export type CoreOptions = {
 	reviewFetch?: typeof fetch;
 	/** Membership clock/transport overrides (tests). */
 	members?: MembersOptions;
+	/** Provider catalogs and their HTTP call (tests). */
+	catalogs?: ProviderCatalog[];
+	catalogFetch?: typeof fetch;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -133,6 +139,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	members.onChange(() => void roster.sync());
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
 	const models = options.models ?? (await loadModels(config));
+	// Before any chat resumes, so one on a catalog model finds it.
+	const catalogs = new ProviderCatalogs({ models, db, modelsPath: config.pi.modelsPath, catalogs: options.catalogs, fetch: options.catalogFetch });
+	await catalogs.start();
+	const secrets = new Secrets(config, db, catalogs.keys());
+	secrets.onChange((name) => catalogs.keyChanged(name));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
 
 	let sessions: Sessions | undefined;
@@ -293,7 +304,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		members,
 		roster,
 		proxy,
-		secrets: new Secrets(config, db),
+		secrets,
+		catalogs,
 		reviewer,
 		reviewLog,
 		updates,
@@ -301,6 +313,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		close: async () => {
 			members.stop();
 			updates.stop();
+			catalogs.stop();
 			vory.stop();
 			proxy.close();
 			await scheduler!.stop();

@@ -39,9 +39,16 @@ $EDITOR ~/.config/nhermes/secrets.env    # NHERMES_TOKEN (generated), provider k
 
 Model credentials: put provider keys in `secrets.env` (`CEREBRAS_API_KEY=…`, `OPENROUTER_API_KEY=…`), or
 point `pi.authPath` / `pi.modelsPath` at a Pi `auth.json` / `models.json` (subscriptions and custom
-OpenAI-compatible endpoints such as Neuralwatt or a local server). For Neuralwatt's whole library:
-`NEURALWATT_API_KEY=… node scripts/neuralwatt-models.ts > ~/.config/nhermes/models.json` (rerun when they
-add models; the file holds `$NEURALWATT_API_KEY`, not the key). A bot's `model:` in config is its default;
+OpenAI-compatible endpoints such as a local server).
+
+Catalog providers need only their key. Set `NEURALWATT_API_KEY` (Keys tab, Vory or
+`nhermes secret set NEURALWATT_API_KEY`) and the gateway fetches Neuralwatt's model list at once, offers
+it in the pickers as `neuralwatt/<model>`, refreshes it every 12 hours and keeps the last list for starts
+without the network; removing the key withdraws the models. No restart, no `models.json`. A provider
+that `models.json` defines itself is left to that file, so delete its entry there to switch to the
+automatic list. Adding another such provider is one adapter in `src/models/` (see `neuralwatt.ts`), listed
+in `CATALOGS` in `src/models/catalogs.ts`. `scripts/neuralwatt-models.ts` still prints a `models.json`
+for the Pi CLI. A bot's `model:` in config is its default;
 its chats follow it unless one was switched in Vory. Sharing them with a running Pi CLI is
 safe: Pi's credential store locks the file during OAuth refresh.
 

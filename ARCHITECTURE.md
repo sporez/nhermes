@@ -41,8 +41,9 @@ drive it as if it were a Hermes gateway.
   maps canonical events back onto Hermes events. It holds no agent state of its own beyond per-socket
   bookkeeping (pending server→client request ids).
 - **Upstream before custom.** Providers, OAuth and `models.json` custom endpoints come from Pi's
-  `ModelRuntime`; SKILL.md discovery from Pi's skills loader; SSH execution from `pi-env`; file and shell
-  tools from `pi-durable/tools`; browser control from Playwright.
+  `ModelRuntime`; catalog providers (`src/models/`, a key fetches the provider's model list) are
+  registered into it with Pi's own `registerProvider`; SKILL.md discovery from Pi's skills loader; SSH
+  execution from `pi-env`; file and shell tools from `pi-durable/tools`; browser control from Playwright.
 
 ## Canonical model
 

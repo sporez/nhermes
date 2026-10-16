@@ -57,13 +57,34 @@ function encode(value: string): string {
 	return /[\s"'#]/.test(value) ? `"${value}"` : value;
 }
 
+/** A key a provider catalog reads (src/models/catalogs.ts). */
+export type ProviderKey = { name: string; provider: string; providerName: string };
+
 export class Secrets {
 	private readonly config: Config;
 	private readonly db: AppDb;
+	private readonly providerKeys: ProviderKey[];
+	private readonly listeners: ((name: string) => void)[] = [];
 
-	constructor(config: Config, db: AppDb) {
+	constructor(config: Config, db: AppDb, providerKeys: ProviderKey[] = []) {
 		this.config = config;
 		this.db = db;
+		this.providerKeys = providerKeys;
+	}
+
+	/** Called with the name after a key is set or removed. */
+	onChange(listener: (name: string) => void): void {
+		this.listeners.push(listener);
+	}
+
+	private changed(name: string): void {
+		for (const l of this.listeners) {
+			try {
+				l(name);
+			} catch (error) {
+				log.warn("secret change listener failed", { name, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
 	}
 
 	private read(): Line[] {
@@ -89,6 +110,8 @@ export class Secrets {
 		add("PUSHOVER_USER_KEY", "Pushover user key (notifications)", "notifications", true);
 		add("PUSHOVER_APP_TOKEN", "Pushover application token (notifications)", "notifications", true);
 		add(c.review.keyEnv, "OpenRouter API key: Jev permission review", "permission review");
+		// Setting one of these is all a catalog provider needs: its models are fetched and offered.
+		for (const k of this.providerKeys) add(k.name, `API key for the ${k.providerName} models (its model list is fetched automatically)`, `models: ${k.provider}`);
 		try {
 			const models = readFileSync(c.pi.modelsPath, "utf8");
 			const doc = JSON.parse(models) as { providers?: Record<string, unknown> };
@@ -156,6 +179,7 @@ export class Secrets {
 		registerSecret(value);
 		this.touch(name);
 		log.info("secret set", { name });
+		this.changed(name);
 		return { restartNeeded: info?.restartOnly ?? false };
 	}
 
@@ -168,6 +192,7 @@ export class Secrets {
 		delete process.env[name];
 		this.touch(name);
 		log.info("secret removed", { name });
+		this.changed(name);
 		return { restartNeeded: info.restartOnly };
 	}
 
