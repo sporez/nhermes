@@ -4,6 +4,7 @@
 // idempotency_key becomes the peer's Durable request id) and survives a dropped connection: the
 // client reconnects and resumes the remote session. Approval requests from the peer are handed to a
 // callback (the central gateway asks its owner).
+import type { ConnectionOptions } from "node:tls";
 import WebSocket from "ws";
 import { logger } from "../log.ts";
 
@@ -17,8 +18,8 @@ export function setPeerHeartbeat(ms: number): void {
 
 type Frame = { id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
 
-/** A gateway to reach: with the owner's token (configured peer) or a member's identifying headers. */
-export type PeerTarget = { url: string; token?: string; headers?: Record<string, string>; profile?: string };
+/** A gateway to reach: with the owner's token (configured peer), or as a member (TLS-PSK, or headers for an older one). */
+export type PeerTarget = { url: string; token?: string; headers?: Record<string, string>; tls?: ConnectionOptions; profile?: string };
 export type PeerApproval = (params: Record<string, unknown>) => Promise<"once" | "session" | "always" | "deny">;
 
 class Socket {
@@ -32,7 +33,7 @@ class Socket {
 	static async open(t: PeerTarget, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): Promise<Socket> {
 		const s = new Socket();
 		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws${t.token ? `?token=${encodeURIComponent(t.token)}` : ""}`;
-		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers: t.headers });
+		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers: t.headers, ...t.tls });
 		s.ws = ws;
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error(`peer ${t.url}: no gateway.ready`)), 20_000);

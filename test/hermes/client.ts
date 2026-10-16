@@ -1,4 +1,5 @@
 // A small Hermes JSON-RPC client for tests: speaks the wire format the way Vory's GatewaySocket does.
+import type { ConnectionOptions } from "node:tls";
 import WebSocket from "ws";
 
 export type Frame = { jsonrpc: "2.0"; id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
@@ -28,10 +29,11 @@ export class HermesClient {
 	}
 
 	/** `where`: a port on 127.0.0.1, or "host:port". */
-	static async connect(where: number | string, token: string | undefined, headers?: Record<string, string>): Promise<HermesClient> {
+	/** With `tls`, connects wss:// (a member on the encrypted port, src/federation/psk.ts). */
+	static async connect(where: number | string, token: string | undefined, headers?: Record<string, string>, tls?: ConnectionOptions): Promise<HermesClient> {
 		const q = token === undefined ? "" : `?token=${encodeURIComponent(token)}`;
 		const hostPort = /^\d+$/.test(String(where)) ? `127.0.0.1:${where}` : String(where);
-		const ws = new WebSocket(`ws://${hostPort}/api/ws${q}`, { headers });
+		const ws = new WebSocket(`${tls ? "wss" : "ws"}://${hostPort}/api/ws${q}`, { headers, ...tls });
 		const c = new HermesClient(ws);
 		await new Promise<void>((resolve, reject) => {
 			ws.once("open", () => resolve());

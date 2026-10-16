@@ -1,5 +1,5 @@
 // The network's bots: a member's shareable bots appear on the others as `<bot>-<node>`, delegation
-// reaches them with the pair secret (approvals asked in the chat that started it, and never trusted on
+// reaches them over the encrypted port (TLS-PSK keyed by the pair secret) (approvals asked in the chat that started it, and never trusted on
 // the owning machine), a member's WebSocket stays within its own chats, and an offline member is
 // reported as offline.
 import assert from "node:assert/strict";
@@ -104,7 +104,12 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		await link(a, b);
 		const ownerChat = await b.core.sessions.create("nasbot");
 		const m = a.core.members.byName("beta")!;
-		ws = await HermesClient.connect(b.port, undefined, a.core.members.headersFor(m));
+		// alpha has reached beta encrypted (the roster sync), so beta refuses its plain WebSocket.
+		const plain = await HermesClient.connect(b.port, undefined, a.core.members.headersFor(m));
+		await new Promise((r) => plain.ws.once("close", r));
+		assert.equal(plain.closeCode, 4403);
+		const t = a.core.members.target(m.node_id)!;
+		ws = await HermesClient.connect(b.server.pskPort!, undefined, {}, t.tls);
 		await ws.waitEvent("gateway.ready");
 		const profiles = await ws.call<{ profiles: { name: string }[] }>("profiles.list");
 		assert.deepEqual(profiles.profiles.map((p) => p.name), ["nasbot"]);
@@ -117,7 +122,8 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		assert.equal(resumed.session_id, mine.session_id);
 		await ws.close();
 		ws = undefined;
-		// A wrong secret is refused like a wrong token.
+		// A wrong secret is refused: in the handshake on the encrypted port, like a wrong token on the main one.
+		await assert.rejects(HermesClient.connect(b.server.pskPort!, undefined, {}, { ...t.tls, pskCallback: () => ({ identity: `m:${a.core.members.self().id}:000000000000`, psk: Buffer.alloc(32) }) }));
 		const bad = await HermesClient.connect(b.port, undefined, { ...a.core.members.headersFor(m), "x-nhermes-member-secret": "nope-nope-nope-nope" });
 		await new Promise((r) => bad.ws.once("close", r));
 		assert.equal(bad.closeCode, 4401);
@@ -239,7 +245,7 @@ test("a member that freezes mid-task is noticed, and a task it lost is reported 
 	// A relay between alpha and beta that can freeze its connections without closing them.
 	const pairs: [NetSocket, NetSocket][] = [];
 	const relay = createServer((down) => {
-		const up = createConnection(b.port, "127.0.0.1");
+		const up = createConnection(b.server.pskPort!, "127.0.0.1");
 		down.pipe(up);
 		up.pipe(down);
 		pairs.push([down, up]);
@@ -250,7 +256,7 @@ test("a member that freezes mid-task is noticed, and a task it lost is reported 
 	let releaseB = () => {};
 	try {
 		await link(a, b);
-		a.core.db.run("UPDATE members SET url = ? WHERE name = 'beta'", `http://127.0.0.1:${relayPort}`);
+		a.core.db.run("UPDATE members SET psk_port = ? WHERE name = 'beta'", relayPort);
 		const s = await a.core.sessions.create("main");
 		const ev = collect(a.core.hub, s.id);
 		a.faux.setResponses([

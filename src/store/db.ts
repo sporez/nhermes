@@ -203,6 +203,16 @@ const MIGRATIONS: readonly string[] = [
 	`
 	ALTER TABLE jobs ADD COLUMN context TEXT NOT NULL DEFAULT 'fresh';
 	`,
+	// 11: members talk TLS-PSK on their encrypted port (src/federation/psk.ts): the port, the previous
+	// secret and until when it is still accepted (while a new one settles), whether the member has reached
+	// us encrypted, and whether the pair secret was replaced since it travelled in clear
+	`
+	ALTER TABLE members ADD COLUMN psk_port INTEGER;
+	ALTER TABLE members ADD COLUMN prev_secret TEXT;
+	ALTER TABLE members ADD COLUMN prev_until REAL;
+	ALTER TABLE members ADD COLUMN psk_inbound INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE members ADD COLUMN rotated INTEGER NOT NULL DEFAULT 0;
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

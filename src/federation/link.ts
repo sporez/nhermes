@@ -1,9 +1,12 @@
-// A lasting Hermes WebSocket to one network member, authenticated with the pair secret. Chats with that
+// A lasting Hermes WebSocket to one network member: TLS-PSK on its encrypted port, or (an older member)
+// plain with the pair secret in a header. Chats with that
 // member's bots go through it: calls, the member's events for those chats, and its approval requests
 // (answered by a handler here). It reconnects on its own; after a reconnect, the chats being watched are
 // resumed so the member sends their events again.
 import WebSocket from "ws";
 import { logger } from "../log.ts";
+import type { MemberTarget } from "./members.ts";
+import { keyRefused } from "./psk.ts";
 import { HEARTBEAT_MS } from "../remote/peer.ts";
 
 const log = logger("link");
@@ -20,8 +23,8 @@ export class LinkError extends Error {
 }
 
 export type LinkOptions = {
-	url: string;
-	headers: () => Record<string, string>;
+	/** Where and how to connect, read at every (re)connect: the port or secret may have changed. */
+	target: () => MemberTarget | undefined;
 	/** The member's name, for messages. */
 	name: string;
 	onEvent: (e: LinkEvent) => void;
@@ -77,8 +80,10 @@ export class MemberLink {
 	}
 
 	private open(): Promise<void> {
-		const url = `${this.o.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws`;
-		const ws = new WebSocket(url, { handshakeTimeout: 10_000, headers: this.o.headers() });
+		const t = this.o.target();
+		if (!t) return Promise.reject(new LinkError(4503, `${this.o.name} is no longer a member`));
+		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws`;
+		const ws = new WebSocket(url, { handshakeTimeout: 10_000, headers: t.headers, ...t.tls });
 		return new Promise<void>((resolve, reject) => {
 			let opened = false;
 			const fail = (why: string) => reject(new LinkError(4503, `${this.o.name} is offline (${why})`));
@@ -106,7 +111,7 @@ export class MemberLink {
 				this.onClose();
 			});
 			ws.on("error", (e) => {
-				if (!opened) fail(e.message);
+				if (!opened) fail(keyRefused(e) ? "it no longer accepts this machine" : e.message);
 			});
 		});
 	}

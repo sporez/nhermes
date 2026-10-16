@@ -120,6 +120,10 @@ test("expired codes, name clashes and an offline member during an introduction",
 		assert.deepEqual(names(b), ["alpha"]);
 		assert.equal(a.core.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM member_outbox")!.n, 1);
 		b.server = await startHermesServer(b.core, { host: "127.0.0.1", port: Number(new URL(b.url).port), extraRouters: [federationAdminRoutes(b.core)] });
+		// beta came back on another encrypted port and tells alpha so (its maintenance tick).
+		assert.notEqual(a.core.members.byName("beta")!.psk_port, b.server.pskPort);
+		await b.core.members.maintain();
+		assert.equal(a.core.members.byName("beta")!.psk_port, b.server.pskPort);
 		await a.core.members.flush();
 		assert.deepEqual(names(b), ["alpha", "gamma"]);
 		assert.equal(a.core.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM member_outbox")!.n, 0);

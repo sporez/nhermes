@@ -82,7 +82,7 @@ async function serve(configPath: string): Promise<void> {
 	// After a software update the gateway exits with 75; systemd (Restart=on-failure) and launchd (KeepAlive) start it again.
 	let restart: () => void = () => {};
 	const core = await createCore(config, { updates: { restart: () => restart() } });
-	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
+	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, federationPort: config.server.federationPort, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
 	core.members.start(() => core.roster.sync());
 	core.updates.start();

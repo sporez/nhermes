@@ -38,9 +38,9 @@ export type DelegateDeps = {
 /** Where a bot on another machine is reached: a network member (pair secret) or a configured peer (token). */
 function peerTarget(deps: DelegateDeps, target: Bot): PeerTarget {
 	if (target.remote) {
-		const m = deps.members().get(target.remote.nodeId);
-		if (!m) throw new Error(`${target.remote.node} is no longer a member of the network`);
-		return { url: m.url, headers: deps.members().headersFor(m), profile: target.remote.bot };
+		const t = deps.members().target(target.remote.nodeId);
+		if (!t) throw new Error(`${target.remote.node} is no longer a member of the network`);
+		return { ...t, profile: target.remote.bot };
 	}
 	const peer = target.config.peer!;
 	const token = process.env[peer.tokenEnv];

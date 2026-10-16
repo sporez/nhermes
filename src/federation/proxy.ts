@@ -113,9 +113,8 @@ export class ProxySessions {
 		let link = this.links.get(nodeId);
 		if (!link) {
 			link = new MemberLink({
-				url: m.url,
 				name: m.name,
-				headers: () => this.d.members.headersFor(this.d.members.get(nodeId) ?? m),
+				target: () => this.d.members.target(nodeId),
 				onEvent: (e) => this.onEvent(nodeId, e),
 				onRequest: (method, params) => this.onRequest(nodeId, method, params),
 				watched: () => [...this.listeners.keys()].filter((id) => this.d.sessions().get(id)?.remote_node === nodeId),

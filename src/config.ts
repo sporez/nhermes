@@ -56,7 +56,8 @@ export type Config = {
 	configPath: string;
 	configDir: string;
 	dataDir: string;
-	server: { host: string; port: number; publicName: string };
+	/** federationPort: the encrypted port other members use (default port + 1000, the next free one if taken). */
+	server: { host: string; port: number; publicName: string; federationPort?: number };
 	/** Gateway session token Vory sends as X-Hermes-Session-Token. */
 	token: string;
 	/** The variable that holds it (auth.tokenEnv, default NHERMES_TOKEN). */
@@ -276,6 +277,7 @@ export function loadConfig(configPath: string): Config {
 			host: str(server.host, "server.host") ?? "0.0.0.0",
 			port: typeof server.port === "number" ? server.port : 9119,
 			publicName: str(server.name, "server.name") ?? "nHermes",
+			federationPort: typeof server.federationPort === "number" ? server.federationPort : undefined,
 		},
 		token,
 		tokenEnv,

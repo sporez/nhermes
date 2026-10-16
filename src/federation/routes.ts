@@ -1,6 +1,7 @@
 // Federation HTTP API. `/federation/hello` and `/federation/join` are open (a join proves itself with the
-// invite secret); every other `/federation/*` route needs a member's node id and pair secret, checked by
-// the server before the handler runs (`req.member`). The owner's side lives under `/admin/` (token).
+// invite secret); every other `/federation/*` route needs a member, checked by the server before the
+// handler runs (`req.member`): by its TLS-PSK handshake on the encrypted port, or by its node id and pair
+// secret on the main port (older versions). The owner's side lives under `/admin/` (token).
 import type { Core } from "../app.ts";
 import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
 import { SecretError } from "../core/secrets.ts";
@@ -31,12 +32,14 @@ export function federationRoutes(core: Core): Router {
 	const r = new Router();
 	const m = core.members;
 	r.on("GET", "/federation/hello", () => m.hello());
-	r.on("POST", "/federation/join", (q) => federationCall(() => m.acceptJoin(obj(q.body))));
+	r.on("POST", "/federation/join", (q) => federationCall(() => m.acceptJoin(obj(q.body), q.psk)));
 	r.on("GET", "/federation/ping", (q) => ({ name: m.self().name, from: member(q).name }));
 	r.on("GET", "/federation/roster", (q) => (member(q), publish(core.bots.list())));
 	r.on("POST", "/federation/introduce", (q) => federationCall(() => (m.introduce(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/forget", (q) => federationCall(() => (m.forget(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/removed", (q) => (m.removed(member(q)), { ok: true }));
+	r.on("POST", "/federation/rotate", (q) => federationCall(() => (m.acceptRotate(member(q), obj(q.body), q.psk !== undefined), { ok: true })));
+	r.on("POST", "/federation/moved", (q) => federationCall(() => (m.moved(member(q), obj(q.body)), { ok: true })));
 	// Another member sets a key here (only when this gateway's owner allowed it).
 	r.on("POST", "/federation/secrets", (q) => {
 		const from = member(q);
@@ -68,5 +71,6 @@ export function federationAdminRoutes(core: Core): Router {
 	r.on("POST", "/admin/federation/join", (q) => federationCall(async () => ({ members: await m.join(String(obj(q.body).code ?? "")) })));
 	r.on("POST", "/admin/federation/leave", () => federationCall(async () => (await m.leave(), { ok: true })));
 	r.on("DELETE", "/admin/members/:name", (q) => federationCall(async () => (await m.remove(q.params.name!), { ok: true })));
+	r.on("POST", "/admin/members/:name/rotate", (q) => federationCall(async () => (await m.rotate(q.params.name!), { ok: true })));
 	return r;
 }

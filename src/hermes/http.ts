@@ -19,6 +19,8 @@ export type Req = {
 	raw: IncomingMessage;
 	/** The network member a `/federation/*` request comes from (checked by the server). */
 	member?: MemberRow;
+	/** The TLS-PSK handshake identity when the request came over the encrypted port (src/federation/psk.ts). */
+	psk?: string;
 };
 
 export type Handler = (req: Req) => unknown | Promise<unknown>;
