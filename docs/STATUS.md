@@ -1,10 +1,11 @@
-# Status (2026-10-15)
+# Status (2026-10-16)
 
 "Automated" = our suite (`npm test`, 90 tests, faux model, no network). "Live" = exercised against a real
 model (now `neuralwatt/deepseek-v4.1-flash`; earlier runs used `cerebras/gpt-oss-120b`, both via Pi's provider layer) and/or the stock Vory client.
 
-Deployment under test: the **hermes VM** (Debian 13, on the LAN), nHermes as a systemd user service on
-port 9120 next to the existing Hermes (9119, untouched). Bots: `main`, `ops` (trusted, SSH host),
+Deployment under test: three gateways in one network, all on port 9119 with the encrypted member port
+10119: the **hermes VM** and **media VM** (Debian 13, systemd user services) and the **Mac** (launchd).
+The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On the hermes VM: Bots: `main`, `ops` (trusted, SSH host),
 `desktop` (XFCE on `:0`), `mac` (peer agent on Neil's Mac; since replaced by the network of gateways, `docs/FEDERATION.md`).
 
 | # | Definition of done | Automated | Live | Notes |
