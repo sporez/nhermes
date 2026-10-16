@@ -20,9 +20,14 @@ function h(tag, attrs = {}, ...kids) {
 	return el;
 }
 
-/** Replaces the main view; like h(), it accepts lists and skips empty values. */
+/** Replaces an element's children; like h(), it accepts lists and skips empty values (replaceChildren would show them as text). */
+function fill(el, ...kids) {
+	el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+}
+
+/** Replaces the main view. */
 function show(...kids) {
-	view.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+	fill(view, ...kids);
 }
 
 /**
@@ -972,7 +977,7 @@ function connectCard() {
 	const hideToken = () => tokenBox.replaceChildren(h("button", { on: { click: showToken } }, "Show token"));
 	const showToken = () => run(async () => {
 		const r = await api("POST", "/connect/token");
-		tokenBox.replaceChildren(
+		fill(tokenBox,
 			h("div", { class: "row" }, selectable(r.token, "mono token"),
 				h("button", { on: { click: () => copyText(r.token, "token") } }, "Copy"),
 				h("button", { class: "link", on: { click: hideToken } }, "Hide")),
@@ -1024,7 +1029,7 @@ function softwareCard() {
 		void refreshUpdateBadge(sw);
 		const running = sw.running ? ` ${sw.running} running chat${sw.running === 1 ? "" : "s"} will pause for a few seconds and carry on.` : "";
 		const restartNote = sw.managed ? `The gateway restarts by itself.${running}` : "This gateway is not running as a service: restart it yourself afterwards.";
-		body.replaceChildren(
+		fill(body,
 			sw.current ? h("div", {}, h("span", { class: "muted small" }, "Running "), commitLine(sw.current)) : h("div", { class: "muted" }, "Version unknown."),
 			h("div", { class: "muted small" }, `From ${sw.remote ?? "an unknown source"}${sw.branch ? ` (${sw.branch})` : ""} · last checked ${sw.lastCheck ? ago(sw.lastCheck) : "never"}`),
 			sw.updatable ? null : h("div", { class: "notice" }, sw.reason),
