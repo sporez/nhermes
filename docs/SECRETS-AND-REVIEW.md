@@ -72,6 +72,9 @@ Status: implemented (S1–S6); decisions recorded at the end.
 ### S3. Optional: set a key on other members too
 
 - "Also set on" picks members; the value goes over the member link to their `/federation/secrets`.
+- "Send to…" on a key that is already set sends it the same way without typing it again: the gateway
+  reads the value itself (`POST /panel/api/secrets/:name/send`), so it never reaches the browser. The
+  gateway token is never sent.
 - Off by default on the receiving side: a gateway accepts keys from members only when its owner turns
   on "accept keys from network members" (per gateway). Every received key is logged with the sender.
 - Values travel as plain HTTP on the LAN (encrypted only over Tailscale), the same as everything else

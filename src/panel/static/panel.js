@@ -649,10 +649,10 @@ async function memoryScreen() {
 const GATEWAY_TOKEN_KEY = "NHERMES_TOKEN";
 const KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
-function memberChecks(members) {
+function memberChecks(members, label = "Also set on") {
 	const boxes = members.map((m) => h("input", { type: "checkbox", value: m.name, disabled: !m.reachable }));
 	const el = members.length
-		? h("div", { class: "field" }, h("span", { class: "small muted" }, "Also set on"),
+		? h("div", { class: "field" }, h("span", { class: "small muted" }, label),
 			h("div", { class: "checks" }, members.map((m, i) => h("label", {}, boxes[i], m.name, m.reachable ? "" : " (unreachable)"))))
 		: null;
 	return { el, picked: () => boxes.filter((b) => b.checked).map((b) => b.value) };
@@ -724,9 +724,28 @@ async function keysScreen() {
 			wrap.replaceChildren(head, h("div", { class: "field" }), field(k.set ? "Replace value" : "Value", value), checks.el,
 				h("div", { class: "row" }, h("button", { class: "primary", on: { click: save } }, "Save"), h("button", { on: { click: cancel } }, "Cancel")));
 		};
+		const send = () => {
+			const checks = memberChecks(data.members, "Send to");
+			const go = () => run(async () => {
+				const to = checks.picked();
+				if (!to.length) return toast("Pick a machine first", true);
+				const r = await api("POST", `/secrets/${encodeURIComponent(k.name)}/send`, { to });
+				const bad = r.members.filter((m) => !m.ok);
+				const good = r.members.filter((m) => m.ok);
+				const parts = [];
+				if (good.length) parts.push(`Sent to ${good.map((m) => m.name).join(", ")}.`);
+				if (bad.length) parts.push(`Failed: ${bad.map((m) => `${m.name} (${m.error ?? "error"})`).join("; ")}.`);
+				toast(parts.join(" "), bad.length > 0);
+				if (!bad.length) draw();
+			});
+			wrap.replaceChildren(head, h("div", { class: "field" }), checks.el,
+				h("div", { class: "muted small" }, "The machine must have \"Accept keys from other machines\" on (its panel, Network)."),
+				h("div", { class: "row" }, h("button", { class: "primary", on: { click: go } }, "Send"), h("button", { on: { click: draw } }, "Cancel")));
+		};
 		const draw = () => wrap.replaceChildren(h("div", { class: "row between" }, head,
 			h("div", { class: "row" },
 				editable && !isToken && h("button", { on: { click: edit } }, k.set ? "Replace" : "Set"),
+				k.set && !isToken && data.members.length > 0 && h("button", { on: { click: send } }, "Send to…"),
 				isToken && h("button", { on: { click: generate } }, "Generate new token"),
 				k.set && h("button", { class: "link", on: { click: identify } }, "Identify"),
 				k.set && editable && !isToken && h("button", { class: "link danger", on: { click: remove } }, "Remove"))));

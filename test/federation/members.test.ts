@@ -149,8 +149,26 @@ test("a key set in one panel can go to other machines that accept keys", async (
 		assert.equal(c.core.secrets.list().some((s) => s.name === "SHARED_TEST_KEY"), false);
 		// The gateway token never travels.
 		assert.equal((await panel(a, "PUT", "/secrets/NHERMES_TOKEN", { value: "x".repeat(24), alsoOn: ["beta"] })).status, 400);
+
+		// "Send to…": a key alpha already has goes out without being typed again, and never comes back.
+		assert.equal((await panel(a, "PUT", "/secrets/SENT_TEST_KEY", { value: "sent-value-0123456789" })).status, 200);
+		const inFile = (g: Gw) => g.core.secrets.list().find((s) => s.name === "SENT_TEST_KEY")?.source === "file";
+		assert.equal(inFile(b), false);
+		const sent = await panel(a, "POST", "/secrets/SENT_TEST_KEY/send", { to: ["beta", "gamma", "nobody"] });
+		const text = await sent.text();
+		assert.equal(sent.status, 200);
+		assert.doesNotMatch(text, /sent-value/);
+		const result = JSON.parse(text) as { members: { name: string; ok: boolean; error?: string }[] };
+		assert.deepEqual(result.members.map((m) => [m.name, m.ok]), [["beta", true], ["gamma", false], ["nobody", false]]);
+		assert.match(result.members[1]!.error!, /does not accept keys/);
+		assert.equal(inFile(b), true, "written to beta's secrets.env");
+		assert.equal(inFile(c), false);
+		assert.equal((await panel(a, "POST", "/secrets/SENT_TEST_KEY/send", { to: [] })).status, 400);
+		assert.equal((await panel(a, "POST", "/secrets/NOT_SET_ANYWHERE/send", { to: ["beta"] })).status, 404);
+		assert.equal((await panel(a, "POST", "/secrets/NHERMES_TOKEN/send", { to: ["beta"] })).status, 400);
 	} finally {
 		delete process.env.SHARED_TEST_KEY;
+		delete process.env.SENT_TEST_KEY;
 		await close(a, b, c);
 		await cleanup();
 	}

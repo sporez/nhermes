@@ -270,15 +270,10 @@ export class Panel {
 
 		// Keys (secrets.env): names, status and where they are used; values go in, never come back out.
 		r.on("GET", "/panel/api/secrets", () => ({ secrets: c.secrets.list(), acceptsFromMembers: c.members.acceptsSecrets(), members: c.members.list().map((m) => ({ name: m.name, reachable: m.reachable })) }));
-		r.on("PUT", "/panel/api/secrets/:name", async (q) => {
-			const b = obj(q.body);
-			const name = q.params.name!;
-			const value = String(b.value ?? "");
-			const alsoOn = Array.isArray(b.alsoOn) ? b.alsoOn.filter((x): x is string => typeof x === "string") : [];
-			if (alsoOn.length > 0 && name === c.config.tokenEnv) throw new HttpError(400, "each machine keeps its own gateway token");
-			const result = c.secrets.set(name, value);
-			const members = await Promise.all(
-				alsoOn.map(async (member) => {
+		// Sets a key on other members over the member link; each answers for itself (it may not accept keys).
+		const sendKey = (name: string, value: string, to: string[]) =>
+			Promise.all(
+				to.map(async (member) => {
 					const m = c.members.byName(member);
 					if (!m) return { name: member, ok: false, error: "not a member" };
 					try {
@@ -289,7 +284,27 @@ export class Panel {
 					}
 				}),
 			);
-			return { ...result, members };
+		const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+		r.on("PUT", "/panel/api/secrets/:name", async (q) => {
+			const b = obj(q.body);
+			const name = q.params.name!;
+			const value = String(b.value ?? "");
+			const alsoOn = names(b.alsoOn);
+			if (alsoOn.length > 0 && name === c.config.tokenEnv) throw new HttpError(400, "each machine keeps its own gateway token");
+			const result = c.secrets.set(name, value);
+			return { ...result, members: await sendKey(name, value, alsoOn) };
+		});
+		// Sends a key this machine already has; the value is read here and never reaches the browser.
+		r.on("POST", "/panel/api/secrets/:name/send", async (q) => {
+			const name = q.params.name!;
+			const to = names(obj(q.body).to);
+			if (to.length === 0) throw new HttpError(400, "pick at least one machine");
+			if (name === c.config.tokenEnv) throw new HttpError(400, "each machine keeps its own gateway token");
+			const value = c.secrets.list().some((s) => s.name === name && s.set) ? process.env[name] : undefined;
+			if (!value) throw new HttpError(404, `${name} is not set`);
+			const members = await sendKey(name, value, to);
+			log.info("key sent to members", { name, to: members.filter((m) => m.ok).map((m) => m.name) });
+			return { members };
 		});
 		r.on("DELETE", "/panel/api/secrets/:name", (q) => c.secrets.remove(q.params.name!));
 		r.on("POST", "/panel/api/secrets/:name/hint", (q) => ({ hint: c.secrets.hint(q.params.name!) }));
