@@ -53,7 +53,8 @@ export function skillsFeature(late: LateServices, skills: Skills): Feature {
 				const active = skills.active(bot, sessionSkills(late, sessionId)).filter((s) => s.modelInvocable);
 				if (active.length === 0) return undefined;
 				return [
-					"Skills: specialised instructions you can load with the skill tool when a task matches one. Load before acting; do not guess their contents.",
+					"Skills: specialised instructions you can load with the skill tool when a task matches one. Load before acting; do not guess their contents. " +
+						"The skill tool is the only way to read them (file for a skill's other files): they are kept with the gateway's configuration, not on disk where you can reach them, so a script a skill runs belongs in your workspace.",
 					...active.map((s) => `- ${s.name}: ${s.description}`),
 				].join("\n");
 			},

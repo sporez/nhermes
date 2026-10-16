@@ -268,7 +268,10 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 			const bot = botOf(api.conversationId as number);
 			const written = services.skills.write(bot.skillsDir, args.name, args.skillMd, args.files);
 			audit(api, bot, "self_skill_write", { skill: args.name, files: written });
-			return text(`Wrote skill "${args.name}" (${written.join(", ")}). It is active from your next message.`);
+			return text(
+				`Wrote skill "${args.name}" (${written.join(", ")}). It is active from your next message. ` +
+					"Read it back with the skill tool (file for its other files) and change it with self_skill_write; skills are kept with the gateway's configuration, so do not look for them on disk.",
+			);
 		},
 	});
 	const skillDelete = defineTool({
