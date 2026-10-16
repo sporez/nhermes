@@ -1,7 +1,17 @@
 // Neuralwatt: an OpenAI-compatible provider whose /v1/models list carries names, vision, reasoning
 // efforts, limits and prices, so its whole catalogue can be built from that one call.
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
+import type { ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ProviderCatalog } from "./catalogs.ts";
+
+/**
+ * Pi's OpenAI-compatible request, plus the header Neuralwatt routes on to keep one conversation on the
+ * server that holds its prompt cache. Without it a chat can land on a cold server between two calls
+ * seconds apart and pay for its whole prompt again. Pi gives each conversation its own session id.
+ */
+export const streamWithConversation: NonNullable<ProviderConfig["streamSimple"]> = (model, context, options) =>
+	streamSimple(model as Model<"openai-completions">, context, options?.sessionId ? { ...options, headers: { ...options.headers, "X-NW-Conversation-ID": options.sessionId } } : options);
 
 type NwModel = {
 	id: string;
@@ -62,6 +72,7 @@ export const neuralwatt: ProviderCatalog = {
 		baseUrl: "https://api.neuralwatt.com/v1",
 		api: "openai-completions",
 		authHeader: true,
+		streamSimple: streamWithConversation,
 	},
 	async fetchModels(key, fetchFn, signal) {
 		const res = await fetchFn("https://api.neuralwatt.com/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal });

@@ -60,6 +60,34 @@ test("the mapping keeps tool-capable models with their limits, prices and reason
 	assert.equal(models[1]!.name, "bare");
 });
 
+test("a Neuralwatt request names its conversation, so the chat stays on the server holding its cache", async () => {
+	const { dir, cleanup } = await tempDir();
+	const db = new AppDb(join(dir, "app.sqlite"));
+	process.env[KEY] = "nw-key-0123456789";
+	try {
+		const models = await runtime(dir);
+		const cat = new ProviderCatalogs({ models, db, modelsPath: join(dir, "models.json"), catalogs: [neuralwatt], fetch: fakeFetch(() => ["m1"]).fn });
+		await cat.start();
+		cat.stop();
+		const sent: Headers[] = [];
+		const capture = (async (_url: string | URL | Request, init?: RequestInit) => {
+			sent.push(new Headers(init?.headers));
+			return new Response("busy", { status: 400 });
+		}) as typeof fetch;
+		const model = models.getModel("neuralwatt", "m1")!;
+		const context = { messages: [{ role: "user" as const, content: "hi", timestamp: 0 }] };
+		await models.streamSimple(model, context, { sessionId: "chat-1", fetch: capture, maxRetries: 0 }).result();
+		await models.streamSimple(model, context, { fetch: capture, maxRetries: 0 }).result();
+		assert.equal(sent.length, 2);
+		assert.equal(sent[0]!.get("x-nw-conversation-id"), "chat-1");
+		assert.equal(sent[1]!.get("x-nw-conversation-id"), null, "no session id, no header");
+	} finally {
+		db.close();
+		delete process.env[KEY];
+		await cleanup();
+	}
+});
+
 test("a set key brings the models in, a stored list survives a dead network, a removed key withdraws them", async () => {
 	const { dir, cleanup } = await tempDir();
 	const db = new AppDb(join(dir, "app.sqlite"));

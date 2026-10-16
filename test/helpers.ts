@@ -14,7 +14,8 @@ export const TOKEN = "test-token-0123456789abcdef";
 
 export async function tempDir(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
 	const dir = await mkdtemp(join(tmpdir(), "nh-test-"));
-	return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+	// Retries: Pi's model store can drop a lock file into the directory while it is being removed.
+	return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 5 }) };
 }
 
 export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Config> = {}): Config {
