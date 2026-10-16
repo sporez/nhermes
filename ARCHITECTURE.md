@@ -13,7 +13,8 @@ drive it as if it were a Hermes gateway.
  │  hermes/        Hermes-compatible REST + /api/ws JSON-RPC  (translation only)           │
  │  admin/         small JSON API used by the CLI                                          │
  │  panel/         web control panel at /panel (static page + /panel/api/*)                 │
- │  federation/    members: invite/join, roster, proxy chats, /federation/manage            │
+ │  federation/    members: invite/join, roster, proxy chats, /federation/manage;          │
+ │                 TLS-PSK between members on the encrypted port (federation/psk.ts)       │
  │──────────────────────────────────────────────────────────────────────────────────────── │
  │  core/          bots · sessions · runs/events hub · approvals · scheduler · notifier     │
  │  memory/        per-bot memory + explicit shared notes (SQLite FTS5)                    │

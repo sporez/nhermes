@@ -157,6 +157,10 @@ Every machine runs the same gateway; together they form one network of equals (`
 - Members find each other at `node.url` (config) or, without it, the machine's LAN address and port.
   Set `node.url` when that guess is wrong (several interfaces, Tailscale only). `node.name` defaults to
   the host name.
+- Members talk encrypted on a second port: the main port + 1000 (10119 with the default 9119), or the
+  next free one, or `server.federationPort`. Open it between the machines if a firewall sits between
+  them. The panel (Network) shows the port and whether each member is encrypted.
+- A gateway that moves (another port or IP) tells the other members by itself on its next tick.
 - "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
   panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`).
 

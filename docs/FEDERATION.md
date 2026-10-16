@@ -101,10 +101,11 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 - `nhermes members` lists members and their reachability. `nhermes members remove <name>` revokes the
   member everywhere (each member deletes its secret for it). `nhermes leave` does the same from the
   leaving side.
-- Member-to-member calls authenticate with the pairwise secret, in a header distinct from Vory's
-  `X-Hermes-Session-Token`, so a member's credential cannot open the admin API.
-- Transport: plain HTTP/WS. Members are on the owner's LAN, and away from home the owner reaches it over
-  Tailscale (which encrypts). TLS is not built in and not planned.
+- Member-to-member calls go over TLS-PSK keyed by the pair secret (see "Encrypted links" below), so a
+  member's credential never travels and cannot open the admin API. A member on an older version still
+  authenticates with the pair secret in a header (`x-nhermes-member-secret`) over plain HTTP/WS.
+- Vory and the panel stay plain HTTP on the main port; put them behind a TLS proxy (Caddy) or Tailscale
+  for encryption there.
 - Migration: an existing `peer:` bot entry keeps working unchanged. Once its gateway joins, its bots
   also appear as discovered remote bots (F4); remove the old entry and its `tokenEnv` in the panel or
   config.yaml when convenient.
@@ -234,6 +235,42 @@ sessions, memory and approvals.
   the owner's choice for a household LAN; set a panel password or `server.host: 127.0.0.1` on any
   machine reachable from a less trusted network.
 
+## Encrypted links
+
+Everything between two members (pair secrets, keys sent with "Send to…" or "Also set on", relayed chats,
+delegated tasks, approvals, bot edits) goes over TLS 1.2 with the pair secret as a pre-shared key
+(`src/federation/psk.ts`, cipher `ECDHE-PSK-CHACHA20-POLY1305`). There are no certificates: both sides
+prove they hold the secret in the handshake, the secret never travels, and ECDHE gives forward secrecy.
+
+- **Port.** A second listener, the encrypted port, serves only `/federation/*` and the member WebSocket.
+  It is `server.federationPort` when set (used as given; a clash stops the start), else the main port +
+  1000, moving up to the next free port (10 tries). The port in use is advertised in `/federation/hello`,
+  join codes, join answers, introductions and address announcements, and shown in the panel (Network).
+- **Identity.** The handshake identity names the caller and which secret it uses (`m:<node id>:<key
+  id>`); the server answers with that member's key or refuses the handshake. A joiner uses `i:<invite id>`
+  with a key derived from the invite, so the join itself, and the pair secret it hands out, are
+  encrypted with a key only the code's holder can make. Spent and expired codes fail in the handshake.
+- **Upgrade.** Every minute a gateway asks members with no known encrypted port for `/federation/hello`;
+  once it answers with one, that member is only reached encrypted. There is no fallback to plain HTTP:
+  a fallback is what an attacker on the LAN would force.
+- **Replacing secrets.** Secrets of older versions travelled in clear on every request. Once a pair talks
+  encrypted, the member with the lower node id replaces the secret over the encrypted link
+  (`/federation/rotate`, refused in clear). The old secret keeps opening the encrypted port for 10
+  minutes, for connections in flight, then nothing. The panel's "Regenerate key" does the same on demand.
+  This protects against anyone who recorded traffic before; against someone actively intercepting at that
+  moment with the old secret, remove the member and join it again.
+- **Refusing plain HTTP.** A member that has reached this gateway encrypted is refused on the main port
+  (403, WebSocket close 4403). "Refuse unencrypted connections from all members" (Network) refuses every
+  member there, including older ones; it is off by default.
+- **Address changes.** Every gateway remembers the address it last told the others (main URL and
+  encrypted port). On every tick it compares, and when either changed it tells each member
+  (`/federation/moved`, through the outbox, so an offline member gets it later). The moved gateway starts
+  the call because it still knows where the others are; any one machine can move. A message can change a
+  member's address but never take it back to plain HTTP.
+- **Rolling back** a gateway to a version without the encrypted port cuts its links: the others keep
+  calling its encrypted port. Update it again, or remove and re-join it.
+- Hand-listed `peer:` gateways (token in config) are not members and are not covered.
+
 ## What `@` does in Vory today
 
 Checked in Vory `d99369b`. In an ordinary chat, `@` in the composer opens a picker over the gateway's
@@ -252,7 +289,8 @@ delegating the task to it. Bot rooms remain out of scope.
 
 - Profile names for remote bots: `<bot>-<node>` (see F4).
 - The panel manages sessions and memory minimally (see F6).
-- No built-in TLS; Tailscale covers access away from home.
+- Members talk TLS-PSK on their encrypted port (see "Encrypted links"); Vory and the panel stay plain
+  HTTP behind a TLS proxy or Tailscale.
 
 ## Progress
 
