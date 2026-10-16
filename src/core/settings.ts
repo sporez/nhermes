@@ -116,6 +116,29 @@ export class Settings {
 		return result;
 	}
 
+	/**
+	 * Moves settings older versions kept as overrides in app.sqlite (Vory's model, thinking, description,
+	 * instructions) into config.yaml, so each bot's settings live in one place. Returns the bots moved.
+	 */
+	foldOverrides(): string[] {
+		const moved: string[] = [];
+		for (const b of this.d.config.bots) {
+			const o = this.d.bots.overrides(b.name);
+			const patch: BotPatch = {};
+			for (const [k, ok] of Object.entries(SHADOWED) as [keyof BotPatch, keyof BotOverrides][]) {
+				if (o[ok] !== undefined) (patch as Record<string, unknown>)[k] = o[ok];
+			}
+			if (Object.keys(patch).length === 0) continue;
+			try {
+				this.editBot(b.name, patch);
+				moved.push(b.name);
+			} catch (error) {
+				log.warn("could not move a bot's overrides into config.yaml", { bot: b.name, error: String(error) });
+			}
+		}
+		return moved;
+	}
+
 	addBot(bot: BotConfig): ReloadResult {
 		if (this.d.config.bots.some((b) => b.name === bot.name)) throw new ConfigError(`a bot named "${bot.name}" already exists`);
 		const entry = Object.fromEntries(Object.entries(bot).filter(([, v]) => v !== undefined && v !== false));

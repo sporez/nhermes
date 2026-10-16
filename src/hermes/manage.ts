@@ -30,7 +30,7 @@ const MIME: Record<string, string> = {
 };
 
 /** Turns the services' own errors into HTTP answers. */
-function call<T>(fn: () => T): T {
+export function call<T>(fn: () => T): T {
 	try {
 		return fn();
 	} catch (error) {
@@ -158,10 +158,10 @@ export function manageRoutes(core: Core, r: Router): void {
 				const ref = String(value ?? "");
 				const i = ref.indexOf("/");
 				if (i <= 0 || !core.models.getModel(ref.slice(0, i), ref.slice(i + 1))) throw new HttpError(400, `Unknown model ${ref} (use provider/model)`);
-				bots.setOverrides(bot.name, { model: ref });
+				call(() => settings.editBot(bot.name, { model: ref }));
 			} else if (key === "agent.reasoning_effort") {
 				if (!THINKING_LEVELS.includes(value as ThinkingLevel)) throw new HttpError(400, `reasoning_effort must be one of ${THINKING_LEVELS.join(", ")}`);
-				bots.setOverrides(bot.name, { thinking: value as ThinkingLevel });
+				call(() => settings.editBot(bot.name, { thinking: value as ThinkingLevel }));
 			} else if (key === "approvals.mode") {
 				if (!["manual", "smart", "off"].includes(String(value))) throw new HttpError(400, "approvals.mode must be manual, smart or off");
 				call(() => settings.editBot(bot.name, { approvals: { ...bot.config.approvals, mode: value as "manual" | "smart" | "off" } }));
@@ -202,7 +202,7 @@ export function manageRoutes(core: Core, r: Router): void {
 		const provider = typeof b.provider === "string" ? b.provider : "";
 		const model = typeof b.model === "string" ? b.model : "";
 		if (!core.models.getModel(provider, model)) throw new HttpError(400, `Unknown model ${provider}/${model}`);
-		bots.setOverrides(bot.name, { model: `${provider}/${model}` });
+		call(() => settings.editBot(bot.name, { model: `${provider}/${model}` }));
 		return { ok: true, provider, model };
 	});
 	const keyName = (v: unknown) => {

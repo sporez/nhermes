@@ -277,6 +277,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	});
 
 	const settings = new Settings({ config, bots, toolGroups: () => [...toolGroups.keys()], botChanged: (name) => hosts.reset(name) });
+	const folded = settings.withBackup(() => settings.foldOverrides());
+	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
 
 	vory.start();
 	engine.resume();

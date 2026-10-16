@@ -145,6 +145,8 @@ test("config, tool groups, model and keys are written for the selected bot", asy
 		// The Model page's "Change default model".
 		assert.equal((await api("POST", "/api/model/set?profile=main", { scope: "main", provider: "faux", model: "faux-2" })).status, 200);
 		assert.equal(core.bots.require("main").model.modelId, "faux-2");
+		assert.equal(loadConfig(core.config.configPath).bots.find((b) => b.name === "main")!.model, "faux/faux-2", "saved in config.yaml, where the panel reads it");
+		assert.equal(core.bots.overrides("main").model, undefined);
 		assert.equal((await api("POST", "/api/model/set", { scope: "auxiliary", task: "vision", provider: "faux", model: "faux-2" })).status, 400);
 
 		// Keys: set and clear; never the gateway token.

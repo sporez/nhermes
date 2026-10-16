@@ -21,8 +21,9 @@ machine. A web control panel served by every gateway at `/panel` manages the net
   (`src/hermes/rest.ts:77`, `src/hermes/ws.ts:231`) and `sessions.create` refuses them
   (`src/core/sessions.ts:111`). `/api/profiles` never lists a gateway's own peers, which already prevents
   transitive forwarding.
-- Bots come from `config.yaml`, read once at startup; runtime overrides (model, instructions,
-  description, skill toggles) live in `app.sqlite` (`src/core/bots.ts`). The bot roster in each prompt is
+- Bots come from `config.yaml`, read once at startup; edits from the panel and Vory are written
+  back to it at runtime (`src/core/settings.ts`); only skill toggles live in `app.sqlite`
+  (`src/core/bots.ts`). The bot roster in each prompt is
   rebuilt every turn (`src/agent/extensions.ts:40-50`), so roster changes reach running conversations on
   their next turn.
 - The CLI talks to the running gateway through `/admin/*` with the Vory session token (`src/cli.ts:95`).
@@ -59,7 +60,7 @@ Each phase lands as tested commits and updates `docs/STATUS.md`, `docs/COMPATIBI
 
 ### F1. Private bots
 
-- `private: true` on a bot in `config.yaml`, with an override in `app.sqlite` so the panel can flip it.
+- `private: true` on a bot in `config.yaml`; the panel flips it there.
 - Excluded from the delegate roster prompt part (`src/app.ts:139-144`) and refused as a `delegate`
   target (`src/tools/delegate.ts:107-110`) with a "no bot named X" answer, so its existence is not
   revealed.
@@ -75,7 +76,7 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
   `config.yaml` and validate it before swapping (a bad file keeps the running config and reports why).
 - Admin endpoints to create, edit and remove local bots, and change gateway settings. Writes go to
   `config.yaml` through the `yaml` Document API so comments and ordering survive, then reload.
-  Runtime-only fields stay in overrides.
+  Vory's bot settings are written the same way; only skill toggles stay in `app.sqlite`.
 - Removing a bot keeps its sessions, memory and workspace on disk; the panel says so.
 - In-flight runs keep the agent config they started with; the next turn picks up changes. The
   scheduler re-reads jobs whose bot changed.

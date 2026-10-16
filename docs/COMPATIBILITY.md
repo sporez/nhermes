@@ -50,7 +50,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | List bots | `GET /api/profiles`, `profiles.list` | Tested | E2E `restEndpointsAnswerJSON`; UI | One profile per bot, `is_default` for the primary bot |
 | Active bot | `GET /api/profiles/active` | Tested | | |
 | Bot instructions | `GET/PUT /api/profiles/{name}/soul` | Tested | | SOUL = bot instructions |
-| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model persist as bot overrides |
+| Bot description / model | `PUT /api/profiles/{name}/description`, `/model` | Partial | | Description and default model are saved in the bot's `config.yaml` entry |
 | Profile home | `config.get {key:"profile"}` | Tested | | Bot workspace path |
 | Create / delete bots | `POST /api/profiles` `{name, clone_from?}`, `DELETE /api/profiles/{name}` | Tested | | Adds or removes the bot in config.yaml, as the panel does. `clone_from` copies the other bot's settings and instructions (not its name, default flag, workspace or chats). Delete keeps the bot's chats, memory and workspace on disk; the default bot cannot be deleted. Renaming is not offered by Vory |
 | Network members' bots | `GET /api/profiles`, `profiles.list`, `session.create` | Tested (protocol) | not yet in the Vory UI | Listed as `<bot>-<node>`, display name `Name (node)`; chats run on the member through this gateway (`docs/FEDERATION.md` F5). Its Tools, Skills, Config, instructions, description, model and usage go over the member link to its machine, which answers with its own handlers (`src/federation/vory.ts`): reads always, changes only when that machine allows bot edits from members (its panel: Network), else 403 saying so |
@@ -100,7 +100,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Session model switch | `config.set model "<m> --provider <p> --session"` | Tested | | Durable `configure({model})` |
 | Reasoning effort | `config.set reasoning` | Tested | | Durable `thinkingLevel` |
 | Fast mode | `config.set fast` | Gated | | Accepted and reported as unsupported |
-| Default model of a bot | `PUT /api/profiles/{name}/model`, `POST /api/model/set` `{scope:"main"}` | Partial | | Persists as a bot override; existing sessions keep their own model |
+| Default model of a bot | `PUT /api/profiles/{name}/model`, `POST /api/model/set` `{scope:"main"}` | Partial | | Saved in the bot's `config.yaml` entry; existing sessions keep their own model |
 | Auxiliary models | `GET /api/model/auxiliary`, `POST /api/model/set` `{scope:"auxiliary"}` | Gated | | 404 / 400: the Jev reviewer's model is fixed, nothing else is auxiliary |
 
 ## Skills, config, status
@@ -112,7 +112,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Slash command catalog | `commands.catalog` | Tested | E2E | Built-ins we really run + skills |
 | Slash execution | `slash.exec`, `command.dispatch` | Partial | | `/compact`, `/usage`, `/status`; others return error 4018 |
 | Config read | `GET /api/config?profile=`, `/api/config/schema` | Tested | E2E, UI Config page | The selected bot's model, approval mode, reasoning and "always allowed" rules (`command_allowlist`); the approval timeout and time zone are gateway-wide. `dashboard.ws_orphan_reap_grace_s` reads 0: nHermes never stops a turn because the app left |
-| Config write | `PUT /api/config?profile=` `{config:{…}}` | Tested | | Model and reasoning as bot overrides; approval mode in the bot's config.yaml entry; timeout and time zone in config.yaml (after a restart); `command_allowlist` adds and removes the bot's rules. Any other key, or a nonzero away grace, answers 400 with the reason |
+| Config write | `PUT /api/config?profile=` `{config:{…}}` | Tested | | Model, reasoning and approval mode in the bot's config.yaml entry; timeout and time zone in config.yaml (after a restart); `command_allowlist` adds and removes the bot's rules. Any other key, or a nonzero away grace, answers 400 with the reason |
 | Env / keys | `GET /api/env`, `PUT /api/env` `{key,value}`, `DELETE /api/env` `{key}` | Tested | E2E, UI Env page | Redacted, write-only, into secrets.env as the panel's Keys tab does; gateway-wide, not per bot. The gateway token is refused (403): it is changed in the panel or with `nhermes` |
 | MCP servers | `/api/mcp/servers` | Future | | Not supported yet; may come later. 404 meanwhile |
 | Logs | `GET /api/logs?lines=` | Tested | | The last 500 log lines this process wrote, as `YYYY-MM-DD HH:MM:SS LEVEL [scope] message`; older ones are in the journal / launchd log |

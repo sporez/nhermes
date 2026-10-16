@@ -96,6 +96,26 @@ test("bot edits keep comments, clear shadowing overrides and reach existing sess
 	}
 });
 
+test("overrides an older version kept in app.sqlite move into config.yaml at startup", async () => {
+	const { dir, path, core, cleanup } = await setup();
+	let next: Awaited<ReturnType<typeof createCore>> | undefined;
+	try {
+		core.bots.setOverrides("ops", { model: "faux/faux-2", thinking: "low", disabledSkills: ["x"] });
+		await core.close();
+		next = await createCore(loadConfig(path), { models: fauxModels().models });
+		const ops = loadConfig(path).bots.find((b) => b.name === "ops")!;
+		assert.equal(ops.model, "faux/faux-2");
+		assert.equal(ops.thinking, "low");
+		assert.match(readFileSync(path, "utf8"), /# infrastructure/, "comments kept");
+		assert.deepEqual(next.bots.overrides("ops"), { disabledSkills: ["x"] }, "skill toggles stay where they were");
+		assert.equal(next.bots.require("ops").model.modelId, "faux-2");
+		assert.ok(readFileSync(join(dir, "config.yaml.prev"), "utf8").includes("name: ops"), "the file before the move is kept");
+	} finally {
+		await next?.close();
+		await cleanup();
+	}
+});
+
 test("add and remove bots; instructions kept in a SOUL file stay there", async () => {
 	const { dir, path, core, cleanup } = await setup();
 	try {

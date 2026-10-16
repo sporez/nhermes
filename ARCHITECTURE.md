@@ -49,7 +49,7 @@ drive it as if it were a Hermes gateway.
 
 | Concept | What it is | Where it lives |
 |---|---|---|
-| **Bot** | A persistent agent identity: name, display name, instructions (SOUL), default model + thinking level, tool groups, skills, execution target (local dir or SSH host), approval policy, memory scope, optional peer URL | `config.yaml` (`bots:`), with runtime overrides in `app.sqlite` |
+| **Bot** | A persistent agent identity: name, display name, instructions (SOUL), default model + thinking level, tool groups, skills, execution target (local dir or SSH host), approval policy, memory scope, optional peer URL | `config.yaml` (`bots:`); per-bot skill toggles in `app.sqlite` |
 | **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
 | **Run** | One answered input: a Durable submission and the turns it took | Durable (`pi.inbox`, tasks, entries). We only keep ids |
 | **Job** | A schedule with a prompt, target bot, optional model/skills, notification policy | `app.jobs`, `app.job_runs` |

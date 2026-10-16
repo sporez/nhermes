@@ -5,7 +5,7 @@ import { GROUP_LABELS } from "../tools/index.ts";
 import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
 import { botFor, localOnly } from "./lookup.ts";
-import { manageRoutes } from "./manage.ts";
+import { call, manageRoutes } from "./manage.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
 import { VoryPushError } from "../notify/vory.ts";
 import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
@@ -63,7 +63,7 @@ export async function modelOptions(core: Core, current?: { provider: string; mod
 
 export function restRoutes(core: Core): Router {
 	const r = new Router();
-	const { sessions, bots } = core;
+	const { sessions, bots, settings } = core;
 
 	const listRow = (id: string) => {
 		const row = sessions.require(id);
@@ -103,14 +103,14 @@ export function restRoutes(core: Core): Router {
 		if (typeof content !== "string") throw new HttpError(422, "content is required");
 		const bot = botFor(core, q.params.name);
 		localOnly(bot);
-		bots.setOverrides(bot.name, { instructions: content });
+		call(() => settings.editBot(bot.name, { instructions: content }));
 		return { ok: true };
 	});
 	r.on("PUT", "/api/profiles/:name/description", (q) => {
 		const d = obj(q.body).description;
 		const bot = botFor(core, q.params.name);
 		localOnly(bot);
-		bots.setOverrides(bot.name, { description: typeof d === "string" ? d : "" });
+		call(() => settings.editBot(bot.name, { description: typeof d === "string" ? d : "" }));
 		return { ok: true };
 	});
 	r.on("PUT", "/api/profiles/:name/model", (q) => {
@@ -120,7 +120,7 @@ export function restRoutes(core: Core): Router {
 		const bot = botFor(core, q.params.name);
 		localOnly(bot);
 		if (!core.models.getModel(provider, model)) throw new HttpError(400, `Unknown model ${provider}/${model}`);
-		bots.setOverrides(bot.name, { model: `${provider}/${model}` });
+		call(() => settings.editBot(bot.name, { model: `${provider}/${model}` }));
 		return { ok: true, provider, model };
 	});
 
