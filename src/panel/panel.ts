@@ -232,7 +232,7 @@ export class Panel {
 		r.on("GET", "/panel/api/remote/:node/bots/:name/prompt", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/prompt`));
 
 		// Network
-		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), members: c.members.list(), acceptsBotEdits: c.members.acceptsBotEdits() }));
+		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), pskPort: c.members.pskPort(), members: c.members.list(), acceptsBotEdits: c.members.acceptsBotEdits(), requiresPsk: c.members.requiresPsk() }));
 		r.on("POST", "/panel/api/network/invite", (q) => {
 			const url = obj(q.body).url;
 			return c.members.invite({ url: typeof url === "string" && url ? url : undefined });
@@ -241,6 +241,7 @@ export class Panel {
 		r.on("POST", "/panel/api/network/join", async (q) => ({ members: await c.members.join(str(obj(q.body).code, "code")) }));
 		r.on("POST", "/panel/api/network/leave", async () => (await c.members.leave(), { ok: true }));
 		r.on("DELETE", "/panel/api/network/members/:name", async (q) => (await c.members.remove(q.params.name!), { ok: true }));
+		r.on("POST", "/panel/api/network/members/:name/rotate", async (q) => (await c.members.rotate(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
 
 		// Connecting a client (Vory): the addresses to use, and the gateway token shown on request.
@@ -310,13 +311,15 @@ export class Panel {
 		r.on("POST", "/panel/api/secrets/:name/hint", (q) => ({ hint: c.secrets.hint(q.params.name!) }));
 		r.on("POST", "/panel/api/token/new", () => c.secrets.newToken());
 		r.on("PATCH", "/panel/api/network/settings", (q) => {
-			const { acceptSecrets, acceptBotEdits } = obj(q.body);
-			if (acceptSecrets === undefined && acceptBotEdits === undefined) throw new HttpError(400, "acceptSecrets or acceptBotEdits is required");
+			const { acceptSecrets, acceptBotEdits, requirePsk } = obj(q.body);
+			if (acceptSecrets === undefined && acceptBotEdits === undefined && requirePsk === undefined) throw new HttpError(400, "acceptSecrets, acceptBotEdits or requirePsk is required");
 			if (acceptSecrets !== undefined && typeof acceptSecrets !== "boolean") throw new HttpError(400, "acceptSecrets must be true or false");
 			if (acceptBotEdits !== undefined && typeof acceptBotEdits !== "boolean") throw new HttpError(400, "acceptBotEdits must be true or false");
+			if (requirePsk !== undefined && typeof requirePsk !== "boolean") throw new HttpError(400, "requirePsk must be true or false");
 			if (acceptSecrets !== undefined) c.members.setAcceptsSecrets(acceptSecrets);
 			if (acceptBotEdits !== undefined) c.members.setAcceptsBotEdits(acceptBotEdits);
-			return { acceptsFromMembers: c.members.acceptsSecrets(), acceptsBotEdits: c.members.acceptsBotEdits() };
+			if (requirePsk !== undefined) c.members.setRequiresPsk(requirePsk);
+			return { acceptsFromMembers: c.members.acceptsSecrets(), acceptsBotEdits: c.members.acceptsBotEdits(), requiresPsk: c.members.requiresPsk() };
 		});
 
 		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)
