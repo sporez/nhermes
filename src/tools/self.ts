@@ -51,7 +51,7 @@ export function lineDiff(before: string, after: string): string {
  * What gateway_bot_update / gateway_bot_add may set. Left out even for trusted bots: sharedMemory (reaches other
  * bots' data), secrets and peer (name environment variables that hold secrets, which a bot could then send out).
  */
-export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop"] as const;
+export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "recentChats", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop"] as const;
 
 /** Gateway settings a trusted bot may change (no server address or port, no key variable names). */
 function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {

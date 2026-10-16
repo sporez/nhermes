@@ -179,6 +179,7 @@ const BOT_KEYS = new Set<string>([
 	"tools",
 	"skills",
 	"sharedMemory",
+	"recentChats",
 	"approvals",
 	"trusted",
 	"private",

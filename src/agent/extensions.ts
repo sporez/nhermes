@@ -42,7 +42,7 @@ export type AgentDeps = {
 };
 
 /** Messages in a chat that the gateway wrote, not the owner (delegation reports, scheduled prompts). */
-const NOT_THE_OWNER = /^\[(Result from bot|[\w-]+ could not finish|Scheduled task)/;
+export const NOT_THE_OWNER = /^\[(Result from bot|[\w-]+ could not finish|Scheduled task)/;
 
 /** What the reviewer is told: the owner's recent words where the work started, and any delegated task texts. */
 async function reviewContext(sessions: Sessions, sessionId: string, attention: string): Promise<{ humanMessages: string[]; delegated: string[] }> {

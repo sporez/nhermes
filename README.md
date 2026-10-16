@@ -8,7 +8,7 @@ runs the agents; the gateway speaks the Hermes dashboard protocol, so the stock
   chats per bot, plus job and delegation sessions.
 - **Durable**: conversations, runs and scheduled jobs survive restarts and disconnects.
 - **Approvals** enforced on the server for high-impact actions, answered from Vory.
-- **Skills** (standard `SKILL.md`), **memory** (per bot, explicit shared spaces, SQLite FTS5),
+- **Skills** (standard `SKILL.md`), **memory** (per bot, explicit shared spaces, SQLite FTS5, and a new chat sees the bot's latest chats),
   **scheduled tasks** with history, Vory's own notifications (and/or Pushover), **delegation** between bots.
 - **Remote hosts** over SSH (pi-env), and a **network of gateways**: machines join with a one-time code,
   every bot on every machine can delegate to the others, and Vory on any machine lists them all.

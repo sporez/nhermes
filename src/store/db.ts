@@ -213,6 +213,13 @@ const MIGRATIONS: readonly string[] = [
 	ALTER TABLE members ADD COLUMN psk_inbound INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE members ADD COLUMN rotated INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 12: the bot's latest chats as a new chat first saw them (src/tools/memory.ts), kept so its prompt
+	// stays the same for the life of the chat; NULL until its first prompt. Chats that already exist keep
+	// the prompt they had.
+	`
+	ALTER TABLE sessions ADD COLUMN recap TEXT;
+	UPDATE sessions SET recap = '';
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

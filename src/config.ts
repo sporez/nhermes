@@ -35,6 +35,8 @@ export type BotConfig = {
 	skills?: string[];
 	/** Shared memory spaces this bot may read and write. */
 	sharedMemory?: string[];
+	/** How many of its latest chats a new chat is told about (default 5; 0 turns it off). Needs the memory tools. */
+	recentChats?: number;
 	approvals?: { mode?: ApprovalMode; ask?: string[]; deny?: string[]; allow?: string[] };
 	/** Owner-trusted infrastructure bot: broad shell, only high-impact patterns ask. */
 	trusted?: boolean;
@@ -173,6 +175,8 @@ function parseBot(raw: unknown, i: number): BotConfig {
 	const ap = asRecord(r.approvals, `${where}.approvals`);
 	const mode = str(ap.mode, `${where}.approvals.mode`);
 	if (mode && !["smart", "manual", "off"].includes(mode)) throw new ConfigError(`${where}.approvals.mode is invalid`);
+	const recent = r.recentChats;
+	if (recent !== undefined && (typeof recent !== "number" || !Number.isInteger(recent) || recent < 0 || recent > 20)) throw new ConfigError(`${where}.recentChats must be a whole number from 0 to 20`);
 	const hostRaw = asRecord(r.host, `${where}.host`);
 	let host: BotConfig["host"];
 	if (hostRaw.ssh !== undefined) {
@@ -203,6 +207,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		tools: strList(r.tools, `${where}.tools`),
 		skills: strList(r.skills, `${where}.skills`),
 		sharedMemory: strList(r.sharedMemory, `${where}.sharedMemory`),
+		recentChats: recent as number | undefined,
 		approvals: {
 			mode: mode as ApprovalMode | undefined,
 			ask: strList(ap.ask, `${where}.approvals.ask`),

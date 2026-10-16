@@ -140,3 +140,71 @@ test("memory: remember and recall through tools, survive a restart, and stay per
 		await cleanup();
 	}
 });
+
+test("recent chats: a new chat is told about the bot's latest chats with the owner, fixed when it starts; chat_search and chat_read reach them", async () => {
+	const { dir, cleanup } = await tempDir();
+	const config = testConfig(dir, [
+		{ name: "main", default: true, instructions: "main", recentChats: 2 },
+		{ name: "ops", instructions: "ops", recentChats: 0 },
+	]);
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models, config });
+	const promptOf = async (bot: string, id: string) => (await Promise.all(core.deps.promptParts.map((p) => p(core.bots.require(bot), id)))).join("\n");
+	const chat = async (bot: string, prompt: string, answer: string, opts: { kind?: "job" } = {}) => {
+		const s = await core.sessions.create(bot, opts);
+		const c = collect(core.hub, s.id);
+		faux.setResponses([fauxAssistantMessage([fauxText(answer)])]);
+		await core.sessions.submit(s.id, prompt);
+		await c.until((e) => e.type === "run.finished");
+		return s;
+	};
+	try {
+		const garage = await chat("main", "help me plan the garage shelves", "Use 2x4 uprights every 16 inches.");
+		await chat("main", "what was the dentist's number", "It is 555-0100.");
+		const archived = await chat("main", "secret archived topic", "ok");
+		core.sessions.update(archived.id, { archived: true });
+		await chat("main", "scheduled thing", "job answer", { kind: "job" });
+		const opsChat = await chat("ops", "check the proxmox node", "All good.");
+
+		// A new chat of main sees its 2 latest chats with the owner: not archived ones or jobs.
+		const next = await chat("main", "back to the shelves", "Sure.");
+		const prompt = await promptOf("main", next.id);
+		assert.match(prompt, /Recent chats:/);
+		assert.match(prompt, new RegExp(`help me plan the garage shelves.*\\(id ${garage.id}\\): last asked "help me plan the garage shelves"; last answer "Use 2x4 uprights`));
+		assert.match(prompt, /dentist/);
+		assert.doesNotMatch(prompt, /secret archived|scheduled thing|proxmox/);
+
+		// Fixed for the life of the chat: a later chat does not change it.
+		await chat("main", "a brand new topic about bikes", "Bikes!");
+		assert.equal(await promptOf("main", next.id), prompt);
+		assert.doesNotMatch(prompt, /bikes/);
+		// The panel's "new chat" view is worked out fresh (the 2 latest now: bikes, shelves).
+		const fresh = await promptOf("main", "");
+		assert.match(fresh, /bikes/);
+		assert.doesNotMatch(fresh, /dentist/);
+		// recentChats: 0 turns it off.
+		assert.doesNotMatch(await promptOf("ops", opsChat.id), /Recent chats/);
+
+		// The tools: search finds a word inside a transcript, read shows the chat, other bots' chats stay out.
+		const c = collect(core.hub, next.id);
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("chat_search", { query: "uprights 16" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("chat_read", { id: garage.id })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("chat_read", { id: opsChat.id })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("chat_read", { id: archived.id })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Done.")]),
+		]);
+		await core.sessions.submit(next.id, "what did we decide?");
+		await c.until((e) => e.type === "run.finished");
+		const results = (c.events.filter((e) => e.type === "tool.finished") as { resultText: string }[]).map((r) => r.resultText);
+		assert.match(results[0]!, new RegExp(`id ${garage.id}`));
+		assert.doesNotMatch(results[0]!, /dentist/);
+		assert.match(results[1]!, /Owner: help me plan the garage shelves\n\nYou: Use 2x4 uprights every 16 inches\./);
+		assert.match(results[2]!, /No chat/);
+		assert.match(results[3]!, /No chat/);
+		assert.equal(await promptOf("main", next.id), prompt, "still fixed after more turns");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});

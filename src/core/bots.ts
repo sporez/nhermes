@@ -30,6 +30,8 @@ export type Bot = {
 	globalSkills: string[];
 	disabledSkills: string[];
 	sharedMemory: string[];
+	/** Latest chats a new chat is told about (0: none). */
+	recentChats: number;
 	approvals: { mode: ApprovalMode; ask: string[]; deny: string[]; allow: string[] };
 	trusted: boolean;
 	/** Hidden from other bots' rosters and refused as a delegation target; never shared with members. */
@@ -72,6 +74,7 @@ function remoteBot(r: RemoteBot, config: Config): Bot {
 		globalSkills: [],
 		disabledSkills: [],
 		sharedMemory: [],
+		recentChats: 0,
 		approvals: { mode: config.defaults.approvals, ask: [], deny: [], allow: [] },
 		trusted: false,
 		private: false,
@@ -181,6 +184,7 @@ export class Bots {
 			globalSkills,
 			disabledSkills: o.disabledSkills ?? [],
 			sharedMemory: b.sharedMemory ?? [],
+			recentChats: b.recentChats ?? 5,
 			approvals: {
 				mode: b.approvals?.mode ?? this.config.defaults.approvals,
 				ask: b.approvals?.ask ?? [],

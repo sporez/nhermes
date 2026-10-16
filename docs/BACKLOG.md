@@ -60,6 +60,12 @@ Status per phase: see `docs/STATUS.md`.
 
 ## Deferred
 
+- **Chat summaries for Recent chats.** Today a new chat sees each recent chat's title, last question and
+  the start of the last answer (`src/tools/memory.ts`). Next step, if previews prove too thin: once a chat
+  has been idle about 10 minutes, a cheap model writes 3-5 lines on it (what it was about, what was
+  decided, what is still open), kept with the chat; Recent chats shows the summary when there is one.
+  Needs a summarizer model setting and an idle trigger (a chat has no explicit end).
+
 - **Per-bot "Bot Chat" (forever-chat).** Hermes keeps one session titled "Bot Chat" per profile and reports
   it as `canonical_session` in `profiles.list`; jobs and bot-to-bot messages can land there. Vory (d99369b)
   uses it only to open a "Messaged X" notice read-only, so it is deferred until a client relies on it. Today

@@ -72,7 +72,7 @@ Durable's extension API, `defineTool`/`hook`/`section`, since that is how tools 
 - `createConversation(botId, agentConfig)`, `configure(id, change)`, `submit(id, text, requestId, mode)`,
   `abort(id)`, `entries(id)`, `watch(id, listener)` (wraps `watchEvents`), `usage(id)`.
 - Extensions installed in the registry: core tools (`read/write/edit/bash`), our tool groups, the
-  `persona` section (bot instructions + pinned memory + skill index), and the `guard` extension whose
+  `persona` section (bot instructions + pinned memory + recent chats + skill index), and the `guard` extension whose
   `beforeTool` hook is the approval gate.
 - `env` callback: resolves the conversation's bot and returns its execution environment
   (`NodeExecutionEnv` with the bot's workspace, or a cached `RemoteExecutionEnv` for an SSH host).
@@ -130,7 +130,7 @@ with only the high-impact patterns asking.
 |---|---|---|
 | `files`, `shell` | `read`, `write`, `edit`, `bash` | Pi Durable's own, run in the bot's env (local or SSH) |
 | `web` | `web_fetch`, `http_request` | `fetch` with size/time limits; credentials as `{{secret:NAME}}` for env vars the bot lists under `secrets:`, scrubbed from results |
-| `memory` | `remember`, `recall`, `forget`, `memory_list`, `memory_update` | Scoped to the bot; shared spaces only when granted |
+| `memory` | `remember`, `recall`, `forget`, `memory_list`, `memory_update`, `chat_search`, `chat_read` | Scoped to the bot; shared spaces only when granted; chats are the bot's own with the owner |
 | `skills` | `skill` (load a SKILL.md by name) | The prompt lists names + descriptions only |
 | `schedule` | `schedule_create/list/update/delete/run/history` | Same service the Vory cron screens use |
 | `delegate` | `delegate` (ask another bot, wait or not) | Durable child conversations / peer HTTP |
@@ -162,6 +162,14 @@ shared spaces listed in its config; nothing is merged automatically. Pinned item
 `persona` section (small budget), so they survive compaction; everything else is reached through
 `recall`. Provenance: `source` records the session and entry (or "user", "job:<id>").
 Conversation history stays in Pi Durable and is not copied into memory.
+
+**Recent chats.** A new chat of a bot with the memory tools gets a "Recent chats" section: its latest
+`recentChats` chats with the owner (default 5, `0` turns it off), each with its id, date, title, last
+question and the start of the last answer. Jobs, delegated tasks, archived chats, chats with a member's
+bot and work a member started are left out. The section is worked out at the chat's first prompt and kept
+in `sessions.recap`, so the prompt stays the same (and cacheable) for the life of the chat; chats from
+before this feature keep `''`. `chat_search` (whole text of the latest 40 chats, titles and last answers
+of older ones) and `chat_read` (one chat in pages, latest first) reach the rest, limited to the same chats.
 
 ## Scheduling
 

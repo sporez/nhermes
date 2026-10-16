@@ -38,10 +38,16 @@ export type SessionRow = {
 	thinking_override: number;
 	/** Node id of the member that holds this chat's conversation (a chat with a member's bot). */
 	remote_node: string | null;
+	/** The "recent chats" prompt section as this chat first saw it; null until then. */
+	recap: string | null;
 };
 
 /** How chats with a member's bot are run (src/federation/proxy.ts). */
 export type RemoteSessionHooks = { running: (id: string) => boolean; deleted: (row: SessionRow) => Promise<void> };
+
+/** A bot's chats with the owner (`Sessions.ownerChats`); its one parameter is the bot. */
+const OWNER_CHAT =
+	"bot = ? AND deleted = 0 AND archived = 0 AND kind = 'chat' AND remote_node IS NULL AND message_count > 0 AND (source NOT LIKE 'member:%' OR source LIKE 'member:%:owner')";
 
 export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; search?: string };
 
@@ -207,6 +213,29 @@ export class Sessions {
 		const rows = this.db.all<SessionRow>(`SELECT * FROM sessions WHERE ${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, o.limit, o.offset);
 		const total = this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM sessions WHERE ${clause}`, ...params)?.n ?? 0;
 		return { rows, total };
+	}
+
+	/**
+	 * A bot's chats with the owner, latest first: its own chats here, or the owner's relayed from a member.
+	 * Not jobs, delegated tasks, archived chats, chats with a member's bot, or work a member started.
+	 */
+	ownerChats(botName: string, opts: { limit: number; except?: string; search?: string }): SessionRow[] {
+		const where = [OWNER_CHAT, "id != ?"];
+		const params: (string | number)[] = [botName, opts.except ?? ""];
+		if (opts.search) {
+			where.push("(title LIKE ? OR preview LIKE ?)");
+			params.push(`%${opts.search}%`, `%${opts.search}%`);
+		}
+		return this.db.all<SessionRow>(`SELECT * FROM sessions WHERE ${where.join(" AND ")} ORDER BY last_active DESC LIMIT ?`, ...params, opts.limit);
+	}
+
+	/** One of `ownerChats`, by id. */
+	ownerChat(botName: string, id: string): SessionRow | undefined {
+		return this.db.get<SessionRow>(`SELECT * FROM sessions WHERE ${OWNER_CHAT} AND id = ?`, botName, id);
+	}
+
+	setRecap(id: string, recap: string): void {
+		this.db.run("UPDATE sessions SET recap = ? WHERE id = ?", recap, id);
 	}
 
 	update(id: string, patch: { title?: string; archived?: boolean; pinned?: boolean }): SessionRow {
