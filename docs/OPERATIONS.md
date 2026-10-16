@@ -69,7 +69,7 @@ The service is a single process; do not run two against one data directory.
 
 ## Connect Vory
 
-Vory → Settings → Gateways → Add: URL `http://<host>:9120` (or the Tailscale name / an HTTPS reverse
+Vory → Settings → Gateways → Add: URL `http://<host>:9119` (or the Tailscale name / an HTTPS reverse
 proxy), authentication **Session token**, token = `NHERMES_TOKEN`. Keep the port off the internet: use
 Tailscale or a TLS proxy. Wrong tokens get HTTP 401 / WebSocket close 4401.
 
