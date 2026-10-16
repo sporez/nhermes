@@ -86,6 +86,8 @@ export class VoryPush implements OptionalNotifier {
 	private readonly timers = new Set<NodeJS.Timeout>();
 	private lastTest: Record<string, unknown> = {};
 	private lastError: string | null = null;
+	/** What the relay answered last (it passes on Apple's status), for the app's test diagnostics. */
+	private lastResponse = "";
 	private off?: () => void;
 
 	constructor(opts: VoryPushOptions) {
@@ -340,7 +342,7 @@ export class VoryPush implements OptionalNotifier {
 
 	private async sendTest(nonce: string): Promise<void> {
 		const reached = await this.pushAll("test", "Vory", "Test notification from your gateway ✓", { nonce, session_id: "" }, { collapse: "vory-test" });
-		this.lastTest = { last_test_nonce: nonce, last_test_devices: reached.size, last_test_at: Date.now() / 1000, last_test_detail: this.lastError ?? "relay 200" };
+		this.lastTest = { last_test_nonce: nonce, last_test_devices: reached.size, last_test_at: Date.now() / 1000, last_test_detail: this.lastResponse };
 		log.info("test notification sent", { devices: reached.size });
 	}
 
@@ -428,15 +430,16 @@ export class VoryPush implements OptionalNotifier {
 				body: JSON.stringify({ install_id: d.relay!.install_id, secret: d.relay!.secret, ...body }),
 				signal: AbortSignal.timeout(20_000),
 			});
+			const detail = (await res.text().catch(() => "")).slice(0, 200);
+			this.lastResponse = `relay ${res.status}: ${detail.slice(0, 160)}`;
 			if (res.ok) {
 				this.lastError = null;
 				return true;
 			}
-			const detail = (await res.text().catch(() => "")).slice(0, 200);
 			this.lastError = `relay ${res.status}: ${detail}`;
 			log.warn("relay refused", { device: d.device_name ?? d.device_id.slice(0, 12), status: res.status, detail });
 		} catch (error) {
-			this.lastError = `relay unreachable: ${error instanceof Error ? error.message : String(error)}`;
+			this.lastError = this.lastResponse = `relay unreachable: ${error instanceof Error ? error.message : String(error)}`;
 			log.warn("relay unreachable", { error: this.lastError });
 		}
 		return false;
