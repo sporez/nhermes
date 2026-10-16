@@ -271,6 +271,28 @@ test("config tools: trusted-only tools are refused through an untrusted chain or
 	}
 });
 
+test("config tools: the owner's chat relayed by a member is asked when this machine accepts bot edits", async () => {
+	const { core, cards, run, cleanup } = await setupFile();
+	try {
+		const relayed = { source: "member:abc:owner" };
+		const off = await run("main", [["self_update", { description: "Relayed" }]], relayed);
+		assert.equal(off[0]!.isError, true, "refused while bot edits are off");
+		assert.equal(cards.length, 0);
+		core.members.setAcceptsBotEdits(true);
+		const on = await run("main", [["self_update", { description: "Relayed" }], ["gateway_update", { patch: { timezone: "UTC" } }]], relayed);
+		assert.deepEqual(on.map((x) => x.isError), [false, true], "self tools asked; gateway tools still need trust");
+		assert.deepEqual(cards.map((c) => c.toolName), ["self_update"]);
+		assert.equal(core.bots.require("main").description, "Relayed");
+		// Delegated work from a member stays refused whatever the setting.
+		const delegated = await run("main", [["self_update", { description: "Delegated" }]], { source: "member:abc" });
+		assert.equal(delegated[0]!.isError, true);
+		assert.equal(cards.length, 1);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
 test("ground rules: configuration is changed only through the self and gateway tools", async () => {
 	const { groundRules } = await import("../../src/agent/extensions.ts");
 	const text = groundRules(["/etc/nh", "/var/nh"]);

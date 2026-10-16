@@ -235,6 +235,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		reviewLog,
 		describeConfig: (bot, name, args) => describeConfigCall(selfServices, bot, name, args),
 		gatewayFiles: gatewayFilesPattern(config.configDir, config.dataDir),
+		acceptsBotEdits: () => members.acceptsBotEdits(),
 		machine: () => members.self().name,
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];

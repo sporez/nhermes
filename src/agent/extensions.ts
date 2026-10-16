@@ -35,6 +35,8 @@ export type AgentDeps = {
 	gatewayFiles?: RegExp;
 	/** The change a config tool call would make, shown on its approval card (diffs). */
 	describeConfig?: (bot: Bot, name: string, args: Record<string, unknown>) => string | undefined;
+	/** Whether other machines may edit this machine's bots (federation.acceptBotEdits). */
+	acceptsBotEdits?: () => boolean;
 	/** This machine's name in the network (for the reviewer). */
 	machine?: () => string;
 };
@@ -155,16 +157,21 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const order = { manual: 0, smart: 1, off: 2 } as const;
 					const mode = [bot, ...chain].map((b) => b.approvals.mode).reduce((a, m) => (order[m] < order[a] ? m : a));
 					// Trust does not cross machines: work a network member started is never trusted here.
-					const fromMember = sessions.get(attention)?.source.startsWith("member:") === true;
+					const source = sessions.get(attention)?.source ?? "";
+					const fromMember = source.startsWith("member:");
+					// The owner's own chat relayed from their client on a member (memberSource in src/hermes/ws.ts).
+					const relayed = fromMember && source.endsWith(":owner");
 					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted) && !fromMember, approvals: { ...bot.approvals, mode } };
 					const args = call.arguments as Record<string, unknown>;
 					// Trusted-only tools are refused, not asked, when the work is not trusted end to end.
 					if (needsTrust(call.name, args, bot.name) && !effective.trusted) {
 						return { block: `${call.name} is only available to trusted work: ${fromMember ? "a network member started this" : chain.some((b) => !b.trusted) ? "a bot that is not trusted delegated it" : "this bot is not trusted"}` };
 					}
-					// Configuration never changes in a run nobody attends, or in work another machine started.
+					// Configuration never changes in a run nobody attends, or in work another machine started. The
+					// owner's chat relayed from a member is asked like a local one when this machine lets other
+					// machines edit its bots; the card reaches the owner through the member.
 					const config = isConfigCall(call.name, args);
-					if (config && (sessions.get(attention)?.kind === "job" || fromMember)) {
+					if (config && (sessions.get(attention)?.kind === "job" || (fromMember && !(relayed && deps.acceptsBotEdits?.() === true)))) {
 						return { block: `${call.name} changes the configuration, which needs the owner present: ${fromMember ? "this work came from another machine" : "scheduled runs cannot do it"}` };
 					}
 					const reviewer = deps.reviewer?.active() ? deps.reviewer : undefined;

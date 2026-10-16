@@ -46,10 +46,10 @@ export class ProxySessions {
 		return this.running.has(id);
 	}
 
-	/** Starts a chat with a member's bot. */
+	/** Starts a chat with a member's bot; `relay` tells the member it is the owner's own chat, not delegated work. */
 	async create(bot: Bot, opts: { source?: string; title?: string }): Promise<Reply> {
 		const remote = this.remoteOf(bot);
-		const r = await this.link(remote.nodeId).call<Reply>("session.create", { profile: remote.bot, ...(opts.title ? { title: opts.title } : {}) });
+		const r = await this.link(remote.nodeId).call<Reply>("session.create", { profile: remote.bot, relay: true, ...(opts.title ? { title: opts.title } : {}) });
 		const id = String(r.session_id ?? "");
 		if (!id) throw new LinkError(-32000, `${remote.node} did not start a chat`);
 		this.d.sessions().registerRemote(id, bot.name, remote.nodeId, opts);

@@ -55,6 +55,7 @@ test("a client on alpha chats with beta's bot through alpha", async () => {
 		const sid = created.session_id;
 		assert.equal(created.info.profile_name, "nasbot-beta");
 		assert.ok(b.core.sessions.get(sid), "the conversation lives on beta under the same id");
+		assert.equal(b.core.sessions.get(sid)?.source, `member:${a.core.members.self().id}:owner`, "marked as the owner's relayed chat");
 		assert.equal(a.core.sessions.get(sid)?.remote_node, b.core.members.self().id);
 
 		// A turn with an approval: beta asks, alpha's client answers.

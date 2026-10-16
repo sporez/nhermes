@@ -79,9 +79,13 @@ const PROXIED = new Set([
 	"command.dispatch",
 ]);
 
-/** The session source that marks a chat a member started (it is never trusted, see guardExtension). */
-export function memberSource(nodeId: string): string {
-	return `member:${nodeId}`;
+/**
+ * The session source that marks a chat a member started (it is never trusted, see guardExtension).
+ * `relayed` marks the owner's own chat passed on from their client on that member (`session.create`
+ * with `relay: true`, sent only by ProxySessions); delegated work and anything unmarked stay plain.
+ */
+export function memberSource(nodeId: string, relayed = false): string {
+	return relayed ? `member:${nodeId}:owner` : `member:${nodeId}`;
 }
 
 export class Connection {
@@ -193,7 +197,7 @@ export class Connection {
 		if (!MEMBER_METHODS.has(method)) throw new RpcError(-32601, `unknown method: ${method}`);
 		if (typeof p.session_id === "string" && p.session_id) {
 			const row = this.core.sessions.get(p.session_id);
-			if (row && row.source !== memberSource(member.node_id)) throw new RpcError(4006, `session not found: ${p.session_id}`);
+			if (row && row.source !== memberSource(member.node_id) && row.source !== memberSource(member.node_id, true)) throw new RpcError(4006, `session not found: ${p.session_id}`);
 		}
 		if (method === "config.set" && p.key === "yolo") throw new RpcError(4003, "a network member cannot switch approvals off");
 		if (method === "session.create" && (typeof p.profile !== "string" || !p.profile || p.profile === "default")) {
@@ -335,7 +339,7 @@ export class Connection {
 					this.attach(String(r.session_id));
 					return r;
 				}
-				const source = this.member ? memberSource(this.member.node_id) : typeof p.source === "string" ? p.source : "ios";
+				const source = this.member ? memberSource(this.member.node_id, p.relay === true) : typeof p.source === "string" ? p.source : "ios";
 				const row = await sessions.create(bot.name, { kind: "chat", source, title: typeof p.title === "string" ? p.title : undefined });
 				await sessions.live(row.id);
 				this.attach(row.id);

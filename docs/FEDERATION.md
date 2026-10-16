@@ -221,6 +221,12 @@ sessions, memory and approvals.
   `members remove` works from any member.
 - Trust does not cross machines: a run started by a member is never treated as `trusted` on the owning
   gateway, whatever the caller's chain was.
+- Configuration changes (`self_*`, `gateway_*`) are refused in work a member started, with one exception:
+  the owner's own chat relayed from their client on a member (`session.create` with `relay: true`, which
+  only the proxy sends; source `member:<node>:owner`). There the `self_*` tools ask the owner as in a
+  local chat when this machine has "Let other machines edit this machine's bots" on; `gateway_*` tools
+  still need trust and stay refused. Delegated work (source `member:<node>`) is always refused. The mark
+  is the member's word, the same trust the switch already gives it.
 - Member secrets never reach prompts, logs or tool environments (the existing secret scrubbing and
   shell environment stripping apply).
 - With no panel password, anyone on the LAN can change bots, invite machines and remove members. That is
