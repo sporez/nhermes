@@ -202,7 +202,8 @@ Screens:
 - **Keys**: `secrets.env` write-only, optionally copied to members that accept keys
   (`docs/SECRETS-AND-REVIEW.md`).
 - **Status**: running count, pending approvals (answerable from the panel), scheduled jobs with their
-  last result, pause/resume, the Jev review log.
+  schedule, options (same or fresh thread, result posted to chat, when it notifies) and last result,
+  pause/resume and delete, the Jev review log.
 - **Gateway**: node name and URL, defaults (model, thinking, approvals, approval timeout), time zone,
   listen address, Jev review settings, model lists (hidden providers), connect a client (addresses and
   the token on request), software updates; the panel password.

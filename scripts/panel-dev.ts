@@ -76,6 +76,7 @@ const main = a.core.bots.get("main")!;
 a.core.memory.add(main, { body: "The Wi-Fi password is on the fridge.", pinned: true, source: "owner" });
 a.core.memory.add(main, { body: "Trash goes out on Tuesday night.", space: "household", source: "owner" });
 a.core.scheduler.create({ name: "Morning check", bot: "ops", prompt: "Check the disks.", schedule: "0 7 * * *" } as never);
+a.core.scheduler.create({ name: "Watch the backups", bot: "main", prompt: "Did last night's backup finish?", schedule: "every 6h", context: "continue", deliver: "chat", notify: "on_change" });
 
 // One finished chat and one waiting for an approval.
 const s1 = await a.core.sessions.create("main");

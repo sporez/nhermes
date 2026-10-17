@@ -13,6 +13,8 @@ import { configView } from "../admin.ts";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
+import { describeSpec } from "../core/schedule.ts";
+import { specOf } from "../core/scheduler.ts";
 import type { SessionSpend } from "../core/sessions.ts";
 import { SecretError } from "../core/secrets.ts";
 import { UpdateError } from "../core/updates.ts";
@@ -412,7 +414,10 @@ export class Panel {
 			approvals: c.approvals.allPending().map((a) => ({ id: a.requestId, sessionId: a.sessionId, bot: a.bot, tool: a.toolName, command: a.command, description: a.description, createdAt: a.createdAt })),
 			jobs: c.scheduler.list().map((j) => {
 				const last = c.scheduler.lastRun(j.id);
-				return { id: j.id, name: j.name, bot: j.bot, enabled: j.enabled === 1, nextRunAt: j.next_run_at, running: c.scheduler.isRunning(j.id), lastStatus: last?.status ?? null, lastError: last?.error || null, lastRunAt: last?.started_at ?? null };
+				return {
+					id: j.id, name: j.name, bot: j.bot, schedule: describeSpec(specOf(j)), timezone: j.timezone, context: j.context, deliver: j.deliver, notify: j.notify,
+					enabled: j.enabled === 1, nextRunAt: j.next_run_at, running: c.scheduler.isRunning(j.id), lastStatus: last?.status ?? null, lastError: last?.error || null, lastRunAt: last?.started_at ?? null,
+				};
 			}),
 		}));
 		r.on("POST", "/panel/api/approvals/:id", (q) => {
@@ -427,6 +432,7 @@ export class Panel {
 			else throw new HttpError(404, "Not Found");
 			return { ok: true };
 		});
+		r.on("DELETE", "/panel/api/jobs/:id", (q) => ({ deleted: c.scheduler.delete(q.params.id!) }));
 		return r;
 	}
 }

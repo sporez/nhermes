@@ -834,6 +834,7 @@ async function keysScreen() {
 
 // ---- Status ----
 const OUTCOMES = { auto_allowed: ["auto-approved", "ok"], asked: ["sent to you", "warn"], unavailable: ["unavailable", ""] };
+const JOB_NOTIFY = { never: "never notifies", always: "notifies every run", on_error: "notifies on failure", on_change: "notifies on change", agent: "bot decides when to notify" };
 
 async function reviewSection() {
 	const q = new URLSearchParams({ limit: "30" });
@@ -883,11 +884,18 @@ async function statusScreen() {
 			h("button", { class: "danger", on: { click: answer(a, "deny") } }, "Deny"))));
 
 	const jobRow = (j) => h("tr", {},
-		h("td", {}, h("div", {}, j.name), h("div", { class: "muted small" }, j.bot)),
+		h("td", {}, h("div", {}, j.name), h("div", { class: "muted small" }, `${j.bot} - ${j.schedule} (${j.timezone})`),
+			h("div", { class: "muted small" }, [j.context === "continue" ? "same thread every run" : "fresh thread each run", j.deliver === "chat" ? "posts result to chat" : "result stays in its session", JOB_NOTIFY[j.notify] ?? `notify: ${j.notify}`].join(" - "))),
 		h("td", {}, j.running ? badge("running", "ok") : j.enabled ? badge("scheduled") : badge("paused", "warn")),
 		h("td", { class: "hide-s" }, j.enabled ? ago(j.nextRunAt) : ""),
 		h("td", {}, j.lastRunAt ? `${j.lastStatus ?? ""} ${ago(j.lastRunAt)}` : "never", j.lastError && h("div", { class: "err small" }, j.lastError)),
-		h("td", {}, h("button", { class: "link", on: { click: () => run(async () => { await api("POST", `/jobs/${j.id}/${j.enabled ? "pause" : "resume"}`); await statusScreen(); }) } }, j.enabled ? "Pause" : "Resume")));
+		h("td", {}, h("div", { class: "row" },
+			h("button", { class: "link", on: { click: () => run(async () => { await api("POST", `/jobs/${j.id}/${j.enabled ? "pause" : "resume"}`); await statusScreen(); }) } }, j.enabled ? "Pause" : "Resume"),
+			h("button", { class: "link danger", on: { click: () => run(async () => {
+				if (!confirm(`Delete the scheduled job "${j.name}"? It stops running; the chat its runs wrote stays in Sessions.`)) return;
+				await api("DELETE", `/jobs/${j.id}`);
+				await statusScreen();
+			}) } }, "Delete"))));
 
 	show(h("h1", {}, "Status"),
 		h("div", { class: "card" }, h("strong", {}, String(s.running)), ` ${s.running === 1 ? "chat" : "chats"} running right now`),

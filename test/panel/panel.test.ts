@@ -210,6 +210,19 @@ test("sessions, memory and approvals from the panel", async () => {
 		assert.deepEqual((await panel("POST", `/approvals/${pending[0]!.id}`, { choice: "deny" })).json, { answered: true });
 		await ev.until((e) => e.type === "run.finished", 10000);
 
+		// Scheduled jobs: their options ride on the line; paused and deleted from the panel.
+		const job = core.scheduler.create({ name: "Watch disks", bot: "ops", prompt: "check", schedule: "every 1h", timezone: "UTC", context: "continue", deliver: "chat", notify: "on_change" });
+		const jobsNow = async () => (await panel("GET", "/status")).json.jobs as Record<string, unknown>[];
+		assert.deepEqual(
+			(({ schedule, timezone, context, deliver, notify, enabled }) => ({ schedule, timezone, context, deliver, notify, enabled }))((await jobsNow())[0]!),
+			{ schedule: "every 1h", timezone: "UTC", context: "continue", deliver: "chat", notify: "on_change", enabled: true },
+		);
+		assert.equal((await panel("POST", `/jobs/${job.id}/pause`)).status, 200);
+		assert.equal((await jobsNow())[0]!.enabled, false);
+		assert.deepEqual((await panel("DELETE", `/jobs/${job.id}`)).json, { deleted: true });
+		assert.deepEqual(await jobsNow(), []);
+		assert.equal((await panel("DELETE", `/jobs/${job.id}`)).status, 404);
+
 		const list = await panel("GET", "/sessions?bot=ops");
 		const rows = list.json.sessions as { id: string; title: string; running: boolean; usage: { total: number; calls: number } | null }[];
 		assert.equal(rows.length, 1);
