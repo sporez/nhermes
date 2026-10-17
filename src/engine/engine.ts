@@ -27,6 +27,7 @@ import {
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { logger } from "../log.ts";
+import { imageTokens } from "./image-tokens.ts";
 
 const log = logger("engine");
 const ctx = BACKGROUND_CONTEXT;
@@ -210,19 +211,40 @@ export class Engine {
 		return (msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
 	}
 
-	/** Rough token estimate (chars / 4) of what the next request would carry, by part. */
+	/**
+	 * Rough token estimate of what the next request would carry, by part: text at chars / 4, images by
+	 * their pixel size on this model's provider (nothing if the model takes no images).
+	 */
 	async contextStats(id: ConvId): Promise<{ system: number; tools: number; conversation: number }> {
 		const conv = await this.conv(id);
 		const [view, agent] = await Promise.all([conv.context(ctx), conv.agent(ctx)]);
+		const model = agent.model ? this.models.getModel(agent.model.provider, agent.model.modelId) : undefined;
+		const seesImages = model?.input.includes("image") ?? true;
+		const size = (content: unknown): number => {
+			if (!Array.isArray(content)) return JSON.stringify(content ?? "").length / 4;
+			let n = 0;
+			for (const block of content as { type?: string; data?: string }[]) {
+				if (block.type === "image") n += seesImages && typeof block.data === "string" ? imageTokens(block.data, model?.api ?? "") : 0;
+				else n += JSON.stringify(block).length / 4;
+			}
+			return n;
+		};
 		let system = 0;
 		let conversation = 0;
+		// Later system messages replace prompt sections by name, so only each name's latest text counts.
+		const sections = new Map<string, string>();
 		for (const m of view.messages) {
-			const size = JSON.stringify((m as { content?: unknown }).content ?? "").length;
-			if (m.role === "system") system += size;
-			else conversation += size;
+			if (m.role === "system") {
+				system += size(m.content);
+				for (const [name, text] of Object.entries(m.sections ?? {})) {
+					if (text === null) sections.delete(name);
+					else sections.set(name, text);
+				}
+			} else conversation += size((m as { content?: unknown }).content);
 		}
+		for (const text of sections.values()) system += text.length / 4;
 		const tools = agent.tools.reduce((n, t) => n + JSON.stringify({ n: t.name, d: t.description, p: t.parameters }).length, 0);
-		return { system: Math.round(system / 4), tools: Math.round(tools / 4), conversation: Math.round(conversation / 4) };
+		return { system: Math.round(system), tools: Math.round(tools / 4), conversation: Math.round(conversation) };
 	}
 
 	async usage(id: ConvId): Promise<UsageState> {

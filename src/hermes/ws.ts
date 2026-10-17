@@ -376,20 +376,26 @@ export class Connection {
 				const id = str(p, "session_id");
 				const row = sessions.require(id);
 				const [stats, usage] = await Promise.all([engine.contextStats(row.conversation_id), sessions.usage(id)]);
-				const used = Math.max(usage.contextUsed, stats.system + stats.tools + stats.conversation);
+				// The total is the provider's own count from the last call; the estimate only splits it up.
+				const estimated = stats.system + stats.tools + stats.conversation;
+				const used = usage.contextUsed > 0 ? usage.contextUsed : estimated;
+				const fixed = stats.system + stats.tools;
+				const scale = fixed > used ? used / fixed : 1;
+				const system = Math.round(stats.system * scale);
+				const tools = Math.round(stats.tools * scale);
 				const max = usage.contextMax;
 				return {
 					categories: [
-						{ id: "system", label: "System prompt", tokens: stats.system, color: "blue" },
-						{ id: "tools", label: "Tools", tokens: stats.tools, color: "purple" },
-						{ id: "conversation", label: "Conversation", tokens: Math.max(0, used - stats.system - stats.tools), color: "orange" },
+						{ id: "system", label: "System prompt", tokens: system, color: "blue" },
+						{ id: "tools", label: "Tools", tokens: tools, color: "purple" },
+						{ id: "conversation", label: "Conversation", tokens: Math.max(0, used - system - tools), color: "orange" },
 						{ id: "free", label: "Free", tokens: Math.max(0, max - used), color: "gray" },
 					],
 					context_max: max,
 					context_percent: max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0,
 					context_used: used,
 					estimated_total: used,
-					context_estimated: true,
+					context_estimated: usage.contextUsed <= 0,
 					model: usage.model,
 				};
 			}
