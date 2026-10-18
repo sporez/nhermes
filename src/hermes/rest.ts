@@ -7,6 +7,7 @@ import { HttpError, obj, type Req, Router } from "./http.ts";
 import { botFor, localOnly } from "./lookup.ts";
 import { call, manageRoutes } from "./manage.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
+import type { SessionKind } from "../core/sessions.ts";
 import { VoryPushError } from "../notify/vory.ts";
 import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
 
@@ -20,6 +21,9 @@ async function proxyCall<T>(fn: () => Promise<T>): Promise<T> {
 		throw error;
 	}
 }
+
+/** Session kinds a client's chat list leaves out: a bot's own session for a group chat (src/core/rooms.ts). */
+const UNLISTED: SessionKind[] = ["room"];
 
 function intParam(q: URLSearchParams, key: string, def: number, max: number): number {
 	const raw = q.get(key);
