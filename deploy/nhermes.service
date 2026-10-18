@@ -8,7 +8,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%h/nhermes
 Environment=NHERMES_CONFIG=%h/.config/nhermes/config.yaml
-Environment=PATH=%h/.local/node-v24.21.0-linux-x64/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:%h/.local/node-v24.21.0-linux-x64/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/node-v24.21.0-linux-x64/bin/node %h/nhermes/src/cli.ts serve
 # `systemctl --user reload nhermes` re-reads config.yaml.
 ExecReload=/bin/kill -HUP $MAINPID
