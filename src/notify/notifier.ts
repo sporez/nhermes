@@ -21,7 +21,7 @@ export interface OptionalNotifier extends Notifier {
  * Every transport that can deliver right now gets the notification; with none, it is recorded as
  * not sent, as NullNotifier does. `name` is "none" while nothing can deliver.
  */
-export class FanoutNotifier implements Notifier {
+export class FanoutNotifier implements OptionalNotifier {
 	private readonly transports: (Notifier | OptionalNotifier)[];
 	private readonly fallback = new NullNotifier();
 
@@ -31,6 +31,10 @@ export class FanoutNotifier implements Notifier {
 
 	private active(): Notifier[] {
 		return this.transports.filter((t) => !("ready" in t) || t.ready());
+	}
+
+	ready(): boolean {
+		return this.active().length > 0;
 	}
 
 	get name(): string {

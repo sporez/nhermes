@@ -40,6 +40,24 @@ export function federationRoutes(core: Core): Router {
 	r.on("POST", "/federation/removed", (q) => (m.removed(member(q)), { ok: true }));
 	r.on("POST", "/federation/rotate", (q) => federationCall(() => (m.acceptRotate(member(q), obj(q.body), q.psk !== undefined), { ok: true })));
 	r.on("POST", "/federation/moved", (q) => federationCall(() => (m.moved(member(q), obj(q.body)), { ok: true })));
+	// A member with no notification transport asks this gateway to deliver for it. Only the local notifier is
+	// used, never the network forwarder, so it cannot loop.
+	r.on("POST", "/federation/notify", async (q) => {
+		const from = member(q);
+		const b = obj(q.body);
+		const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
+		const title = str(b.title, 250)?.trim();
+		const message = str(b.message, 1024);
+		if (!title || message === undefined) throw new HttpError(400, "title and message are required");
+		const priority = b.priority === -1 || b.priority === 0 || b.priority === 1 ? b.priority : undefined;
+		if (core.localNotifier.name === "none") throw new HttpError(409, `${m.self().name} has no notification transport either`);
+		// The name this gateway shows for that member's bot, so Vory can place it; the member's session id is meaningless here.
+		const botName = str(b.bot, 100) ? `${str(b.bot, 100)}-${from.name}` : undefined;
+		const bot = botName && core.bots.get(botName) ? botName : undefined;
+		await core.localNotifier.send({ title, message, priority, url: str(b.url, 512), urlTitle: str(b.urlTitle, 100), bot });
+		log.info("notification forwarded", { from: from.name, title: title.slice(0, 80) });
+		return { ok: true };
+	});
 	// Another member sets a key here (only when this gateway's owner allowed it).
 	r.on("POST", "/federation/secrets", (q) => {
 		const from = member(q);

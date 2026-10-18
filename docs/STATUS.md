@@ -21,7 +21,7 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
 | 9 | SKILL.md skill | ✅ | ✅ `disk-report` loaded and followed | |
 | 10 | Memory across sessions, search, sharing | ✅ incl. boundaries | ✅ remember in one chat, recall in another | |
 | 11 | Recurring task from agent/Vory, unattended, history | ✅ | ✅ created from chat, Run now from the cron API, history | |
-| 12 | Notifications | ✅ Pushover (recording transport); Vory push relay incl. member bots (`test/hermes/vory-push.test.ts`, `test/federation/vory-push.test.ts`) | Pushover ❌ skipped by owner (no keys) | `PushoverNotifier` untested against the real API; Vory push (`src/notify/vory.ts`) is the main channel |
+| 12 | Notifications | ✅ Pushover (recording transport); Vory push relay incl. member bots (`test/hermes/vory-push.test.ts`, `test/federation/vory-push.test.ts`); a member with no transport forwards its own notifications to one that has it (`test/federation/notify.test.ts`) | Pushover ❌ skipped by owner (no keys) | `PushoverNotifier` untested against the real API; Vory push (`src/notify/vory.ts`) is the main channel |
 | 13 | Browser workflow | ✅ local site, multi-tab, refs, persistence | ✅ Wikipedia search → article → infobox → screenshot | |
 | 14 | Remote desktop interaction | – | ✅ hermes VM XFCE: open Mousepad, type, verify via AT-SPI | The editor restored an unsaved draft from an earlier run, so the document was not empty |
 | 15 | Independent VM-resident agent | ✅ two gateways, relayed approval, dropped connection | ✅ peer on the Mac, registered with the VM gateway, answered a delegated task | The peer runs on a Mac, not a VM |

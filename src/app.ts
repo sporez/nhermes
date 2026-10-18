@@ -25,7 +25,8 @@ import { type ProviderCatalog, ProviderCatalogs } from "./models/catalogs.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
-import { FanoutNotifier, type Notifier, PushoverNotifier } from "./notify/notifier.ts";
+import { NetworkNotifier } from "./federation/notify.ts";
+import { FanoutNotifier, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
 import { VoryPush } from "./notify/vory.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
@@ -61,6 +62,8 @@ export type Core = {
 	/** Group chats between this gateway's bots (Vory's Bot Mode). */
 	rooms: Rooms;
 	notifier: Notifier;
+	/** Only this gateway's own transports (no forwarding to a member). */
+	localNotifier: Notifier;
 	/** Vory's own notifications through its push relay (what its Companion plugin does on Hermes). */
 	vory: VoryPush;
 	browsers: Browsers;
@@ -178,7 +181,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const skills = new Skills(config.skillsDir, db);
 	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
 	const vory = new VoryPush({ dir: join(config.dataDir, "vory"), hub, bots, sessions: () => sessions, fetch: options.voryFetch });
-	const notifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
+	// What this gateway can deliver itself; /federation/notify uses only this. The gateway's own notifier adds
+	// forwarding to a member as the fallback for when nothing local can deliver.
+	const localNotifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
+	const notifier: Notifier = options.notifier ?? new FanoutNotifier([{ get name() { return localNotifier.name; }, send: (n) => localNotifier.send(n), ready: () => localNotifier.name !== "none" } satisfies OptionalNotifier, new NetworkNotifier(() => members, () => localNotifier)]);
 	let scheduler: Scheduler | undefined;
 	let rooms: Rooms | undefined;
 	const selfServices: SelfServices = {
@@ -332,6 +338,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		scheduler,
 		rooms,
 		notifier,
+		localNotifier,
 		vory,
 		browsers,
 		settings,

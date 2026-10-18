@@ -272,6 +272,15 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
   calling its encrypted port. Update it again, or remove and re-join it.
 - Hand-listed `peer:` gateways (token in config) are not members and are not covered.
 
+## Notifications raised by a member
+
+Notifications a member raises on its own (scheduled jobs, the `notify` tool, OpenChamber alerts) go to a
+member that has a transport (Vory or Pushover) when the raising member has none. It posts them to
+`POST /federation/notify`; the receiver delivers through its own transports only (never forwards again, so no
+loops), answers 409 if it has none either, and the sender then tries the next member. The bot is mapped to the
+name the receiver shows for it (`<bot>-<member>`); session ids are dropped. A gateway with its own transport
+never forwards. Verified by `test/federation/notify.test.ts`.
+
 ## What `@` does in Vory today
 
 Checked in Vory `d99369b`. In an ordinary chat, `@` in the composer opens a picker over the gateway's
