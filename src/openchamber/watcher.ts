@@ -10,8 +10,8 @@ import type { BotConfig } from "../config.ts";
 const log = logger("openchamber");
 
 export type WatcherOptions = {
-	/** The `openchamber:` config of every bot; the first with `watch: true` decides the address. */
-	configs: () => (NonNullable<BotConfig["openchamber"]> | undefined)[];
+	/** The `openchamber:` config of every bot with the openchamber_alerts group; the first decides the address. */
+	configs: () => NonNullable<BotConfig["openchamber"]>[];
 	notifier: () => Notifier;
 	settingsPath?: string;
 	/** One notification per thread per kind inside this window. */
@@ -34,7 +34,7 @@ export class OpenChamberWatcher {
 	}
 
 	private config(): NonNullable<BotConfig["openchamber"]> | undefined {
-		return this.o.configs().find((c) => c?.watch);
+		return this.o.configs()[0];
 	}
 
 	/** Starts the subscription if some bot asks for it; a no-op otherwise. */

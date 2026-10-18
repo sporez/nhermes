@@ -54,7 +54,7 @@ async function setup(watch: boolean) {
 	const sent: Notification[] = [];
 	const notifier: Notifier = { name: "test", send: async (n) => void sent.push(n) };
 	let on = watch;
-	const w = new OpenChamberWatcher({ configs: () => [{ watch: on }], notifier: () => notifier, settingsPath, retryMinMs: 20, retryMaxMs: 40, debounceMs: 60_000 });
+	const w = new OpenChamberWatcher({ configs: () => (on ? [{}] : []), notifier: () => notifier, settingsPath, retryMinMs: 20, retryMaxMs: 40, debounceMs: 60_000 });
 	return { s, w, sent, setWatch: (v: boolean) => void (on = v), done: async () => (await w.stop(), s.close(), await cleanup()) };
 }
 
@@ -108,7 +108,7 @@ test("the watcher reconnects after the server drops the stream", async () => {
 	}
 });
 
-test("sync follows watch being turned on and off without a restart", async () => {
+test("sync follows alerts being turned on and off without a restart", async () => {
 	const t = await setup(false);
 	try {
 		await t.w.sync();
@@ -131,7 +131,7 @@ test("sync follows watch being turned on and off without a restart", async () =>
 	}
 });
 
-test("without watch: true there is no subscription", async () => {
+test("without a bot asking for alerts there is no subscription", async () => {
 	const t = await setup(false);
 	try {
 		t.w.start();

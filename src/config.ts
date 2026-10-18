@@ -60,8 +60,6 @@ export type BotConfig = {
 		model?: string;
 		variant?: string;
 		agent?: string;
-		/** Tell the owner when a thread needs them or finishes. */
-		watch?: boolean;
 	};
 };
 
@@ -239,7 +237,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		openchamber:
 			r.openchamber === undefined
 				? undefined
-				: { url: str(ocRaw.url, `${where}.openchamber.url`), tokenEnv: str(ocRaw.tokenEnv, `${where}.openchamber.tokenEnv`), model: ocModel, variant: str(ocRaw.variant, `${where}.openchamber.variant`), agent: str(ocRaw.agent, `${where}.openchamber.agent`), watch: ocRaw.watch === true },
+				: { url: str(ocRaw.url, `${where}.openchamber.url`), tokenEnv: str(ocRaw.tokenEnv, `${where}.openchamber.tokenEnv`), model: ocModel, variant: str(ocRaw.variant, `${where}.openchamber.variant`), agent: str(ocRaw.agent, `${where}.openchamber.agent`) },
 	};
 }
 

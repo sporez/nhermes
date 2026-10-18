@@ -79,7 +79,7 @@ export function lineDiff(before: string, after: string): string {
 export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "recentChats", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop", "openchamber"] as const;
 
 /** What a bot may set in `openchamber`: not url or tokenEnv, which would let it send the token elsewhere. */
-const OPENCHAMBER_FIELDS = ["watch", "model", "variant", "agent"];
+const OPENCHAMBER_FIELDS = ["model", "variant", "agent"];
 
 /** Gateway settings a trusted bot may change (no server address or port, no key variable names). */
 function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {

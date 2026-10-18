@@ -95,6 +95,8 @@ export type CoreOptions = {
 	connectHost?: ConstructorParameters<typeof HostEnvs>[1];
 	/** Feature modules built once the late-bound services exist. */
 	features?: (late: LateServices) => Feature[];
+	/** OpenChamber's settings file (tests point this away from the real one). */
+	openchamberSettingsPath?: string;
 	/** Notification transport override (tests). */
 	notifier?: Notifier;
 	/** Replaces the HTTP call to the Vory push relay (tests). */
@@ -202,7 +204,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		webFeature(late),
 		browserFeature(late, () => browsers),
 		desktopFeature(late),
-		openchamberFeature(late),
+		openchamberFeature(late, { settingsPath: options.openchamberSettingsPath }),
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
@@ -289,13 +291,17 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 	});
 
-	const chamberWatcher = new OpenChamberWatcher({ configs: () => bots.list().map((b) => b.config?.openchamber), notifier: () => notifier });
+	const chamberWatcher = new OpenChamberWatcher({
+		configs: () => bots.list().filter((b) => b.toolGroups.includes("openchamber_alerts")).map((b) => b.config?.openchamber ?? {}),
+		notifier: () => notifier,
+		settingsPath: options.openchamberSettingsPath,
+	});
 	const settings = new Settings({
 		config,
 		bots,
 		toolGroups: () => [...toolGroups.keys()],
 		botChanged: (name) => hosts.reset(name),
-		// `openchamber.watch` turned on or off takes effect without a restart.
+		// The openchamber_alerts group turned on or off (Vory's Tools page, the panel) takes effect without a restart.
 		applied: () => void chamberWatcher.sync(),
 	});
 	const folded = settings.withBackup(() => settings.foldOverrides());

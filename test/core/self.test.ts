@@ -313,8 +313,8 @@ test("ground rules: configuration is changed only through the self and gateway t
 	assert.match(text, /`\/etc\/nh` and `\/var\/nh`/);
 });
 
-test("a bot may set openchamber's watch and thread defaults, never where the token goes", () => {
-	assert.deepEqual(botPatchOf({ openchamber: { watch: false, model: "a/b", variant: "low", agent: "build" } }, "test"), { openchamber: { watch: false, model: "a/b", variant: "low", agent: "build" } });
+test("a bot may set openchamber's thread defaults, never where the token goes", () => {
+	assert.deepEqual(botPatchOf({ openchamber: { model: "a/b", variant: "low", agent: "build" } }, "test"), { openchamber: { model: "a/b", variant: "low", agent: "build" } });
 	assert.throws(() => botPatchOf({ openchamber: { url: "http://elsewhere" } }, "test"), /openchamber\.url cannot be set by a bot/);
-	assert.throws(() => botPatchOf({ openchamber: { watch: true, tokenEnv: "OTHER_SECRET" } }, "test"), /openchamber\.tokenEnv cannot be set by a bot/);
+	assert.throws(() => botPatchOf({ openchamber: { model: "a/b", tokenEnv: "OTHER_SECRET" } }, "test"), /openchamber\.tokenEnv cannot be set by a bot/);
 });

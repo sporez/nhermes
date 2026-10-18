@@ -39,4 +39,5 @@ export const GROUP_LABELS: Record<string, { label: string; description: string }
 	browser: { label: "Browser Automation", description: "Playwright: open, snapshot, click, type, screenshot" },
 	desktop: { label: "Desktop Automation", description: "X11 desktop: screenshot, click, type, windows" },
 	openchamber: { label: "OpenChamber", description: "oc_sessions, oc_read, oc_waiting, oc_diff, oc_approve, oc_answer, oc_stop, oc_prompt, oc_start" },
+	openchamber_alerts: { label: "OpenChamber Alerts", description: "notify me when a thread asks for permission or a question, or finishes or fails" },
 };

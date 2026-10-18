@@ -2,6 +2,8 @@
 // comments, are checked before they replace it, and reach running sessions.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
@@ -33,8 +35,10 @@ async function setup() {
 	const path = join(t.dir, "config.yaml");
 	writeFileSync(path, CONFIG);
 	const { models, faux } = fauxModels();
-	const core = await createCore(loadConfig(path), { models });
-	return { ...t, path, core, faux };
+	// Never the real OpenChamber: the file is written only by the tests that want one.
+	const openchamberSettingsPath = join(t.dir, "openchamber-settings.json");
+	const core = await createCore(loadConfig(path), { models, openchamberSettingsPath });
+	return { ...t, path, core, faux, openchamberSettingsPath };
 }
 
 test("reload picks up a hand-edited bot; a broken file keeps the running configuration", async () => {
@@ -86,12 +90,6 @@ test("bot edits keep comments, clear shadowing overrides and reach existing sess
 
 		assert.throws(() => core.settings.editBot("ops", { tools: ["files", "teleport"] }), /unknown tool group teleport/);
 		assert.match(readFileSync(path, "utf8"), /tools:.*web/s, "a refused edit leaves the file alone");
-
-		// OpenChamber's watch is switched by a bot edit like any other setting.
-		core.settings.editBot("ops", { openchamber: { watch: true } });
-		assert.equal(loadConfig(path).bots.find((b) => b.name === "ops")!.openchamber?.watch, true);
-		core.settings.editBot("ops", { openchamber: { watch: false } });
-		assert.equal(core.bots.get("ops")!.config?.openchamber?.watch, false);
 
 		core.settings.editBot("ops", { default: true });
 		assert.equal(core.bots.defaultBot().name, "ops");
@@ -167,6 +165,37 @@ test("admin API: config view, bot edits, unknown settings refused", async () => 
 		assert.equal((await call("POST", "/admin/reload")).status, 200);
 	} finally {
 		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("turning the OpenChamber Alerts group on or off in a bot edit starts or stops the watcher", async () => {
+	const { core, cleanup, openchamberSettingsPath } = await setup();
+	let connects = 0;
+	const streams: ServerResponse[] = [];
+	const server = createServer((req, res) => {
+		if (req.url !== "/api/event") return void res.writeHead(404).end("{}");
+		connects++;
+		res.writeHead(200, { "content-type": "text/event-stream" }).write(": hi\n\n");
+		streams.push(res);
+	});
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+	writeFileSync(openchamberSettingsPath, JSON.stringify({ desktopLocalPort: (server.address() as AddressInfo).port, desktopLocalClientToken: "oc-test-token-0123456789" }));
+	const until = async (fn: () => boolean) => {
+		for (let i = 0; i < 200 && !fn(); i++) await new Promise((r) => setTimeout(r, 20));
+		assert.ok(fn(), "condition not reached");
+	};
+	try {
+		core.settings.editBot("ops", { tools: ["files", "shell", "openchamber_alerts"] });
+		await until(() => connects === 1);
+		core.settings.editBot("ops", { tools: ["files", "shell"] });
+		await until(() => streams.every((s) => s.destroyed || s.writableEnded || s.closed));
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(connects, 1, "no new subscription once the group is off");
+	} finally {
+		streams.forEach((s) => s.destroy());
+		server.close();
 		await core.close();
 		await cleanup();
 	}
