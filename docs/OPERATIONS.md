@@ -84,6 +84,16 @@ and the Companion's files are kept in `<data>/vory/`. Pushover keeps working alo
 set. In a network, set it up on the gateway Vory connects to: that gateway notifies for chats with other machines' bots too, and the machine running the bot stays quiet for them. Scheduled tasks and the `notify` tool notify from the machine they run on, so set it up there too (or use Pushover) to get those. Removing the Companion in Vory stops the notifications. This needs a Vory build with the push relay
 built in. A build without it asks for your own APNs key instead, and the gateway doesn't support that setup.
 
+### Group chats in Vory
+
+In Vory, start a new chat and add two to six bots: they share one group chat. Each message goes to the
+bots it @mentions (`@ops`), or to all of them when it mentions none (`@all` and `@everyone` work too).
+They answer one at a time, may pull each other in with `@name`, and stay quiet when they have nothing
+to add. You get one notification when they are done. A bot that needs your approval shows "<bot> is
+waiting for your approval" in the room; the approval notification opens that bot's own room session
+with the card. Deleting the group in Vory disbands it (a running turn is stopped; the log stays in
+`app.sqlite`). Group chats take the bots of the gateway Vory is connected to, not other machines' bots.
+
 ## Administration
 
 ```sh

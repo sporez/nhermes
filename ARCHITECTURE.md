@@ -51,10 +51,11 @@ drive it as if it were a Hermes gateway.
 | Concept | What it is | Where it lives |
 |---|---|---|
 | **Bot** | A persistent agent identity: name, display name, instructions (SOUL), default model + thinking level, tool groups, skills, execution target (local dir or SSH host), approval policy, memory scope, optional peer URL | `config.yaml` (`bots:`); per-bot skill toggles in `app.sqlite` |
-| **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
+| **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for), `room` (a bot's own session for a group chat thread, not listed in Vory) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
 | **Run** | One answered input: a Durable submission and the turns it took | Durable (`pi.inbox`, tasks, entries). We only keep ids |
 | **Job** | A schedule with a prompt, target bot, optional model/skills, notification policy | `app.jobs`, `app.job_runs` |
 | **Memory item** | A fact or Markdown note owned by one bot, or by a named shared space | `app.memories` + FTS5 index |
+| **Room** | A group chat of 2-6 bots on this gateway: its members and one ordered log of typed events | `app.rooms`, `app.room_events`, `app.room_sessions`, `app.room_turns` |
 
 A bot's identity is separate from all of its sessions. Resetting, compacting, archiving or deleting a
 session never touches the bot, its memory or its jobs. In Hermes terms, a **profile is a bot**; there is
@@ -237,6 +238,28 @@ run is not submitted twice.
   and is still a Vory profile on its own gateway.
 - **Privileges never escalate through delegation:** a delegated task is trusted only if every bot in the
   chain is, and runs under the strictest approval mode in the chain.
+
+## Group chats (`src/core/rooms.ts`)
+
+Vory's Bot Mode rooms, in Hermes' `groups.*` shapes. The room log is the state: after every change the
+room's driver replays it with `planNextTurn` (`src/core/room-plan.ts`, a port of Hermes'
+`plan_next_task`) and runs at most one member turn at a time. Round 0 is the bots the owner's message
+@mentions (everyone when it mentions none); rounds 1-2 are bots another bot @mentioned and that have not
+answered since; a `(pass)` reply files nothing; a silent round settles the discussion, and 3 rounds or 10
+bot messages bound it.
+
+- **A turn:** `turn.started`, the prompt (the thread's messages since that bot last read, and the rules)
+  submitted to the bot's own room session (kind `room`, one per room thread, configured like any session
+  of that bot), then `message.member` + `turn.settled`, or `turn.failed`, in one transaction.
+- **Restarts:** the submission uses the request id `room:<room>:<turn>` and is kept in `room_turns`; a
+  restart waits for that submission instead of sending the turn again. A turn left open that a newer
+  message has overtaken is still finished from its submission.
+- **Approvals** are the guard's, unchanged: asked in the member's room session (Vory's approval
+  notification opens it), with a `room.activity` line saying who waits. Jev reads the owner's words from
+  the room log, since a turn's prompt also carries other bots' words; later lines of a message are
+  indented in prompts so a bot cannot write a line that reads as the owner's.
+- **Notifications:** one when an exchange settles or is bounded with new bot replies.
+- **Scope:** this gateway's bots only. Vory polls `groups.log`; nothing is pushed over the socket.
 
 ## Hermes compatibility layer (`src/hermes/`)
 
