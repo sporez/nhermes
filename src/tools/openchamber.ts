@@ -170,16 +170,34 @@ export function openchamberFeature(late: LateServices, options: OpenChamberToolO
 
 	const diff = defineTool({
 		name: "oc_diff",
-		description: "Files an OpenChamber thread has changed: status and added/removed line counts per file. Pass file to get that file's patch (capped).",
+		description:
+			"Files an OpenChamber thread has changed over the whole thread (or only its latest turn with last_turn): status and added/removed line counts per file. " +
+			"Pass file to get that file's patch (capped).",
 		parameters: Type.Object({
 			session: Type.String({ description: "Session id (ses_…)" }),
 			file: Type.Optional(Type.String({ description: "A path from the summary, to see its patch" })),
+			last_turn: Type.Optional(Type.Boolean({ description: "Only what the latest turn changed" })),
 		}),
 		replay: "safe",
 		execute: async (args, api, ctx) => {
 			const oc = client(api.conversationId);
 			const id = sessionId(args.session);
-			const r = await oc.get<{ data: { file: string; patch: string; additions: number; deletions: number; status: string }[] }>(`/api/session/${id}/diff`, undefined, ctx.abortSignal);
+			// The diff spans turns named by their user messages, from and to inclusive; without them it is the first turn only.
+			const userIds = async (order: "asc" | "desc"): Promise<string | undefined> => {
+				let cursor: string | undefined;
+				for (let i = 0; i < 10; i++) {
+					const page = await oc.get<Page<Message>>(`/api/session/${id}/message`, cursor ? { cursor, limit: "50" } : { order, limit: "50" }, ctx.abortSignal);
+					const user = page.data.find((m) => m.type === "user");
+					if (user) return user.id;
+					cursor = page.cursor?.next;
+					if (!cursor) return undefined;
+				}
+				return undefined;
+			};
+			const last = await userIds("desc");
+			if (!last) return text("No file changes.");
+			const from = args.last_turn ? last : await userIds("asc");
+			const r = await oc.get<{ data: { file: string; patch: string; additions: number; deletions: number; status: string }[] }>(`/api/session/${id}/diff`, { from, to: last }, ctx.abortSignal);
 			if (args.file) {
 				const f = r.data.find((d) => d.file === args.file);
 				if (!f) throw new OpenChamberError(`${args.file} is not among the changed files`);

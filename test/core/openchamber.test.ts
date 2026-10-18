@@ -198,14 +198,27 @@ test("oc_waiting finds permissions and forms across folders and names the thread
 	}
 });
 
-test("oc_diff summarises changed files and returns one patch on request", async () => {
+test("oc_diff spans the whole thread (or its latest turn), summarises files and returns one patch on request", async () => {
 	const { dir, cleanup } = await tempDir();
-	const fake = await fakeServer({ "GET /api/session/ses_a1/diff": () => ({ data: [{ file: "a.ts", patch: "@@ -1 +1 @@\n-x\n+y", additions: 1, deletions: 1, status: "modified" }] }) });
+	const fake = await fakeServer({
+		"GET /api/session/ses_a1/diff": () => ({ data: [{ file: "a.ts", patch: "@@ -1 +1 @@\n-x\n+y", additions: 1, deletions: 1, status: "modified" }] }),
+		"GET /api/session/ses_a1/message": (s) =>
+			s.url.includes("order=asc") ? { data: [{ id: "msg_u1", type: "user" }], cursor: {} } : { data: [{ id: "msg_a3", type: "assistant" }, { id: "msg_u3", type: "user" }], cursor: {} },
+	});
 	try {
-		const [sum, patch, missing] = await runTools(await settingsFile(dir, fake.port), [["oc_diff", { session: "ses_a1" }], ["oc_diff", { session: "ses_a1", file: "a.ts" }], ["oc_diff", { session: "ses_a1", file: "zzz" }]]);
+		const [sum, patch, missing, last] = await runTools(await settingsFile(dir, fake.port), [
+			["oc_diff", { session: "ses_a1" }],
+			["oc_diff", { session: "ses_a1", file: "a.ts" }],
+			["oc_diff", { session: "ses_a1", file: "zzz" }],
+			["oc_diff", { session: "ses_a1", last_turn: true }],
+		]);
 		assert.match(sum!.text, /modified a\.ts \+1 −1/);
 		assert.match(patch!.text, /\+y/);
 		assert.equal(missing!.isError, true);
+		assert.match(last!.text, /a\.ts/);
+		const diffs = fake.seen.filter((s) => s.url.includes("/diff")).map((s) => s.url.split("?")[1]);
+		assert.equal(diffs[0], "from=msg_u1&to=msg_u3");
+		assert.equal(diffs[3], "from=msg_u3&to=msg_u3");
 	} finally {
 		fake.close();
 		await cleanup();
