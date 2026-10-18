@@ -6,6 +6,7 @@ import type { WebSocket } from "ws";
 import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
 import type { SessionEvent } from "../core/events.ts";
+import { RoomError } from "../core/rooms.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import { LinkError } from "../federation/link.ts";
 import type { MemberRow } from "../federation/members.ts";
@@ -34,7 +35,14 @@ function str(p: Params, key: string, required = true): string {
 	return "";
 }
 
+function num(v: unknown): number | undefined {
+	return typeof v === "number" ? v : undefined;
+}
+
 const RESULT_TEXT_LIMIT = 4000;
+
+/** The group chat methods this gateway answers (Vory's Bot Mode); not offered to network members. */
+const GROUP_METHODS = ["groups.capabilities", "groups.list", "groups.create", "groups.send", "groups.log", "groups.disband"];
 
 /** What a network member may call: chats it started with this gateway's shareable bots. */
 const MEMBER_METHODS = new Set([
@@ -152,7 +160,7 @@ export class Connection {
 			const result = await this.dispatch(msg.method, params);
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, result });
 		} catch (error) {
-			const code = error instanceof RpcError || error instanceof LinkError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
+			const code = error instanceof RpcError || error instanceof LinkError || error instanceof RoomError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
 			const message = error instanceof Error ? error.message : String(error);
 			if (code === -32000) log.warn("rpc failed", { method: msg.method, error: message });
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -321,6 +329,21 @@ export class Connection {
 				return { server_requests: this.answersRequests ? ["approval"] : [] };
 			case "gateway.capabilities":
 				return { per_session_exclusive_submit: true };
+			// Group chats (src/core/rooms.ts). Rooms belong to the gateway, so `profile` is ignored.
+			case "groups.capabilities":
+				return { protocol_version: 1, driver: true, persistent_process: true, features: ["room_identity", "monotonic_log", "idempotent_send", "typed_events", "actor_identity"], methods: GROUP_METHODS, max_log_limit: 500 };
+			case "groups.list":
+				return this.core.rooms.list({ limit: num(p.limit), offset: num(p.offset), includeDisbanded: p.include_disbanded === true });
+			case "groups.create":
+				return { room: this.core.rooms.create(p) };
+			case "groups.send": {
+				const event = this.core.rooms.send(p);
+				return { event, client_event_id: p.event_id, accepted: true, driver_started: true };
+			}
+			case "groups.log":
+				return this.core.rooms.log(p);
+			case "groups.disband":
+				return this.core.rooms.disband(p.room_id);
 			case "profiles.list":
 				return { profiles: (this.member ? shareable(bots.list()) : bots.list().filter((b) => !b.isPeer || b.remote)).map((b) => ({ name: b.name, is_default: b.isDefault, display_name: b.displayName })) };
 			case "config.get": {
