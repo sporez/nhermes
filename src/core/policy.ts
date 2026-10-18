@@ -73,6 +73,9 @@ const SENSITIVE_PATHS = [/(^|\/)\.ssh\//, /^\/etc\//, /(^|\/)\.pi\/agent\/auth\.
 /** Tools with side effects outside the transcript (subject to "manual" mode). */
 const SIDE_EFFECT_TOOLS = new Set(["bash", "write", "edit", "http_request", "browser_type", "browser_click", "browser_press", "desktop_click", "desktop_type", "desktop_key", "notify", "schedule_create", "schedule_update", "schedule_delete"]);
 
+/** Tools that act on the user's OpenChamber threads: they ask in smart and manual mode, never reach a reviewer. */
+export const OPENCHAMBER_CONTROL_TOOLS: ReadonlySet<string> = new Set(["oc_approve", "oc_answer", "oc_stop", "oc_prompt", "oc_start"]);
+
 /** Tools that exist only for trusted bots: not offered to others, refused through an untrusted delegation chain. */
 export const GATEWAY_TOOLS: ReadonlySet<string> = new Set(["gateway_bot_update", "gateway_bot_add", "gateway_bot_remove", "gateway_update", "gateway_reload", "gateway_skill_write", "gateway_skill_delete", "gateway_software"]);
 
@@ -169,12 +172,15 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	}
 	if (call.name === "read" && path !== undefined && pc.gatewayFiles?.test(path)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
 	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}`, review: false });
+	if (OPENCHAMBER_CONTROL_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `act on an OpenChamber thread (${call.name})`, review: false });
 	if (reasons.length === 0) return { action: "allow", patternKey: "", description: "", command };
 
 	// Answers ("session", "always") are stored as the pattern key they were asked for and match only that
 	// key; configured allow rules are matched against the call like ask/deny rules.
 	if (bot.approvals.allow.some((r) => ruleMatches(r, call.name, command))) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
-	const open = reasons.filter((r) => !pc.botRules.includes(r.key) && !pc.sessionRules.includes(r.key));
+	// Approving a permission request in OpenChamber is never remembered for good: an "always" answer does not count.
+	const noAlways = call.name === "oc_approve";
+	const open = reasons.filter((r) => !(!noAlways && pc.botRules.includes(r.key)) && !pc.sessionRules.includes(r.key));
 	if (open.length === 0) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
-	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command, reviewable: open.every((r) => r.review) };
+	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command, reviewable: open.every((r) => r.review), ...(noAlways ? { noAlways } : {}) };
 }

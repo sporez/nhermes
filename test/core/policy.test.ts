@@ -43,3 +43,28 @@ test("checking or repairing a disk asks even for trusted bots; reading disk info
 	}
 	assert.equal(decide(bash("diskutil verifyVolume /"), pc(true)).patternKey, "disk check");
 });
+
+test("OpenChamber control tools ask in smart and manual mode, never reach a reviewer, and skip asks under yolo/off; reading does not ask", () => {
+	for (const name of ["oc_approve", "oc_answer", "oc_stop", "oc_prompt", "oc_start"]) {
+		for (const mode of ["smart", "manual"] as const) {
+			const d = decide({ name, arguments: { session: "ses_1" } }, pc(false, mode, { reviewActive: true }));
+			assert.equal(d.action, "ask", `${name} (${mode})`);
+			assert.equal(d.reviewable, false, `${name} is not reviewable`);
+			assert.equal(d.patternKey, `tool:${name}`);
+			assert.equal(d.noAlways === true, name === "oc_approve", `${name} noAlways`);
+		}
+		assert.equal(decide({ name, arguments: {} }, pc(false, "smart", { yolo: true })).action, "allow");
+		assert.equal(decide({ name, arguments: {} }, pc(false, "off")).action, "allow");
+	}
+	for (const name of ["oc_sessions", "oc_read", "oc_waiting", "oc_diff"]) {
+		for (const mode of ["smart", "manual"] as const) assert.equal(decide({ name, arguments: {} }, pc(false, mode)).action, "allow", `${name} (${mode})`);
+	}
+});
+
+test("a session answer carries on for OpenChamber tools, but an always answer never covers oc_approve", () => {
+	const call = (name: string) => ({ name, arguments: {} });
+	assert.equal(decide(call("oc_stop"), pc(false, "smart", { sessionRules: ["tool:oc_stop"] })).action, "allow");
+	assert.equal(decide(call("oc_stop"), pc(false, "smart", { botRules: ["tool:oc_stop"] })).action, "allow");
+	assert.equal(decide(call("oc_approve"), pc(false, "smart", { sessionRules: ["tool:oc_approve"] })).action, "allow");
+	assert.equal(decide(call("oc_approve"), pc(false, "smart", { botRules: ["tool:oc_approve"] })).action, "ask");
+});
