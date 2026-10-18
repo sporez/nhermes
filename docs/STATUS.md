@@ -26,6 +26,7 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
 | 14 | Remote desktop interaction | – | ✅ hermes VM XFCE: open Mousepad, type, verify via AT-SPI | The editor restored an unsaved draft from an earlier run, so the document was not empty |
 | 15 | Independent VM-resident agent | ✅ two gateways, relayed approval, dropped connection | ✅ peer on the Mac, registered with the VM gateway, answered a delegated task | The peer runs on a Mac, not a VM |
 | 16 | Backup and restore | ✅ | ✅ on the VM: backup while running, restore refused while running, restore + restart | |
+| 17 | OpenChamber threads (`openchamber` tool group, event watcher) | ✅ fake server: read and control tools, policy, event watcher (permission, form, finish, child skip, debounce, reconnect) | Read-only GETs against the live server ✅; creating a session and prompting it shows in OpenChamber ✅ (by hand, 2026-10-18) | Control tools against the live server and the watcher against the live event stream are not yet verified |
 
 ## Security findings fixed during live testing
 

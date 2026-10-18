@@ -159,6 +159,35 @@ and work started by another machine. Commands and your recent messages in that c
 OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
 allowThreshold, timeoutMs, keyEnv } }` in config.yaml. Every review is listed in the panel's Status tab.
 
+## OpenChamber threads
+
+The `openchamber` tool group lets a bot read and run the threads in OpenChamber on the same Mac:
+`oc_sessions`, `oc_read`, `oc_waiting` and `oc_diff` read; `oc_approve`, `oc_answer`, `oc_stop`,
+`oc_prompt` and `oc_start` act. It reads OpenChamber's port and token from
+`~/.config/openchamber/settings.json` on every call, so a restarted OpenChamber needs nothing here; or
+set `openchamber.url` and `openchamber.tokenEnv` (an environment variable or a key from `secrets.env`
+holding the token) to reach it another way.
+
+The control tools always ask the owner in smart and manual mode (YOLO and off skip asks as usual);
+Jev never answers them. `oc_approve` is answered call by call, once or deny: no "always" answer covers
+it. `openchamber.model` (`provider/model`) and `openchamber.agent` set the default for new threads;
+without a model `oc_start` needs one in the call.
+
+`openchamber.watch: true` makes the gateway keep one event subscription to OpenChamber and notify the
+owner when a thread asks for permission, asks a question, or finishes or fails (delegated sub-threads
+are skipped; at most one notification per thread and kind per minute). It reconnects quietly while
+OpenChamber is closed.
+
+```yaml
+  - name: chamber
+    displayName: Chamber
+    description: Reads and runs my OpenChamber threads
+    tools: [openchamber, memory, notify]
+    openchamber:
+      model: <provider/model>
+      watch: true
+```
+
 ## Network of gateways
 
 Every machine runs the same gateway; together they form one network of equals (`docs/FEDERATION.md`).
