@@ -22,8 +22,12 @@ async function proxyCall<T>(fn: () => Promise<T>): Promise<T> {
 	}
 }
 
-/** Session kinds a client's chat list leaves out: a bot's own session for a group chat (src/core/rooms.ts). */
-const UNLISTED: SessionKind[] = ["room"];
+/**
+ * Session kinds a client's chat list leaves out: a bot's own session for a group chat (src/core/rooms.ts)
+ * and a delegated task (its answer and its approvals are in the chat that asked). Still opened by id, and
+ * listed in the panel.
+ */
+const UNLISTED: SessionKind[] = ["room", "delegate"];
 
 function intParam(q: URLSearchParams, key: string, def: number, max: number): number {
 	const raw = q.get(key);

@@ -51,7 +51,7 @@ drive it as if it were a Hermes gateway.
 | Concept | What it is | Where it lives |
 |---|---|---|
 | **Bot** | A persistent agent identity: name, display name, instructions (SOUL), default model + thinking level, tool groups, skills, execution target (local dir or SSH host), approval policy, memory scope, optional peer URL | `config.yaml` (`bots:`); per-bot skill toggles in `app.sqlite` |
-| **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for), `room` (a bot's own session for a group chat thread, not listed in Vory) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
+| **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for), `room` (a bot's own session for a group chat thread); Vory's chat list leaves out `delegate` and `room` sessions (the panel lists them) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
 | **Run** | One answered input: a Durable submission and the turns it took | Durable (`pi.inbox`, tasks, entries). We only keep ids |
 | **Job** | A schedule with a prompt, target bot, optional model/skills, notification policy | `app.jobs`, `app.job_runs` |
 | **Memory item** | A fact or Markdown note owned by one bot, or by a named shared space | `app.memories` + FTS5 index |

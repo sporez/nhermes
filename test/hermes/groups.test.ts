@@ -144,9 +144,12 @@ test("a group chat: create, send, each bot answers in turn, the room settles and
 			{ bot: "main", kind: "room", title: "Group: Main, Ops" },
 			{ bot: "ops", kind: "room", title: "Group: Main, Ops" },
 		]);
+		// Nor is a delegated task's session; it still opens by id.
+		const delegated = await core.sessions.create("ops", { kind: "delegate", source: "delegate", title: "From main: check disks" });
 		const h = { "X-Hermes-Session-Token": TOKEN };
 		const listedSessions = (await (await fetch(`http://127.0.0.1:${server.port}/api/sessions?profile=ops`, { headers: h })).json()) as { sessions: unknown[]; total: number };
 		assert.deepEqual([listedSessions.sessions.length, listedSessions.total], [0, 0]);
+		assert.equal((await fetch(`http://127.0.0.1:${server.port}/api/sessions/${delegated.id}?profile=ops`, { headers: h })).status, 200);
 
 		// @ops asks ops alone; "(pass)" adds nothing to the room.
 		faux.setResponses([() => fauxAssistantMessage([fauxText("(pass)")])]);
