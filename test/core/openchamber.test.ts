@@ -117,7 +117,7 @@ test("condenseMessages keeps text, one line per tool call, drops reasoning, and 
 });
 
 /** Runs the model's tool calls against a core whose bot has the openchamber tools; returns each result's text. */
-async function runTools(settingsPath: string, calls: [string, Record<string, string | number | boolean>][], bot: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }[]> {
+async function runTools(settingsPath: string, calls: [string, Record<string, unknown>][], bot: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }[]> {
 	const { dir, cleanup } = await tempDir();
 	const { models, faux } = fauxModels();
 	const config = testConfig(dir, [{ name: "oc", default: true, instructions: "x", tools: ["openchamber"], approvals: { mode: "off" }, ...bot }]);
@@ -125,7 +125,7 @@ async function runTools(settingsPath: string, calls: [string, Record<string, str
 	try {
 		const s = await core.sessions.create("oc");
 		const c = collect(core.hub, s.id);
-		faux.setResponses([...calls.map(([name, args]) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
+		faux.setResponses([...calls.map(([name, args]) => fauxAssistantMessage([fauxToolCall(name, args as never)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
 		await core.sessions.submit(s.id, "go");
 		await c.until((e) => e.type === "run.finished");
 		return (c.events.filter((e) => e.type === "tool.finished") as { resultText: string; isError: boolean }[]).map((e) => ({ text: e.resultText, isError: e.isError }));
@@ -206,6 +206,95 @@ test("oc_diff summarises changed files and returns one patch on request", async 
 		assert.match(sum!.text, /modified a\.ts \+1 −1/);
 		assert.match(patch!.text, /\+y/);
 		assert.equal(missing!.isError, true);
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});
+
+test("oc_approve posts the decision for a waiting request and refuses one that is not in that thread", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({
+		"GET /api/session/ses_a1": () => ({ data: session("ses_a1", "Fix login", "/w/a") }),
+		"GET /api/session/ses_a1/permission": () => ({ data: [{ id: "per_1", sessionID: "ses_a1", action: "bash", resources: ["npm test"] }] }),
+		"POST /api/session/ses_a1/permission/per_1/reply": () => undefined,
+		"POST /api/session/ses_a1/permission/per_2/reply": () => undefined,
+	});
+	try {
+		const [ok, rej, other, always] = await runTools(await settingsFile(dir, fake.port), [
+			["oc_approve", { session: "ses_a1", request: "per_1", decision: "once" }],
+			["oc_approve", { session: "ses_a1", request: "per_1", decision: "reject", reason: "not now" }],
+			["oc_approve", { session: "ses_a1", request: "per_2", decision: "once" }],
+			["oc_approve", { session: "ses_a1", request: "per_1", decision: "always" }],
+		]);
+		assert.match(ok!.text, /Allowed once: bash on npm test in "Fix login"/);
+		assert.match(rej!.text, /Rejected/);
+		assert.equal(other!.isError, true);
+		assert.match(other!.text, /no waiting permission request per_2/);
+		assert.equal(always!.isError, true, "the schema has no always");
+		const posts = fake.seen.filter((s) => s.method === "POST");
+		assert.deepEqual(posts.map((p) => p.body), [{ decision: "once" }, { decision: "reject", message: "not now" }]);
+		assert.ok(posts.every((p) => p.url === "/api/session/ses_a1/permission/per_1/reply"));
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});
+
+test("oc_answer, oc_stop and oc_prompt post what they say", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({
+		"GET /api/session/ses_a1": () => ({ data: session("ses_a1", "Fix login", "/w/a") }),
+		"GET /api/session/ses_a1/form": () => ({ data: [{ id: "frm_9", sessionID: "ses_a1", title: "Which database?", fields: [] }] }),
+		"POST /api/session/ses_a1/form/frm_9/reply": () => undefined,
+		"POST /api/session/ses_a1/interrupt": () => ({ interrupted: true }),
+		"POST /api/session/ses_a1/prompt": () => undefined,
+	});
+	try {
+		const out = await runTools(await settingsFile(dir, fake.port), [
+			["oc_answer", { session: "ses_a1", form: "frm_9", answers: { db: "pg", tags: ["a", "b"] } }],
+			["oc_answer", { session: "ses_a1", form: "frm_1", answers: {} }],
+			["oc_stop", { session: "ses_a1" }],
+			["oc_prompt", { session: "ses_a1", text: "carry on" }],
+		]);
+		assert.match(out[0]!.text, /Answered "Which database\?" in "Fix login"/);
+		assert.equal(out[1]!.isError, true);
+		assert.match(out[2]!.text, /Interrupted "Fix login"/);
+		assert.match(out[3]!.text, /Sent to "Fix login": carry on/);
+		const bodies = fake.seen.filter((s) => s.method === "POST").map((p) => [p.url, p.body]);
+		assert.deepEqual(bodies, [
+			["/api/session/ses_a1/form/frm_9/reply", { answer: { db: "pg", tags: ["a", "b"] } }],
+			["/api/session/ses_a1/interrupt", {}],
+			["/api/session/ses_a1/prompt", { text: "carry on" }],
+		]);
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});
+
+test("oc_start refuses without a model, and sends the configured model and agent", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({
+		"POST /api/session": () => ({ data: session("ses_new", "Try it", dir) }),
+		"POST /api/session/ses_new/prompt": () => undefined,
+	});
+	try {
+		const settingsPath = await settingsFile(dir, fake.port);
+		const [none] = await runTools(settingsPath, [["oc_start", { directory: dir, title: "Try it", prompt: "do it" }]]);
+		assert.equal(none!.isError, true);
+		assert.match(none!.text, /no model/);
+		assert.equal(fake.seen.length, 0, "nothing was sent");
+		const [ok, nodir] = await runTools(
+			settingsPath,
+			[["oc_start", { directory: dir, title: "Try it", prompt: "do it" }], ["oc_start", { directory: join(dir, "missing"), title: "x", prompt: "y", model: "a/b" }]],
+			{ openchamber: { model: "claude-code/claude-opus-5-5[1m]", agent: "build" } },
+		);
+		assert.match(ok!.text, /Started "Try it" \(ses_new\)/);
+		assert.equal(nodir!.isError, true);
+		const [create, send] = fake.seen.filter((s) => s.method === "POST");
+		assert.deepEqual(create!.body, { title: "Try it", location: { directory: dir }, model: { providerID: "claude-code", id: "claude-opus-5-5[1m]" }, agent: "build" });
+		assert.deepEqual(send!.body, { text: "do it" });
 	} finally {
 		fake.close();
 		await cleanup();

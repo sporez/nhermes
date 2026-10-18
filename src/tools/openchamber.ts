@@ -1,10 +1,13 @@
 // Tools for the user's OpenChamber threads (a desktop UI over OpenCode): look at what each thread is doing
-// and what is waiting on the user. Talks to OpenChamber's local server through src/openchamber/client.ts;
+// and what is waiting on the user (oc_sessions, oc_read, oc_waiting, oc_diff), and act on a thread
+// (oc_approve, oc_answer, oc_stop, oc_prompt, oc_start; each asks the owner first, see core/policy.ts). Talks to OpenChamber's local server through src/openchamber/client.ts;
 // the token never passes through the model.
+import { statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
-import { clip, condenseMessages, type Message, OpenChamber, OpenChamberError, type Page, type SessionInfo, when } from "../openchamber/client.ts";
+import { clip, condenseMessages, type Message, modelRef, OpenChamber, OpenChamberError, type Page, type SessionInfo, when } from "../openchamber/client.ts";
 
 export type OpenChamberToolOptions = {
 	/** OpenChamber's settings file (tests point this elsewhere). */
@@ -187,5 +190,109 @@ export function openchamberFeature(late: LateServices, options: OpenChamberToolO
 		},
 	});
 
-	return { groups: new Map([["openchamber", [sessions, read, waiting, diff] as ToolRegistration[]]]) };
+	const titleOf = async (oc: OpenChamber, id: string, signal?: AbortSignal): Promise<string> => {
+		try {
+			return (await oc.get<{ data: SessionInfo }>(`/api/session/${id}`, undefined, signal)).data.title ?? "";
+		} catch {
+			return "?";
+		}
+	};
+	const ASK = " The user approves each call: say which thread (by its title) and exactly what will happen.";
+
+	const approve = defineTool({
+		name: "oc_approve",
+		description:
+			"Answer a permission request in an OpenChamber thread: allow it this once, or reject it (optionally with a reason the agent sees). There is no \"always\". " +
+			"Find request ids with oc_waiting." + ASK,
+		parameters: Type.Object({
+			session: Type.String({ description: "Session id (ses_…)" }),
+			request: Type.String({ description: "Permission request id (per_…)" }),
+			decision: Type.Union([Type.Literal("once"), Type.Literal("reject")]),
+			reason: Type.Optional(Type.String({ description: "Why, when rejecting; the agent sees it" })),
+		}),
+		execute: async (args, api, ctx) => {
+			const oc = client(api.conversationId);
+			const id = sessionId(args.session);
+			if (!/^per_[A-Za-z0-9]+$/.test(args.request)) throw new OpenChamberError(`"${args.request}" is not a permission request id (they look like per_…)`);
+			// Only a request that is really waiting in this thread.
+			const pending = await oc.get<{ data: Permission[] }>(`/api/session/${id}/permission`, undefined, ctx.abortSignal);
+			const p = pending.data.find((x) => x.id === args.request);
+			if (!p) throw new OpenChamberError(`session ${id} has no waiting permission request ${args.request} (oc_waiting lists them)`);
+			await oc.post(`/api/session/${id}/permission/${args.request}/reply`, { decision: args.decision, ...(args.reason ? { message: args.reason } : {}) }, ctx.abortSignal);
+			return text(`${args.decision === "once" ? "Allowed once" : "Rejected"}: ${describePermission(p)} in "${await titleOf(oc, id, ctx.abortSignal)}".`);
+		},
+	});
+
+	const answer = defineTool({
+		name: "oc_answer",
+		description:
+			"Answer a question (form) an OpenChamber agent asked. answers maps each field key to its value: a string, number, boolean, or a list of strings for a multiselect. " +
+			"Find form ids and their fields with oc_waiting." + ASK,
+		parameters: Type.Object({
+			session: Type.String({ description: "Session id (ses_…)" }),
+			form: Type.String({ description: "Form id (frm_…)" }),
+			answers: Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Array(Type.String())])),
+		}),
+		execute: async (args, api, ctx) => {
+			const oc = client(api.conversationId);
+			const id = sessionId(args.session);
+			if (!/^frm_[A-Za-z0-9]+$/.test(args.form)) throw new OpenChamberError(`"${args.form}" is not a form id (they look like frm_…)`);
+			const open = await oc.get<{ data: Form[] }>(`/api/session/${id}/form`, undefined, ctx.abortSignal);
+			const f = open.data.find((x) => x.id === args.form);
+			if (!f) throw new OpenChamberError(`session ${id} has no open form ${args.form} (oc_waiting lists them)`);
+			await oc.post(`/api/session/${id}/form/${args.form}/reply`, { answer: args.answers }, ctx.abortSignal);
+			return text(`Answered "${f.title}" in "${await titleOf(oc, id, ctx.abortSignal)}": ${clip(JSON.stringify(args.answers), 300)}`);
+		},
+	});
+
+	const stop = defineTool({
+		name: "oc_stop",
+		description: "Interrupt a running OpenChamber thread (stop what its agent is doing now)." + ASK,
+		parameters: Type.Object({ session: Type.String({ description: "Session id (ses_…)" }) }),
+		execute: async (args, api, ctx) => {
+			const oc = client(api.conversationId);
+			const id = sessionId(args.session);
+			const r = await oc.post<{ interrupted?: boolean }>(`/api/session/${id}/interrupt`, undefined, ctx.abortSignal);
+			return text(r?.interrupted ? `Interrupted "${await titleOf(oc, id, ctx.abortSignal)}".` : `"${await titleOf(oc, id, ctx.abortSignal)}" was not running; nothing to interrupt.`);
+		},
+	});
+
+	const prompt = defineTool({
+		name: "oc_prompt",
+		description: "Send a message to an existing OpenChamber thread, as if the user typed it. If the agent is busy it is delivered per OpenChamber's rules." + ASK,
+		parameters: Type.Object({ session: Type.String({ description: "Session id (ses_…)" }), text: Type.String() }),
+		execute: async (args, api, ctx) => {
+			const oc = client(api.conversationId);
+			const id = sessionId(args.session);
+			await oc.post(`/api/session/${id}/prompt`, { text: args.text }, ctx.abortSignal);
+			return text(`Sent to "${await titleOf(oc, id, ctx.abortSignal)}": ${clip(args.text, 200)}`);
+		},
+	});
+
+	const start = defineTool({
+		name: "oc_start",
+		description:
+			"Start a new OpenChamber thread in a folder and give it a first prompt. model (provider/model) and agent default to this bot's openchamber settings; a model is required." +
+			" The user approves each call: say the thread title, the folder, and what the prompt asks for.",
+		parameters: Type.Object({
+			directory: Type.String({ description: "Absolute path of an existing folder" }),
+			title: Type.String(),
+			prompt: Type.String(),
+			model: Type.Optional(Type.String({ description: "provider/model" })),
+			agent: Type.Optional(Type.String()),
+		}),
+		execute: async (args, api, ctx) => {
+			const bot = late.sessions().botOf(api.conversationId as number);
+			const cfg = bot?.config.openchamber;
+			const oc = client(api.conversationId);
+			if (!isAbsolute(args.directory) || !statSync(args.directory, { throwIfNoEntry: false })?.isDirectory()) throw new OpenChamberError(`${args.directory} is not an existing absolute folder`);
+			const model = args.model ?? cfg?.model;
+			if (!model) throw new OpenChamberError("no model: pass model (provider/model) or ask the owner to set openchamber.model for this bot; a new thread needs one");
+			const created = await oc.post<{ data: SessionInfo }>("/api/session", { title: args.title, location: { directory: args.directory }, model: modelRef(model), agent: args.agent ?? cfg?.agent ?? null }, ctx.abortSignal);
+			await oc.post(`/api/session/${created.data.id}/prompt`, { text: args.prompt }, ctx.abortSignal);
+			return text(`Started "${args.title}" (${created.data.id}) in ${args.directory} with ${model}.`);
+		},
+	});
+
+	return { groups: new Map([["openchamber", [sessions, read, waiting, diff, approve, answer, stop, prompt, start] as ToolRegistration[]]]) };
 }
