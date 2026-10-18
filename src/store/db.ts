@@ -220,6 +220,45 @@ const MIGRATIONS: readonly string[] = [
 	ALTER TABLE sessions ADD COLUMN recap TEXT;
 	UPDATE sessions SET recap = '';
 	`,
+	// 13: group chats (src/core/rooms.ts): a room, its members (JSON), and its log of typed events, each
+	// numbered in order within its room; a client's message id is unique within its room. room_sessions
+	// holds each member's own session for a room thread; room_turns the submission of a turn in progress,
+	// so a restart waits for that turn instead of losing it.
+	`
+	CREATE TABLE rooms (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		members TEXT NOT NULL,
+		created_at REAL NOT NULL,
+		updated_at REAL NOT NULL,
+		disbanded_at REAL
+	);
+	CREATE TABLE room_events (
+		room_id TEXT NOT NULL REFERENCES rooms(id),
+		seq INTEGER NOT NULL,
+		event_id TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		actor TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		created_at REAL NOT NULL,
+		PRIMARY KEY (room_id, seq),
+		UNIQUE (room_id, event_id)
+	);
+	CREATE TABLE room_sessions (
+		room_id TEXT NOT NULL REFERENCES rooms(id),
+		thread_id TEXT NOT NULL,
+		member_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		PRIMARY KEY (room_id, thread_id, member_id)
+	);
+	CREATE TABLE room_turns (
+		room_id TEXT NOT NULL REFERENCES rooms(id),
+		turn_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		submission_id INTEGER NOT NULL,
+		PRIMARY KEY (room_id, turn_id)
+	);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

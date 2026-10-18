@@ -133,19 +133,19 @@ export function restRoutes(core: Core): Router {
 		if (!["exclude", "only", "include"].includes(archived)) throw new HttpError(400, "archived must be one of: exclude, only, include");
 		const order = (q.query.get("order") ?? "created") as "recent" | "created";
 		if (!["recent", "created"].includes(order)) throw new HttpError(400, "order must be one of: created, recent");
-		const { rows, total } = sessions.list(bot.name, { limit, offset, archived, order });
+		const { rows, total } = sessions.list(bot.name, { limit, offset, archived, order, exceptKinds: UNLISTED });
 		return { sessions: rows.map((row) => listRow(row.id)), total, limit, offset };
 	});
 	r.on("GET", "/api/sessions/search", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
 		const term = (q.query.get("q") ?? "").trim();
-		const { rows } = sessions.list(bot.name, { limit: 50, offset: 0, archived: "include", order: "recent", search: term || undefined });
+		const { rows } = sessions.list(bot.name, { limit: 50, offset: 0, archived: "include", order: "recent", search: term || undefined, exceptKinds: UNLISTED });
 		return { sessions: rows.map((row) => listRow(row.id)) };
 	});
 	r.on("GET", "/api/sessions/stats", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
-		const all = sessions.list(bot.name, { limit: 1, offset: 0, archived: "include", order: "recent" }).total;
-		const archived = sessions.list(bot.name, { limit: 1, offset: 0, archived: "only", order: "recent" }).total;
+		const all = sessions.list(bot.name, { limit: 1, offset: 0, archived: "include", order: "recent", exceptKinds: UNLISTED }).total;
+		const archived = sessions.list(bot.name, { limit: 1, offset: 0, archived: "only", order: "recent", exceptKinds: UNLISTED }).total;
 		return { total: all, active_store: all - archived, archived };
 	});
 	const owned = (q: Req) => {

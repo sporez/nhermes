@@ -13,7 +13,8 @@ import { projectTranscript, type TranscriptRow } from "./transcript.ts";
 
 const log = logger("sessions");
 
-export type SessionKind = "chat" | "job" | "delegate";
+/** `room`: a bot's own session for one group chat thread (src/core/rooms.ts); not listed in clients. */
+export type SessionKind = "chat" | "job" | "delegate" | "room";
 
 export type SessionRow = {
 	id: string;
@@ -49,7 +50,7 @@ export type RemoteSessionHooks = { running: (id: string) => boolean; deleted: (r
 const OWNER_CHAT =
 	"bot = ? AND deleted = 0 AND archived = 0 AND kind = 'chat' AND remote_node IS NULL AND message_count > 0 AND (source NOT LIKE 'member:%' OR source LIKE 'member:%:owner')";
 
-export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; search?: string };
+export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; exceptKinds?: SessionKind[]; search?: string };
 
 export type Snapshot = {
 	session: SessionRow;
@@ -203,6 +204,10 @@ export class Sessions {
 		if (o.kinds && o.kinds.length > 0) {
 			where.push(`kind IN (${o.kinds.map(() => "?").join(",")})`);
 			params.push(...o.kinds);
+		}
+		if (o.exceptKinds && o.exceptKinds.length > 0) {
+			where.push(`kind NOT IN (${o.exceptKinds.map(() => "?").join(",")})`);
+			params.push(...o.exceptKinds);
 		}
 		if (o.search) {
 			where.push("(title LIKE ? OR preview LIKE ?)");
