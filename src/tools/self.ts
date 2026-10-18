@@ -76,7 +76,10 @@ export function lineDiff(before: string, after: string): string {
  * What gateway_bot_update / gateway_bot_add may set. Left out even for trusted bots: sharedMemory (reaches other
  * bots' data), secrets and peer (name environment variables that hold secrets, which a bot could then send out).
  */
-export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "recentChats", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop"] as const;
+export const BOT_FIELDS = ["displayName", "description", "default", "instructions", "soulFile", "model", "thinking", "tools", "skills", "recentChats", "approvals", "trusted", "private", "workspace", "host", "browser", "desktop", "openchamber"] as const;
+
+/** What a bot may set in `openchamber`: not url or tokenEnv, which would let it send the token elsewhere. */
+const OPENCHAMBER_FIELDS = ["watch", "model", "variant", "agent"];
 
 /** Gateway settings a trusted bot may change (no server address or port, no key variable names). */
 function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {
@@ -98,9 +101,14 @@ function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {
 	return out;
 }
 
-function botPatchOf(raw: Record<string, unknown>, what: string): Record<string, unknown> {
+export function botPatchOf(raw: Record<string, unknown>, what: string): Record<string, unknown> {
 	const bad = Object.keys(raw).filter((k) => !(BOT_FIELDS as readonly string[]).includes(k));
 	if (bad.length > 0) throw new Error(`${bad.join(", ")} cannot be set by a bot (${what}); allowed: ${BOT_FIELDS.join(", ")}`);
+	const oc = raw.openchamber;
+	if (oc !== undefined && oc !== null) {
+		const badOc = typeof oc === "object" && !Array.isArray(oc) ? Object.keys(oc).filter((k) => !OPENCHAMBER_FIELDS.includes(k)) : ["(not an object)"];
+		if (badOc.length > 0) throw new Error(`openchamber.${badOc.join(", ")} cannot be set by a bot (${what}); allowed: ${OPENCHAMBER_FIELDS.join(", ")}`);
+	}
 	return raw;
 }
 

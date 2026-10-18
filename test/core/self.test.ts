@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createCore } from "../../src/app.ts";
 import { decide } from "../../src/core/policy.ts";
 import { loadConfig } from "../../src/config.ts";
-import { INSTALL_DIR } from "../../src/tools/self.ts";
+import { botPatchOf, INSTALL_DIR } from "../../src/tools/self.ts";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
@@ -311,4 +311,10 @@ test("ground rules: configuration is changed only through the self and gateway t
 	assert.match(text, /Do not touch them with files or the shell/);
 	assert.match(text, /only through the self and gateway tools[^"]*ask the owner/);
 	assert.match(text, /`\/etc\/nh` and `\/var\/nh`/);
+});
+
+test("a bot may set openchamber's watch and thread defaults, never where the token goes", () => {
+	assert.deepEqual(botPatchOf({ openchamber: { watch: false, model: "a/b", variant: "low", agent: "build" } }, "test"), { openchamber: { watch: false, model: "a/b", variant: "low", agent: "build" } });
+	assert.throws(() => botPatchOf({ openchamber: { url: "http://elsewhere" } }, "test"), /openchamber\.url cannot be set by a bot/);
+	assert.throws(() => botPatchOf({ openchamber: { watch: true, tokenEnv: "OTHER_SECRET" } }, "test"), /openchamber\.tokenEnv cannot be set by a bot/);
 });
