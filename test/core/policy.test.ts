@@ -51,7 +51,7 @@ test("OpenChamber control tools ask in smart and manual mode, never reach a revi
 			assert.equal(d.action, "ask", `${name} (${mode})`);
 			assert.equal(d.reviewable, false, `${name} is not reviewable`);
 			assert.equal(d.patternKey, `tool:${name}`);
-			assert.equal(d.noAlways === true, name === "oc_approve", `${name} noAlways`);
+			assert.equal(d.onceOnly === true, name === "oc_approve", `${name} onceOnly`);
 		}
 		assert.equal(decide({ name, arguments: {} }, pc(false, "smart", { yolo: true })).action, "allow");
 		assert.equal(decide({ name, arguments: {} }, pc(false, "off")).action, "allow");
@@ -61,10 +61,10 @@ test("OpenChamber control tools ask in smart and manual mode, never reach a revi
 	}
 });
 
-test("a session answer carries on for OpenChamber tools, but an always answer never covers oc_approve", () => {
+test("stored answers carry on for OpenChamber tools, but never cover oc_approve", () => {
 	const call = (name: string) => ({ name, arguments: {} });
 	assert.equal(decide(call("oc_stop"), pc(false, "smart", { sessionRules: ["tool:oc_stop"] })).action, "allow");
 	assert.equal(decide(call("oc_stop"), pc(false, "smart", { botRules: ["tool:oc_stop"] })).action, "allow");
-	assert.equal(decide(call("oc_approve"), pc(false, "smart", { sessionRules: ["tool:oc_approve"] })).action, "allow");
+	assert.equal(decide(call("oc_approve"), pc(false, "smart", { sessionRules: ["tool:oc_approve"] })).action, "ask");
 	assert.equal(decide(call("oc_approve"), pc(false, "smart", { botRules: ["tool:oc_approve"] })).action, "ask");
 });

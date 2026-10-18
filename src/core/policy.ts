@@ -12,6 +12,8 @@ export type Decision = {
 	reviewable?: boolean;
 	/** The owner may answer this once or for the session, never "always" (config changes). */
 	noAlways?: boolean;
+	/** The owner answers this call alone: once or deny, and no stored answer covers it (approving an OpenChamber request). */
+	onceOnly?: boolean;
 };
 
 /** `trustedAsks: true` patterns are the destructive group: they ask even trusted bots and are never left to a reviewer. */
@@ -178,9 +180,9 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	// Answers ("session", "always") are stored as the pattern key they were asked for and match only that
 	// key; configured allow rules are matched against the call like ask/deny rules.
 	if (bot.approvals.allow.some((r) => ruleMatches(r, call.name, command))) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
-	// Approving a permission request in OpenChamber is never remembered for good: an "always" answer does not count.
-	const noAlways = call.name === "oc_approve";
-	const open = reasons.filter((r) => !(!noAlways && pc.botRules.includes(r.key)) && !pc.sessionRules.includes(r.key));
+	// Approving a permission request in OpenChamber is answered call by call: no "session" or "always" answer counts.
+	const onceOnly = call.name === "oc_approve";
+	const open = onceOnly ? reasons : reasons.filter((r) => !pc.botRules.includes(r.key) && !pc.sessionRules.includes(r.key));
 	if (open.length === 0) return { action: "allow", patternKey: reasons[0]!.key, description: reasons[0]!.description, command };
-	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command, reviewable: open.every((r) => r.review), ...(noAlways ? { noAlways } : {}) };
+	return { action: "ask", patternKey: open[0]!.key, description: open.map((r) => r.description).join("; "), command, reviewable: open.every((r) => r.review), ...(onceOnly ? { onceOnly } : {}) };
 }

@@ -220,6 +220,7 @@ export function guardExtension(deps: AgentDeps): Extension {
 							toolName: call.name,
 							command: config ? (deps.describeConfig?.(effective, call.name, args) ?? decision.command) : decision.command,
 							noAlways: decision.noAlways,
+							onceOnly: decision.onceOnly,
 							description: `${attention === row.id ? decision.description : `${decision.description} (asked by ${bot.displayName} in a delegated task)`}${note}`,
 							patternKey: decision.patternKey,
 						},

@@ -248,6 +248,13 @@ test("config tools: always a card for the owner (even with approvals off), never
 		assert.equal(await ask, "session");
 		assert.deepEqual(core.approvals.rules("bot:main"), []);
 		assert.deepEqual(core.approvals.rules(`session:${s.id}`), ["config:self_update"]);
+		// A once-only card (approving an OpenChamber request) offers once/deny, and a wider answer stores nothing.
+		const once = core.approvals.ask({ sessionId: s.id, bot: "main", toolName: "oc_approve", command: "x", description: "x", patternKey: "tool:oc_approve", onceOnly: true }, new AbortController().signal);
+		const card = core.approvals.pendingFor(s.id)[0]!;
+		assert.deepEqual(card.choices, ["once", "deny"]);
+		core.approvals.answer(card.requestId, "session");
+		assert.equal(await once, "once");
+		assert.deepEqual(core.approvals.rules(`session:${s.id}`), ["config:self_update"]);
 	} finally {
 		await core.close();
 		await cleanup();
