@@ -87,6 +87,12 @@ test("bot edits keep comments, clear shadowing overrides and reach existing sess
 		assert.throws(() => core.settings.editBot("ops", { tools: ["files", "teleport"] }), /unknown tool group teleport/);
 		assert.match(readFileSync(path, "utf8"), /tools:.*web/s, "a refused edit leaves the file alone");
 
+		// OpenChamber's watch is switched by a bot edit like any other setting.
+		core.settings.editBot("ops", { openchamber: { watch: true } });
+		assert.equal(loadConfig(path).bots.find((b) => b.name === "ops")!.openchamber?.watch, true);
+		core.settings.editBot("ops", { openchamber: { watch: false } });
+		assert.equal(core.bots.get("ops")!.config?.openchamber?.watch, false);
+
 		core.settings.editBot("ops", { default: true });
 		assert.equal(core.bots.defaultBot().name, "ops");
 		assert.equal(loadConfig(path).bots.filter((b) => b.default).length, 1);

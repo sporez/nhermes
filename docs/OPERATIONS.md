@@ -177,7 +177,9 @@ at each start, so changing the default there is enough; `openchamber.model` (`pr
 `openchamber.watch: true` makes the gateway keep one event subscription to OpenChamber and notify the
 owner when a thread asks for permission, asks a question, or finishes or fails (delegated sub-threads
 are skipped; at most one notification per thread and kind per minute). It reconnects quietly while
-OpenChamber is closed.
+OpenChamber is closed. It only listens: Jev and the second-opinion reviewer decide before a permission
+card exists, and the watcher sees a card only once they have passed it to the owner. Turning `watch`
+on or off takes effect on `nhermes reload` (or the panel's reload, or a bot edit), without a restart.
 
 ```yaml
   - name: chamber

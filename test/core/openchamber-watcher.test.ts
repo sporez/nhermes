@@ -53,8 +53,9 @@ async function setup(watch: boolean) {
 	await writeFile(settingsPath, JSON.stringify({ desktopLocalPort: s.port, desktopLocalClientToken: TOKEN }));
 	const sent: Notification[] = [];
 	const notifier: Notifier = { name: "test", send: async (n) => void sent.push(n) };
-	const w = new OpenChamberWatcher({ configs: () => [{ watch }], notifier: () => notifier, settingsPath, retryMinMs: 20, retryMaxMs: 40, debounceMs: 60_000 });
-	return { s, w, sent, done: async () => (await w.stop(), s.close(), await cleanup()) };
+	let on = watch;
+	const w = new OpenChamberWatcher({ configs: () => [{ watch: on }], notifier: () => notifier, settingsPath, retryMinMs: 20, retryMaxMs: 40, debounceMs: 60_000 });
+	return { s, w, sent, setWatch: (v: boolean) => void (on = v), done: async () => (await w.stop(), s.close(), await cleanup()) };
 }
 
 test("a permission request notifies once with the thread title; a duplicate inside the window does not", async () => {
@@ -102,6 +103,29 @@ test("the watcher reconnects after the server drops the stream", async () => {
 		t.s.send("session.execution.succeeded", { sessionID: "ses_a" });
 		await until(() => t.sent.length === 1);
 		assert.equal(t.sent[0]!.message, "Fix login finished");
+	} finally {
+		await t.done();
+	}
+});
+
+test("sync follows watch being turned on and off without a restart", async () => {
+	const t = await setup(false);
+	try {
+		await t.w.sync();
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(t.s.connects(), 0);
+		t.setWatch(true);
+		await t.w.sync();
+		await until(() => t.s.connects() === 1);
+		// Already watching: a second sync does not open another subscription.
+		await t.w.sync();
+		t.setWatch(false);
+		await t.w.sync();
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(t.s.connects(), 1);
+		t.setWatch(true);
+		await t.w.sync();
+		await until(() => t.s.connects() === 2);
 	} finally {
 		await t.done();
 	}

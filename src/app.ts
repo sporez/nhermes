@@ -289,12 +289,19 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 	});
 
-	const settings = new Settings({ config, bots, toolGroups: () => [...toolGroups.keys()], botChanged: (name) => hosts.reset(name) });
+	const chamberWatcher = new OpenChamberWatcher({ configs: () => bots.list().map((b) => b.config?.openchamber), notifier: () => notifier });
+	const settings = new Settings({
+		config,
+		bots,
+		toolGroups: () => [...toolGroups.keys()],
+		botChanged: (name) => hosts.reset(name),
+		// `openchamber.watch` turned on or off takes effect without a restart.
+		applied: () => void chamberWatcher.sync(),
+	});
 	const folded = settings.withBackup(() => settings.foldOverrides());
 	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
 
 	vory.start();
-	const chamberWatcher = new OpenChamberWatcher({ configs: () => bots.list().map((b) => b.config?.openchamber), notifier: () => notifier });
 	chamberWatcher.start();
 	engine.resume();
 	const reattached = await sessions.attachBusy();

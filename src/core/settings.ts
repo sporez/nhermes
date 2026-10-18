@@ -60,6 +60,8 @@ export type SettingsDeps = {
 	toolGroups: () => string[];
 	/** Called for each bot whose entry changed or went away (drop cached connections). */
 	botChanged: (name: string) => void;
+	/** Called after every applied change (services that follow bot settings, e.g. the OpenChamber watcher). */
+	applied?: () => void;
 };
 
 export class Settings {
@@ -223,6 +225,7 @@ export class Settings {
 		config.modelLists = next.modelLists;
 		config.defaults = { ...next.defaults, approvalTimeoutS: config.defaults.approvalTimeoutS };
 		for (const n of [...changed, ...removed]) this.d.botChanged(n);
+		this.d.applied?.();
 		log.info("configuration applied", { added, removed, changed, restartNeeded });
 		return { added, removed, changed, restartNeeded };
 	}

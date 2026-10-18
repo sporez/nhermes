@@ -189,6 +189,7 @@ const BOT_KEYS = new Set<string>([
 	"secrets",
 	"browser",
 	"desktop",
+	"openchamber",
 ]);
 
 function botFields(body: Record<string, unknown>, creating: boolean): BotPatch {

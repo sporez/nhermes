@@ -50,6 +50,15 @@ export class OpenChamberWatcher {
 		this.loop = undefined;
 	}
 
+	/** Follows a configuration change: starts when a bot now asks for it, stops when none does. */
+	async sync(): Promise<void> {
+		if (this.config()) this.start();
+		else if (this.loop) {
+			await this.stop();
+			log.info("stopped watching OpenChamber events");
+		}
+	}
+
 	private async run(signal: AbortSignal): Promise<void> {
 		const min = this.o.retryMinMs ?? 2_000;
 		const max = this.o.retryMaxMs ?? 60_000;
