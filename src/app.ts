@@ -8,6 +8,7 @@ import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
+import { Rooms } from "./core/rooms.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
 import { GATEWAY_TOOLS, gatewayFilesPattern } from "./core/policy.ts";
@@ -55,6 +56,8 @@ export type Core = {
 	memory: MemoryStore;
 	skills: Skills;
 	scheduler: Scheduler;
+	/** Group chats between this gateway's bots (Vory's Bot Mode). */
+	rooms: Rooms;
 	notifier: Notifier;
 	/** Vory's own notifications through its push relay (what its Companion plugin does on Hermes). */
 	vory: VoryPush;
@@ -173,6 +176,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const vory = new VoryPush({ dir: join(config.dataDir, "vory"), hub, bots, sessions: () => sessions, fetch: options.voryFetch });
 	const notifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
 	let scheduler: Scheduler | undefined;
+	let rooms: Rooms | undefined;
 	const selfServices: SelfServices = {
 		skills,
 		view: { config, toolGroups, bots },
@@ -242,6 +246,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		gatewayFiles: gatewayFilesPattern(config.configDir, config.dataDir),
 		acceptsBotEdits: () => members.acceptsBotEdits(),
 		machine: () => members.self().name,
+		roomOwnerMessages: (id) => rooms?.ownerMessages(id),
 	};
 	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
@@ -289,6 +294,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	engine.resume();
 	const reattached = await sessions.attachBusy();
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
+	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier });
+	rooms.start();
 
 	return {
 		config,
@@ -305,6 +312,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		memory,
 		skills,
 		scheduler,
+		rooms,
 		notifier,
 		vory,
 		browsers,
@@ -325,6 +333,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			vory.stop();
 			proxy.close();
 			await scheduler!.stop();
+			await rooms!.stop();
 			await browsers.close();
 			await engine.close();
 			hosts.close();

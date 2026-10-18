@@ -117,10 +117,13 @@ function deriveWatermarks(events: RoomEvent[]): Map<string, number> {
 	return watermarks;
 }
 
+// A message's later lines are indented further, so only a real message starts a line with "  User (user):"
+// or "  @handle:" (a bot cannot write a line that reads as the owner's).
 function formatMessage(event: RoomEvent, room: RoomInfo): string {
-	if (event.kind === "message.user") return `User (user): ${str(event.payload.text)}`;
+	const text = str(event.payload.text).replace(/\r?\n/g, "\n    ");
+	if (event.kind === "message.user") return `User (user): ${text}`;
 	const member = room.members.find((candidate) => candidate.member_id === memberOf(event));
-	return `@${member?.handle ?? memberOf(event)}: ${str(event.payload.text)}`;
+	return `@${member?.handle ?? memberOf(event)}: ${text}`;
 }
 
 // Cut to at most maxBytes of UTF-8, dropping a partial trailing character.

@@ -37,6 +37,8 @@ export type AgentDeps = {
 	describeConfig?: (bot: Bot, name: string, args: Record<string, unknown>) => string | undefined;
 	/** Whether other machines may edit this machine's bots (federation.acceptBotEdits). */
 	acceptsBotEdits?: () => boolean;
+	/** The owner's own messages in a group chat, for a member's room session (src/core/rooms.ts). */
+	roomOwnerMessages?: (sessionId: string) => string[] | undefined;
 	/** This machine's name in the network (for the reviewer). */
 	machine?: () => string;
 };
@@ -45,11 +47,14 @@ export type AgentDeps = {
 export const NOT_THE_OWNER = /^\[(Result from bot|[\w-]+ could not finish|Scheduled task)/;
 
 /** What the reviewer is told: the owner's recent words where the work started, and any delegated task texts. */
-async function reviewContext(sessions: Sessions, sessionId: string, attention: string): Promise<{ humanMessages: string[]; delegated: string[] }> {
-	const humanMessages = (await sessions.rows(attention))
-		.filter((r) => r.role === "user" && r.text.trim() && !NOT_THE_OWNER.test(r.text))
-		.map((r) => r.text)
-		.slice(-8);
+async function reviewContext(sessions: Sessions, sessionId: string, attention: string, roomOwner?: (sessionId: string) => string[] | undefined): Promise<{ humanMessages: string[]; delegated: string[] }> {
+	// In a group chat a turn's prompt carries other bots' words too: the owner's come from the room's log.
+	const humanMessages =
+		roomOwner?.(attention) ??
+		(await sessions.rows(attention))
+			.filter((r) => r.role === "user" && r.text.trim() && !NOT_THE_OWNER.test(r.text))
+			.map((r) => r.text)
+			.slice(-8);
 	const delegated: string[] = [];
 	let row = sessions.get(sessionId);
 	for (let i = 0; row && row.id !== attention && i < 20; i++) {
@@ -191,7 +196,7 @@ export function guardExtension(deps: AgentDeps): Extension {
 					let reviewId: number | undefined;
 					let note = "";
 					if (reviewer && decision.reviewable && !fromMember && sessions.get(attention)?.kind !== "job") {
-						const ctx = await reviewContext(sessions, row.id, attention);
+						const ctx = await reviewContext(sessions, row.id, attention, deps.roomOwnerMessages);
 						const outcome = await reviewer.review(
 							{
 								bot: { name: bot.name, displayName: bot.displayName, description: bot.description, trusted: effective.trusted, machine: deps.machine?.() ?? "" },
