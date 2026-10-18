@@ -23,7 +23,32 @@ export type SelfServices = {
 	updates: () => Updates;
 	/** Whether "provider/model" names a model the gateway can use. */
 	modelExists: (ref: string) => boolean;
+	/** The models the pickers offer (hidden providers left out, except the one in use); names and limits only, never keys. */
+	pickableModels: (current: { provider: string; modelId: string }) => Promise<PickableModel[]>;
 };
+
+export type PickableModel = { provider: string; id: string; name?: string; reasoning?: boolean; input?: string[]; contextWindow?: number; cost?: { input: number; output: number } };
+
+/** One line per model, grouped by provider, the bot's current one marked. */
+export function modelListText(models: PickableModel[], current: { provider: string; modelId: string }): string {
+	if (models.length === 0) return "No models are available.";
+	const size = (n: number) => (n >= 1_000_000 ? `${Math.round(n / 1_000_000)}M` : `${Math.round(n / 1000)}K`);
+	const lines = [`Models you can switch to with self_update (model: "provider/model"). Current: ${current.provider}/${current.modelId}.`];
+	let provider = "";
+	for (const m of [...models].sort((a, b) => a.provider.localeCompare(b.provider))) {
+		if (m.provider !== provider) lines.push("", `${(provider = m.provider)}:`);
+		const facts = [
+			m.name && m.name !== m.id ? m.name : undefined,
+			m.contextWindow ? `${size(m.contextWindow)} context` : undefined,
+			m.reasoning ? "reasoning" : undefined,
+			m.input?.includes("image") ? "images" : undefined,
+			m.cost && (m.cost.input || m.cost.output) ? `$${m.cost.input}/$${m.cost.output} per M in/out` : undefined,
+		].filter(Boolean);
+		const here = m.provider === current.provider && m.id === current.modelId ? " (current)" : "";
+		lines.push(`- ${m.provider}/${m.id}${here}${facts.length ? `: ${facts.join(", ")}` : ""}`);
+	}
+	return lines.join("\n");
+}
 
 /** What `self_update` may change in the calling bot's own entry; the rest grants privileges or reaches other bots' data. */
 export const SELF_FIELDS = ["displayName", "description", "instructions", "model", "thinking", "skills"] as const;
@@ -111,7 +136,7 @@ export function aboutText(late: LateServices, services: SelfServices, bot: Bot):
 		`- operations, CLI, config.yaml: ${d("docs/OPERATIONS.md")}; concepts and tools: ${d("ARCHITECTURE.md")}; the network of machines: ${d("docs/FEDERATION.md")}`,
 		`- approvals, secrets and the Jev reviewer: ${d("docs/SECRETS-AND-REVIEW.md")}; Vory support: ${d("docs/COMPATIBILITY.md")}; browser and desktop: ${d("docs/COMPUTER_USE.md")}`,
 		"How things change:",
-		"- You can change your own description, instructions, model, thinking and skills, and your own memory and scheduled jobs. Every settings change asks the owner first, and you never edit config.yaml or the gateway's files yourself.",
+		"- You can change your own description, instructions, model, thinking and skills, and your own memory and scheduled jobs. self_models lists the models you can switch to. Every settings change asks the owner first, and you never edit config.yaml or the gateway's files yourself.",
 		`- Only the owner${bot.trusted ? " or a trusted bot (you are one)" : " or a trusted bot"} can change tools, trust, approvals, hosts, other bots and gateway settings.`,
 		"- Only the owner can handle secrets, tokens, the panel password, network invitations and backups. Software updates need a trusted bot and the owner's approval.",
 		"- The owner can do all of it in the panel, in Vory, or by editing config.yaml and running `nhermes reload`.",
@@ -206,6 +231,16 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 			const entry = view.bots.find((b) => b.name === (args.bot ?? me.name));
 			if (!entry) throw new Error(`unknown bot "${args.bot}"`);
 			return text(JSON.stringify({ gateway: view.gateway.timezone, toolGroups: view.toolGroups, bot: entry }, null, 2));
+		},
+	});
+	const modelsTool = defineTool({
+		name: "self_models",
+		description: "The models you can switch to (what the owner's model pickers offer), with context size, reasoning, image input and price; your current one is marked. Change it with self_update.",
+		parameters: Type.Object({}),
+		replay: "safe",
+		execute: async (_args, api) => {
+			const me = botOf(api.conversationId as number);
+			return text(modelListText(await services.pickableModels(me.model), me.model));
 		},
 	});
 	const docs = defineTool({
@@ -417,7 +452,7 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 	});
 
 	return {
-		groups: new Map([["self", [info, docs, update, skillWrite, skillDelete, botUpdate, botAdd, botRemove, gwUpdate, reload, gwSkillWrite, gwSkillDelete, software] as ToolRegistration[]]]),
+		groups: new Map([["self", [info, modelsTool, docs, update, skillWrite, skillDelete, botUpdate, botAdd, botRemove, gwUpdate, reload, gwSkillWrite, gwSkillDelete, software] as ToolRegistration[]]]),
 		promptParts: [(bot) => (bot.toolGroups.includes("self") ? aboutText(late, services, bot) : undefined)],
 	};
 }

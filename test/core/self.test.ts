@@ -60,6 +60,11 @@ test("self tools: self_info shows the bot's own entry without secrets; trusted-o
 		assert.equal(r[3]!.isError, false);
 		assert.equal(r[4]!.isError, true);
 		assert.equal(r[5]!.isError, true);
+		const [list] = await run("main", [["self_models", {}]]);
+		assert.equal(list!.isError, false);
+		assert.match(list!.resultText, /- faux\/faux-1 \(current\)[^\n]*reasoning/);
+		assert.match(list!.resultText, /- faux\/faux-2\b/);
+		assert.equal(decide({ name: "self_models", arguments: {} }, { bot: core.bots.require("main"), sessionRules: [], botRules: [], yolo: false }).action, "allow");
 		const t = await run("ops", [["self_info", { gateway: true }]]);
 		assert.equal(t[0]!.isError, false);
 		assert.doesNotMatch(t[0]!.resultText, new RegExp(TOKEN));

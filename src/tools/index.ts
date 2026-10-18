@@ -32,7 +32,7 @@ export const GROUP_LABELS: Record<string, { label: string; description: string }
 	web: { label: "Web & HTTP", description: "web_fetch, http_request" },
 	memory: { label: "Memory", description: "remember, recall, forget" },
 	skills: { label: "Skills", description: "skill (load a SKILL.md by name)" },
-	self: { label: "Self-management", description: "self_info, nhermes_docs, change own setup" },
+	self: { label: "Self-management", description: "self_info, self_models, nhermes_docs, change own setup" },
 	schedule: { label: "Scheduled Tasks", description: "schedule_create, schedule_list, …" },
 	delegate: { label: "Delegation", description: "delegate to another bot" },
 	notify: { label: "Notifications", description: "notify (Vory and/or Pushover)" },

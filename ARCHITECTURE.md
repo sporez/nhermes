@@ -137,7 +137,7 @@ with only the high-impact patterns asking.
 | `notify` | `notify` (Vory and/or Pushover) | |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
-| `self` | `self_info`, `nhermes_docs`, `self_update`, `self_skill_write/delete`; trusted bots also `gateway_bot_update/add/remove`, `gateway_update`, `gateway_reload`, `gateway_skill_write/delete`, `gateway_software` | Adds the `about` prompt section (what nHermes is, the bot's live settings, a docs map). Edits go through `Settings`; every change asks the owner with a diff (never Jev, no "always"); refused in jobs, from network members, and (gateway tools) through an untrusted delegation chain. `src/tools/self.ts` |
+| `self` | `self_info`, `self_models` (the pickers' model list), `nhermes_docs`, `self_update`, `self_skill_write/delete`; trusted bots also `gateway_bot_update/add/remove`, `gateway_update`, `gateway_reload`, `gateway_skill_write/delete`, `gateway_software` | Adds the `about` prompt section (what nHermes is, the bot's live settings, a docs map). Edits go through `Settings`; every change asks the owner with a diff (never Jev, no "always"); refused in jobs, from network members, and (gateway tools) through an untrusted delegation chain. `src/tools/self.ts` |
 
 Long-running tools stream output through Pi Durable's `api.output()`, honour cancellation through the
 call's context, declare timeouts, and are `replay: "unsafe"` unless they are read-only
