@@ -36,6 +36,7 @@ import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
 import { desktopFeature } from "./tools/desktop.ts";
 import { describeConfigCall, type SelfServices, selfFeature } from "./tools/self.ts";
+import { openchamberFeature } from "./tools/openchamber.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
 
@@ -200,6 +201,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		webFeature(late),
 		browserFeature(late, () => browsers),
 		desktopFeature(late),
+		openchamberFeature(late),
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);

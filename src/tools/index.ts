@@ -38,4 +38,5 @@ export const GROUP_LABELS: Record<string, { label: string; description: string }
 	notify: { label: "Notifications", description: "notify (Vory and/or Pushover)" },
 	browser: { label: "Browser Automation", description: "Playwright: open, snapshot, click, type, screenshot" },
 	desktop: { label: "Desktop Automation", description: "X11 desktop: screenshot, click, type, windows" },
+	openchamber: { label: "OpenChamber", description: "oc_sessions, oc_read, oc_waiting, oc_diff" },
 };

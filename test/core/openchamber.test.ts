@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { condenseMessages, type Message, OpenChamber } from "../../src/openchamber/client.ts";
 import { redact } from "../../src/log.ts";
-import { tempDir } from "../helpers.ts";
+import { openchamberFeature } from "../../src/tools/openchamber.ts";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { collect, fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
 const TOKEN = "oc-token-0123456789abcdef";
 
@@ -112,4 +114,100 @@ test("condenseMessages keeps text, one line per tool call, drops reasoning, and 
 	const capped = condenseMessages(long, 5000);
 	assert.ok(capped.length < 5200);
 	assert.match(capped, /earlier lines left out/);
+});
+
+/** Runs the model's tool calls against a core whose bot has the openchamber tools; returns each result's text. */
+async function runTools(settingsPath: string, calls: [string, Record<string, string | number | boolean>][], bot: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }[]> {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const config = testConfig(dir, [{ name: "oc", default: true, instructions: "x", tools: ["openchamber"], approvals: { mode: "off" }, ...bot }]);
+	const core = await testCore(dir, { models, config, features: (late) => [openchamberFeature(late, { settingsPath })] });
+	try {
+		const s = await core.sessions.create("oc");
+		const c = collect(core.hub, s.id);
+		faux.setResponses([...calls.map(([name, args]) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
+		await core.sessions.submit(s.id, "go");
+		await c.until((e) => e.type === "run.finished");
+		return (c.events.filter((e) => e.type === "tool.finished") as { resultText: string; isError: boolean }[]).map((e) => ({ text: e.resultText, isError: e.isError }));
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+}
+
+const session = (id: string, title: string, directory: string, extra = {}) => ({ id, title, location: { directory }, time: { created: 1, updated: 1792346855799 }, model: { providerID: "p", id: "m" }, agent: "build", ...extra });
+
+test("oc_sessions lists threads with status; oc_read pages back to the requested turns; the token never shows", async () => {
+	const { dir, cleanup } = await tempDir();
+	const user = (i: number): Message => ({ id: `u${i}`, type: "user", text: `question ${i}` });
+	const asst = (i: number): Message => ({ id: `a${i}`, type: "assistant", content: [{ type: "text", text: `answer ${i}` }, { type: "tool", name: "bash", state: { status: "completed", input: { command: `echo ${i}` } } }] });
+	// Newest first, two messages per page, so three turns need two pages.
+	const pages: Record<string, { data: Message[]; cursor: { next?: string } }> = {
+		first: { data: [asst(4), user(4), asst(3), user(3)], cursor: { next: "p2" } },
+		p2: { data: [asst(2), user(2), asst(1), user(1)], cursor: {} },
+	};
+	const fake = await fakeServer({
+		"GET /api/session": (s) => ({ data: [session("ses_a1", "Fix login", "/w/a"), session("ses_b2", "Docs", "/w/b")], q: s.url }),
+		"GET /api/session/active": () => ({ data: { ses_a1: { type: "running" } } }),
+		"GET /api/session/ses_a1": () => ({ data: session("ses_a1", "Fix login", "/w/a") }),
+		"GET /api/session/ses_a1/message": (s) => pages[new URL(s.url, "http://x").searchParams.get("cursor") ?? "first"],
+	});
+	try {
+		const settingsPath = await settingsFile(dir, fake.port);
+		const [list, readOut, bad] = await runTools(settingsPath, [["oc_sessions", {}], ["oc_read", { session: "ses_a1", turns: 3 }], ["oc_read", { session: "../x" }]]);
+		assert.match(list!.text, /ses_a1 "Fix login" \/w\/a RUNNING/);
+		assert.match(list!.text, /ses_b2 "Docs" \/w\/b idle/);
+		assert.match(fake.seen.find((s) => s.url.startsWith("/api/session?"))!.url, /parentID=null/);
+		assert.match(readOut!.text, /Thread "Fix login"/);
+		assert.match(readOut!.text, /USER: question 2[\s\S]*ASSISTANT: answer 2[\s\S]*USER: question 4/);
+		assert.doesNotMatch(readOut!.text, /question 1/);
+		assert.match(readOut!.text, /earlier turns not shown/);
+		assert.equal(bad!.isError, true);
+		assert.ok(!JSON.stringify([list, readOut, bad]).includes(TOKEN));
+		const second = fake.seen.filter((s) => s.url.includes("/message"))[1]!.url;
+		assert.match(second, /cursor=p2/);
+		assert.doesNotMatch(second, /order=/, "a cursor carries its own order");
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});
+
+test("oc_waiting finds permissions and forms across folders and names the thread", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({
+		"GET /api/session": () => ({ data: [session("ses_a1", "Fix login", "/w/a"), session("ses_b2", "Docs", "/w/b")] }),
+		"GET /api/session/active": () => ({ data: { ses_a1: { type: "running" } } }),
+		"GET /api/permission/request": (s) => (decodeURIComponent(s.url).includes("location[directory]=/w/b") ? { data: [{ id: "per_1", sessionID: "ses_b2", action: "bash", resources: ["rm -rf build"], message: "wants to run a command" }] } : { data: [] }),
+		"GET /api/session/ses_a1/permission": () => ({ data: [] }),
+		"GET /api/session/ses_b2/permission": () => ({ data: [{ id: "per_1", sessionID: "ses_b2", action: "bash", resources: ["rm -rf build"] }] }),
+		"GET /api/session/ses_a1/form": () => ({ data: [{ id: "frm_9", sessionID: "ses_a1", title: "Which database?", fields: [{ key: "db", type: "string", required: true, options: [{ value: "pg", label: "Postgres" }] }] }] }),
+		"GET /api/session/ses_b2/form": () => ({ data: [] }),
+	});
+	try {
+		const [out] = await runTools(await settingsFile(dir, fake.port), [["oc_waiting", {}]]);
+		const lines = out!.text.split("\n");
+		assert.equal(lines.filter((l) => l.startsWith("PERMISSION")).length, 1, "the same request found twice is listed once");
+		assert.match(out!.text, /PERMISSION request=per_1 session=ses_b2 thread="Docs": wants to bash on rm -rf build/);
+		assert.match(out!.text, /QUESTION form=frm_9 session=ses_a1 thread="Fix login": Which database\?/);
+		assert.match(out!.text, /db .*\[string, required\] options: pg \(Postgres\)/);
+		assert.ok(fake.seen.some((s) => decodeURIComponent(s.url).includes("location[directory]=/w/a")), "asked per folder");
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});
+
+test("oc_diff summarises changed files and returns one patch on request", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({ "GET /api/session/ses_a1/diff": () => ({ data: [{ file: "a.ts", patch: "@@ -1 +1 @@\n-x\n+y", additions: 1, deletions: 1, status: "modified" }] }) });
+	try {
+		const [sum, patch, missing] = await runTools(await settingsFile(dir, fake.port), [["oc_diff", { session: "ses_a1" }], ["oc_diff", { session: "ses_a1", file: "a.ts" }], ["oc_diff", { session: "ses_a1", file: "zzz" }]]);
+		assert.match(sum!.text, /modified a\.ts \+1 −1/);
+		assert.match(patch!.text, /\+y/);
+		assert.equal(missing!.isError, true);
+	} finally {
+		fake.close();
+		await cleanup();
+	}
 });
