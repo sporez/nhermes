@@ -91,7 +91,7 @@ bots it @mentions (`@ops`), or to all of them when it mentions none (`@all` and 
 They answer one at a time, may pull each other in with `@name`, and stay quiet when they have nothing
 to add. You get one notification when they are done. A bot that needs your approval shows "<bot> is
 waiting for your approval" in the room; the approval notification opens that bot's own room session
-with the card. Deleting the group in Vory disbands it (a running turn is stopped; the log stays in
+with the card, and while the approval waits that session ("Group: <name>") is also at the top of Chats. Deleting the group in Vory disbands it (a running turn is stopped; the log stays in
 `app.sqlite`). Group chats take the bots of the gateway Vory is connected to, not other machines' bots.
 
 ## Administration

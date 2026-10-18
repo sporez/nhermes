@@ -178,6 +178,8 @@ test("a turn that needs approval says so in the room, is asked in the bot's room
 	const { dir, cleanup } = await tempDir();
 	const { faux, models: m } = models();
 	const core = await testCore(dir, { models: m, notifier: new Recorder() });
+	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const listed = async () => ((await (await fetch(`http://127.0.0.1:${server.port}/api/sessions?profile=main`, { headers: { "X-Hermes-Session-Token": TOKEN } })).json()) as { sessions: { id: string }[] }).sessions.map((x) => x.id);
 	try {
 		core.rooms.create({ room_id: "r1", name: "Ops room", members: voryMembers });
 		faux.setResponses([
@@ -189,16 +191,19 @@ test("a turn that needs approval says so in the room, is asked in the bot's room
 		const request = await until(() => core.approvals.pendingFor(session)[0]);
 		assert.equal(request.bot, "main");
 		const waiting = await until(() => core.rooms.log({ room_id: "r1" }).events.find((e) => e.kind === "room.activity"));
-		assert.equal(waiting.payload.status, "Main is waiting for your approval");
+		assert.equal(waiting.payload.status, 'Main is waiting for your approval: open "Group: Ops room" in Chats');
 		assert.equal(waiting.payload.member_id, "main");
+		assert.deepEqual(await listed(), [session], "while it waits, the bot's room session is in the chat list");
 		core.approvals.answer(request.requestId, "once");
 		await core.rooms.idle("r1");
+		assert.deepEqual(await listed(), [], "and leaves it once answered");
 		const events = core.rooms.log({ room_id: "r1" }).events;
 		assert.deepEqual(kinds(events), ["message.user", "turn.started:main", "room.activity:main", "message.member:main", "turn.settled:main", "room.activity"]);
 		assert.equal(events[3]!.payload.text, "/var is 2 GB.");
 		// The reviewer reads the owner's words from the room, not the turn prompt with other bots' words in it.
 		assert.deepEqual(core.rooms.ownerMessages(session), ["@main how big is /var?"]);
 	} finally {
+		await server.close();
 		await core.close();
 		await cleanup();
 	}

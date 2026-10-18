@@ -237,10 +237,16 @@ export class Rooms {
 	/** Waits for a turn's answer and files it; says in the room while the turn waits for the owner's approval. */
 	private async await(room: RoomInfo, member: RoomMember, session: SessionRow, submission: number, coords: ReturnType<typeof turnCoordinates>, seenThrough: number): Promise<void> {
 		await this.d.sessions.live(session.id);
+		// While an approval waits, the member's session is listed in Vory's chats (src/hermes/rest.ts) at the
+		// top, so its card can be reached without the notification.
 		const off = this.d.hub.subscribe(session.id, (_sid, e) => {
+			if (e.type === "approval.resolved") return this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot });
 			if (e.type !== "approval.requested" || this.row(room.room_id)?.disbanded_at !== null) return;
+			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
+			this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot });
 			const who = member.display_name || member.handle;
-			this.append(room.room_id, [{ kind: "room.activity", actor: GATEWAY, payload: { status: `${who} is waiting for your approval`, member_id: member.member_id, thread_id: coords.thread_id, discussion_event_id: coords.discussion_event_id } }]);
+			const status = `${who} is waiting for your approval: open "${session.title}" in Chats`;
+			this.append(room.room_id, [{ kind: "room.activity", actor: GATEWAY, payload: { status, member_id: member.member_id, thread_id: coords.thread_id, discussion_event_id: coords.discussion_event_id } }]);
 		});
 		let outcome: Append[];
 		try {

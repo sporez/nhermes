@@ -133,6 +133,8 @@ export function restRoutes(core: Core): Router {
 	});
 
 	// Sessions
+	// A hidden session with an approval waiting is listed, so its card can be reached from the chat list.
+	const awaitingApproval = () => [...new Set(core.approvals.allPending().map((a) => a.sessionId))];
 	r.on("GET", "/api/sessions", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
 		const limit = intParam(q.query, "limit", 20, 100);
@@ -141,19 +143,19 @@ export function restRoutes(core: Core): Router {
 		if (!["exclude", "only", "include"].includes(archived)) throw new HttpError(400, "archived must be one of: exclude, only, include");
 		const order = (q.query.get("order") ?? "created") as "recent" | "created";
 		if (!["recent", "created"].includes(order)) throw new HttpError(400, "order must be one of: created, recent");
-		const { rows, total } = sessions.list(bot.name, { limit, offset, archived, order, exceptKinds: UNLISTED });
+		const { rows, total } = sessions.list(bot.name, { limit, offset, archived, order, exceptKinds: UNLISTED, exceptUnless: awaitingApproval() });
 		return { sessions: rows.map((row) => listRow(row.id)), total, limit, offset };
 	});
 	r.on("GET", "/api/sessions/search", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
 		const term = (q.query.get("q") ?? "").trim();
-		const { rows } = sessions.list(bot.name, { limit: 50, offset: 0, archived: "include", order: "recent", search: term || undefined, exceptKinds: UNLISTED });
+		const { rows } = sessions.list(bot.name, { limit: 50, offset: 0, archived: "include", order: "recent", search: term || undefined, exceptKinds: UNLISTED, exceptUnless: awaitingApproval() });
 		return { sessions: rows.map((row) => listRow(row.id)) };
 	});
 	r.on("GET", "/api/sessions/stats", (q) => {
 		const bot = botFor(core, q.query.get("profile"));
-		const all = sessions.list(bot.name, { limit: 1, offset: 0, archived: "include", order: "recent", exceptKinds: UNLISTED }).total;
-		const archived = sessions.list(bot.name, { limit: 1, offset: 0, archived: "only", order: "recent", exceptKinds: UNLISTED }).total;
+		const all = sessions.list(bot.name, { limit: 1, offset: 0, archived: "include", order: "recent", exceptKinds: UNLISTED, exceptUnless: awaitingApproval() }).total;
+		const archived = sessions.list(bot.name, { limit: 1, offset: 0, archived: "only", order: "recent", exceptKinds: UNLISTED, exceptUnless: awaitingApproval() }).total;
 		return { total: all, active_store: all - archived, archived };
 	});
 	const owned = (q: Req) => {
