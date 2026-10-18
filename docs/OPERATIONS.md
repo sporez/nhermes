@@ -170,8 +170,9 @@ holding the token) to reach it another way.
 
 The control tools always ask the owner in smart and manual mode (YOLO and off skip asks as usual);
 Jev never answers them. `oc_approve` is answered call by call, once or deny: no "always" answer covers
-it. `openchamber.model` (`provider/model`) and `openchamber.agent` set the default for new threads;
-without a model `oc_start` needs one in the call.
+it. New threads use the default model, variant (thinking level) and agent picked in OpenChamber, read
+at each start, so changing the default there is enough; `openchamber.model` (`provider/model`),
+`openchamber.variant` and `openchamber.agent` override them for this bot.
 
 `openchamber.watch: true` makes the gateway keep one event subscription to OpenChamber and notify the
 owner when a thread asks for permission, asks a question, or finishes or fails (delegated sub-threads
@@ -184,7 +185,6 @@ OpenChamber is closed.
     description: Reads and runs my OpenChamber threads
     tools: [openchamber, memory, notify]
     openchamber:
-      model: <provider/model>
       watch: true
 ```
 

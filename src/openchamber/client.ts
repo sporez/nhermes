@@ -61,6 +61,17 @@ export class OpenChamber {
 		return { base, token };
 	}
 
+	/** The model, variant and agent the user picked as defaults in OpenChamber; empty when its settings file is unreadable. */
+	defaults(): { model?: string; variant?: string; agent?: string } {
+		try {
+			const s = JSON.parse(readFileSync(this.opts.settingsPath ?? DEFAULT_SETTINGS_PATH, "utf8")) as Record<string, unknown>;
+			const pick = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+			return { model: pick(s.defaultModel), variant: pick(s.defaultVariant), agent: pick(s.defaultAgent) };
+		} catch {
+			return {};
+		}
+	}
+
 	async request<T = unknown>(method: "GET" | "POST", path: string, o: { query?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
 		const { base, token } = this.resolve();
 		const qs = Object.entries(o.query ?? {}).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${encodeURIComponent(v!).replace(/%2F/g, "/")}`);
@@ -180,8 +191,8 @@ export function when(ms: number | undefined): string {
 }
 
 /** Splits "provider/model" into OpenCode's model ref; the model id may itself contain "/". */
-export function modelRef(ref: string): ModelRef {
+export function modelRef(ref: string, variant?: string): ModelRef {
 	const i = ref.indexOf("/");
 	if (i < 1 || i === ref.length - 1) throw new OpenChamberError(`model must be "provider/model", got "${ref}"`);
-	return { providerID: ref.slice(0, i), id: ref.slice(i + 1) };
+	return { providerID: ref.slice(0, i), id: ref.slice(i + 1), ...(variant ? { variant } : {}) };
 }

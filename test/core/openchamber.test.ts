@@ -300,3 +300,31 @@ test("oc_start refuses without a model, and sends the configured model and agent
 		await cleanup();
 	}
 });
+
+test("oc_start follows the defaults picked in OpenChamber, read at each start", async () => {
+	const { dir, cleanup } = await tempDir();
+	const fake = await fakeServer({
+		"POST /api/session": () => ({ data: session("ses_new", "Try it", dir) }),
+		"POST /api/session/ses_new/prompt": () => undefined,
+	});
+	try {
+		const settingsPath = join(dir, "settings.json");
+		const write = (extra: object) => writeFile(settingsPath, JSON.stringify({ desktopLocalPort: fake.port, desktopLocalClientToken: TOKEN, ...extra }));
+		await write({ defaultModel: "claude-code/claude-opus-5-5[1m]", defaultVariant: "medium", defaultAgent: "build" });
+		const [ok] = await runTools(settingsPath, [["oc_start", { directory: dir, title: "Try it", prompt: "do it" }]]);
+		assert.match(ok!.text, /claude-opus-5-5\[1m\] \(medium\), agent build/);
+		// The user changes the default in OpenChamber: the next thread follows it.
+		await write({ defaultModel: "claude-code/claude-sonnet-5-5[1m]", defaultVariant: "high", defaultAgent: "build" });
+		// A model named in the call does not take OpenChamber's variant, which belongs to its default model.
+		await runTools(settingsPath, [["oc_start", { directory: dir, title: "Try it", prompt: "do it" }], ["oc_start", { directory: dir, title: "Try it", prompt: "do it", model: "openai/gpt-6-sol" }]]);
+		const creates = fake.seen.filter((s) => s.method === "POST" && s.url === "/api/session").map((s) => (s.body as { model: unknown }).model);
+		assert.deepEqual(creates, [
+			{ providerID: "claude-code", id: "claude-opus-5-5[1m]", variant: "medium" },
+			{ providerID: "claude-code", id: "claude-sonnet-5-5[1m]", variant: "high" },
+			{ providerID: "openai", id: "gpt-6-sol" },
+		]);
+	} finally {
+		fake.close();
+		await cleanup();
+	}
+});

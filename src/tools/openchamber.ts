@@ -272,13 +272,15 @@ export function openchamberFeature(late: LateServices, options: OpenChamberToolO
 	const start = defineTool({
 		name: "oc_start",
 		description:
-			"Start a new OpenChamber thread in a folder and give it a first prompt. model (provider/model) and agent default to this bot's openchamber settings; a model is required." +
+			"Start a new OpenChamber thread in a folder and give it a first prompt. Leave model, variant and agent out unless the user asks for them: " +
+			"they default to this bot's openchamber settings, then to the defaults the user picked in OpenChamber." +
 			" The user approves each call: say the thread title, the folder, and what the prompt asks for.",
 		parameters: Type.Object({
 			directory: Type.String({ description: "Absolute path of an existing folder" }),
 			title: Type.String(),
 			prompt: Type.String(),
 			model: Type.Optional(Type.String({ description: "provider/model" })),
+			variant: Type.Optional(Type.String({ description: "Thinking level / model variant, e.g. low, medium, high" })),
 			agent: Type.Optional(Type.String()),
 		}),
 		execute: async (args, api, ctx) => {
@@ -286,11 +288,16 @@ export function openchamberFeature(late: LateServices, options: OpenChamberToolO
 			const cfg = bot?.config.openchamber;
 			const oc = client(api.conversationId);
 			if (!isAbsolute(args.directory) || !statSync(args.directory, { throwIfNoEntry: false })?.isDirectory()) throw new OpenChamberError(`${args.directory} is not an existing absolute folder`);
-			const model = args.model ?? cfg?.model;
-			if (!model) throw new OpenChamberError("no model: pass model (provider/model) or ask the owner to set openchamber.model for this bot; a new thread needs one");
-			const created = await oc.post<{ data: SessionInfo }>("/api/session", { title: args.title, location: { directory: args.directory }, model: modelRef(model), agent: args.agent ?? cfg?.agent ?? null }, ctx.abortSignal);
+			// Read at each start, so a default changed in OpenChamber applies to the next thread.
+			const picked = oc.defaults();
+			const model = args.model ?? cfg?.model ?? picked.model;
+			if (!model) throw new OpenChamberError("no model: pass model (provider/model); neither this bot's openchamber.model nor OpenChamber's default model is set");
+			// OpenChamber's default variant belongs to its default model; another model keeps its own default.
+			const variant = args.variant ?? cfg?.variant ?? (model === picked.model ? picked.variant : undefined);
+			const agent = args.agent ?? cfg?.agent ?? picked.agent ?? null;
+			const created = await oc.post<{ data: SessionInfo }>("/api/session", { title: args.title, location: { directory: args.directory }, model: modelRef(model, variant), agent }, ctx.abortSignal);
 			await oc.post(`/api/session/${created.data.id}/prompt`, { text: args.prompt }, ctx.abortSignal);
-			return text(`Started "${args.title}" (${created.data.id}) in ${args.directory} with ${model}.`);
+			return text(`Started "${args.title}" (${created.data.id}) in ${args.directory} with ${model}${variant ? ` (${variant})` : ""}${agent ? `, agent ${agent}` : ""}.`);
 		},
 	});
 

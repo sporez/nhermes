@@ -53,7 +53,16 @@ export type BotConfig = {
 	/** Desktop automation target: an X11 desktop reached through the bot's host (see docs/COMPUTER_USE.md). */
 	desktop?: { display?: string };
 	/** OpenChamber on this Mac (tool group `openchamber`). Without url/tokenEnv its own settings file is read. */
-	openchamber?: { url?: string; tokenEnv?: string; model?: string; agent?: string; /** Tell the owner when a thread needs them or finishes. */ watch?: boolean };
+	openchamber?: {
+		url?: string;
+		tokenEnv?: string;
+		/** Defaults for threads the bot starts; unset ones follow the defaults picked in OpenChamber. */
+		model?: string;
+		variant?: string;
+		agent?: string;
+		/** Tell the owner when a thread needs them or finishes. */
+		watch?: boolean;
+	};
 };
 
 export type Config = {
@@ -230,7 +239,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 		openchamber:
 			r.openchamber === undefined
 				? undefined
-				: { url: str(ocRaw.url, `${where}.openchamber.url`), tokenEnv: str(ocRaw.tokenEnv, `${where}.openchamber.tokenEnv`), model: ocModel, agent: str(ocRaw.agent, `${where}.openchamber.agent`), watch: ocRaw.watch === true },
+				: { url: str(ocRaw.url, `${where}.openchamber.url`), tokenEnv: str(ocRaw.tokenEnv, `${where}.openchamber.tokenEnv`), model: ocModel, variant: str(ocRaw.variant, `${where}.openchamber.variant`), agent: str(ocRaw.agent, `${where}.openchamber.agent`), watch: ocRaw.watch === true },
 	};
 }
 
