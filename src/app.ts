@@ -36,6 +36,7 @@ import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
 import { desktopFeature } from "./tools/desktop.ts";
 import { describeConfigCall, type SelfServices, selfFeature } from "./tools/self.ts";
+import { OpenChamberWatcher } from "./openchamber/watcher.ts";
 import { openchamberFeature } from "./tools/openchamber.ts";
 import { skillsFeature } from "./tools/skills.ts";
 import { coreToolGroups, type ToolGroups, toolsFor } from "./tools/index.ts";
@@ -293,6 +294,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
 
 	vory.start();
+	const chamberWatcher = new OpenChamberWatcher({ configs: () => bots.list().map((b) => b.config?.openchamber), notifier: () => notifier });
+	chamberWatcher.start();
 	engine.resume();
 	const reattached = await sessions.attachBusy();
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
@@ -333,6 +336,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			updates.stop();
 			catalogs.stop();
 			vory.stop();
+			await chamberWatcher.stop();
 			proxy.close();
 			await scheduler!.stop();
 			await rooms!.stop();

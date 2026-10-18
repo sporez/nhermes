@@ -29,7 +29,7 @@ export class OpenChamber {
 	}
 
 	/** Base URL and token for this call. */
-	private resolve(): { base: string; token: string } {
+	resolve(): { base: string; token: string } {
 		const cfg = this.opts.config ?? {};
 		const path = this.opts.settingsPath ?? DEFAULT_SETTINGS_PATH;
 		let settings: { desktopLocalPort?: number; desktopLocalClientToken?: string } | undefined;
