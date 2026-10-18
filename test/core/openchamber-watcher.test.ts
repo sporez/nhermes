@@ -67,7 +67,8 @@ test("a permission request notifies once with the thread title; a duplicate insi
 		await until(() => t.sent.length === 1);
 		assert.equal(t.sent[0]!.message, "Fix login wants to run on npm test");
 		t.s.send("permission.asked", { ...p, id: "per_2" });
-		t.s.send("form.created", { form: { id: "frm_1", sessionID: "ses_a", title: "Which branch?" } });
+		// The form's generic title gives way to the question its field asks.
+		t.s.send("form.created", { form: { id: "frm_1", sessionID: "ses_a", title: "Questions", fields: [{ key: "q0", title: "Which branch?" }] } });
 		await until(() => t.sent.length === 2);
 		assert.equal(t.sent[1]!.message, "Fix login asks: Which branch?");
 		assert.equal(t.sent.length, 2);

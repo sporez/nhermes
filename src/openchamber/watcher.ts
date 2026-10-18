@@ -144,9 +144,11 @@ export class OpenChamberWatcher {
 				break;
 			}
 			case "form.created": {
-				const f = d.form as { title?: string };
+				// The form's own title is often just "Questions"; its fields carry the actual questions.
+				const f = d.form as { title?: string; fields?: { title?: string }[] } | undefined;
+				const asked = f?.fields?.map((x) => x.title).filter(Boolean).join("; ") || f?.title || "a question";
 				kind = "form";
-				line = (t) => `${t} asks: ${f?.title ?? "a question"}`;
+				line = (t) => `${t} asks: ${clip(asked, 200)}`;
 				break;
 			}
 			case "session.execution.succeeded":

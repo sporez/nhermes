@@ -155,7 +155,8 @@ function condenseMessage(m: Message): string[] {
 			return [`USER: ${clip(m.text ?? "", TEXT_CAP)}`];
 		case "synthetic":
 		case "system":
-			return m.text ? [`[${m.type}] ${clip(m.text, 300)}`] : [];
+			// Notices from the harness (tool catalogs, reminders) are noise here: their first line is enough.
+			return m.text?.trim() ? [`[${m.type}] ${clip(m.text.trim().split("\n")[0]!, 160)}`] : [];
 		case "shell":
 			return [`[shell] ${clip(m.command ?? "", 100)} (${m.status ?? "?"})`];
 		case "assistant": {
