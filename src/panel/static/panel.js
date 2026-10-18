@@ -92,6 +92,28 @@ async function api(method, path, body) {
 	return data;
 }
 
+/**
+ * Asks yes or no in the page. window.confirm() is blocked without a word in embedded browsers (the
+ * in-app browsers of OpenChamber and other apps answer "cancel" and show nothing), which left buttons
+ * that asked first doing nothing there.
+ */
+function ask(question, yes = "OK") {
+	return new Promise((resolve) => {
+		const dialog = h("dialog", { class: "ask" });
+		const done = (answer) => { dialog.close(); dialog.remove(); resolve(answer); };
+		const ok = h("button", { class: "primary", on: { click: () => done(true) } }, yes);
+		dialog.append(
+			h("p", {}, question),
+			h("div", { class: "row end" }, h("button", { on: { click: () => done(false) } }, "Cancel"), ok),
+		);
+		// Escape cancels.
+		dialog.addEventListener("cancel", (e) => { e.preventDefault(); done(false); });
+		document.body.append(dialog);
+		dialog.showModal();
+		ok.focus();
+	});
+}
+
 let toastTimer = null;
 function toast(msg, isError = false) {
 	const t = document.getElementById("toast");
@@ -346,7 +368,7 @@ function botEditor(bot, ctx) {
 	});
 	const remove = () => run(async () => {
 		const where = ctx.node ? ` on ${ctx.node}` : "";
-		if (!confirm(`Remove "${bot.name}"${where} from the config?\n\nIts chats, memory and workspace stay on disk; they just stop being served.`)) return;
+		if (!await ask(`Remove "${bot.name}"${where} from the config?\n\nIts chats, memory and workspace stay on disk; they just stop being served.`)) return;
 		restartNote(await api("DELETE", path));
 		ui.bot = null;
 		await ctx.reload();
@@ -452,7 +474,7 @@ function promptCard(bot, ctx) {
 				await load();
 			});
 			const reset = () => run(async () => {
-				if (!confirm("Go back to the built-in ground rules for every bot?")) return;
+				if (!await ask("Go back to the built-in ground rules for every bot?")) return;
 				restartNote(await api("PATCH", "/gateway", { groundRules: null }));
 				await load();
 			});
@@ -494,7 +516,7 @@ async function networkScreen() {
 	const plainCount = net.members.filter((m) => !m.encrypted).length;
 	const strict = h("input", { type: "checkbox", checked: net.requiresPsk });
 	strict.addEventListener("change", () => run(async () => {
-		if (strict.checked && plainCount > 0 && !confirm(`${plainCount} member${plainCount === 1 ? " is" : "s are"} not encrypted yet and will be cut off until updated. Refuse plain connections anyway?`)) { strict.checked = false; return; }
+		if (strict.checked && plainCount > 0 && !await ask(`${plainCount} member${plainCount === 1 ? " is" : "s are"} not encrypted yet and will be cut off until updated. Refuse plain connections anyway?`)) { strict.checked = false; return; }
 		try { await api("PATCH", "/network/settings", { requirePsk: strict.checked }); toast("Saved"); }
 		catch (e) { strict.checked = !strict.checked; throw e; }
 	}));
@@ -525,7 +547,7 @@ async function networkScreen() {
 					toast(`New key shared with ${m.name}`);
 				}) } }, "Regenerate key"),
 				h("button", { class: "danger", on: { click: act(async () => {
-					if (!confirm(`Remove ${m.name} from the network?`)) return;
+					if (!await ask(`Remove ${m.name} from the network?`)) return;
 					await api("DELETE", `/network/members/${encodeURIComponent(m.name)}`);
 				}) } }, "Remove"))))
 		: [h("div", { class: "notice" }, "No other machines yet. Use \"Invite a machine\" to add one.")];
@@ -548,7 +570,7 @@ async function networkScreen() {
 		h("div", { class: "field" }, url),
 		h("div", { class: "row" }, inviteBtn,
 			net.members.length > 0 && h("button", { class: "danger", on: { click: act(async () => {
-				if (!confirm("Leave this network? Other machines' bots will disappear from this gateway.")) return;
+				if (!await ask("Leave this network? Other machines' bots will disappear from this gateway.")) return;
 				await api("POST", "/network/leave");
 			}) } }, "Leave network")),
 		out);
@@ -628,7 +650,7 @@ async function sessionsScreen() {
 				h("button", { class: "link", on: { click: patch(s, { archived: !s.archived }) } }, s.archived ? "Unarchive" : "Archive"),
 				s.running && h("button", { class: "link", on: { click: () => run(async () => { await api("POST", `/sessions/${s.id}/stop`); await sessionsScreen(); }) } }, "Stop"),
 				h("button", { class: "link danger", on: { click: () => run(async () => {
-					if (!confirm(`Delete "${s.title || "Untitled"}"? This cannot be undone.`)) return;
+					if (!await ask(`Delete "${s.title || "Untitled"}"? This cannot be undone.`)) return;
 					await api("DELETE", `/sessions/${s.id}`);
 					await sessionsScreen();
 				}) } }, "Delete")))));
@@ -653,7 +675,7 @@ async function memoryScreen() {
 	const { items } = await api("GET", `/memory?owner=${encodeURIComponent(ui.owner)}&q=${encodeURIComponent(ui.memoryQ)}`);
 	items.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 	const del = (m) => () => run(async () => {
-		if (!confirm("Delete this memory?")) return;
+		if (!await ask("Delete this memory?")) return;
 		await api("DELETE", `/memory/${m.id}?owner=${encodeURIComponent(ui.owner)}`);
 		await memoryScreen();
 	});
@@ -727,7 +749,7 @@ async function keysScreen() {
 	const newToken = h("div");
 
 	const generate = () => run(async () => {
-		if (!confirm("Generate a new gateway token? The old one stops working after the gateway restarts.")) return;
+		if (!await ask("Generate a new gateway token? The old one stops working after the gateway restarts.")) return;
 		const t = await api("POST", "/token/new");
 		const box = h("div", { class: "card" }, h("h3", {}, "New token for ", h("span", { class: "mono" }, t.name)),
 			h("div", { class: "notice warn" }, "Shown only once. Vory and the nhermes command need this new token after the gateway restarts."),
@@ -756,7 +778,7 @@ async function keysScreen() {
 			hint.textContent = `ends with ${r.hint}`;
 		});
 		const remove = () => run(async () => {
-			if (!confirm(`Remove ${k.name} from secrets.env?`)) return;
+			if (!await ask(`Remove ${k.name} from secrets.env?`)) return;
 			const r = await api("DELETE", `/secrets/${encodeURIComponent(k.name)}`);
 			toast(r.restartNeeded ? "Removed. Takes effect after a restart." : "Removed");
 			await keysScreen();
@@ -892,7 +914,7 @@ async function statusScreen() {
 		h("td", {}, h("div", { class: "row" },
 			h("button", { class: "link", on: { click: () => run(async () => { await api("POST", `/jobs/${j.id}/${j.enabled ? "pause" : "resume"}`); await statusScreen(); }) } }, j.enabled ? "Pause" : "Resume"),
 			h("button", { class: "link danger", on: { click: () => run(async () => {
-				if (!confirm(`Delete the scheduled job "${j.name}"? It stops running; the chat its runs wrote stays in Sessions.`)) return;
+				if (!await ask(`Delete the scheduled job "${j.name}"? It stops running; the chat its runs wrote stays in Sessions.`)) return;
 				await api("DELETE", `/jobs/${j.id}`);
 				await statusScreen();
 			}) } }, "Delete"))));
@@ -953,7 +975,7 @@ async function gatewayScreen() {
 
 	const setPassword = (remove) => () => run(async () => {
 		if (remove) {
-			if (!confirm("Remove the panel password? Anyone on your network will be able to open this panel.")) return;
+			if (!await ask("Remove the panel password? Anyone on your network will be able to open this panel.")) return;
 			await api("POST", "/password", { password: null });
 		} else {
 			const p = prompt("New panel password (at least 6 characters)");
@@ -1056,7 +1078,7 @@ function softwareCard() {
 		toast("The gateway has not come back yet; check its logs.", true);
 	};
 	const change = (path, question) => run(async () => {
-		if (!confirm(question)) return;
+		if (!await ask(question)) return;
 		const r = await api("POST", path);
 		if (r.restarting) return waitForRestart();
 		toast(`Now at ${r.to.hash}. Restart the gateway to run it.`);

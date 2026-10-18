@@ -95,3 +95,9 @@ th { font-size: .78rem; color: var(--muted); font-weight: 600; }
 .token { overflow-wrap: anywhere; user-select: all; }
 .skill { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .skill input { margin-top: .25rem; }
+
+/* In-page yes/no (ask() in panel.js): embedded browsers block window.confirm(). */
+dialog.ask { max-width: min(26rem, 90vw); padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); }
+dialog.ask::backdrop { background: rgb(0 0 0 / .45); }
+dialog.ask p { margin: 0 0 1rem; white-space: pre-line; }
+.row.end { justify-content: flex-end; }
