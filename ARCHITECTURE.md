@@ -55,7 +55,7 @@ drive it as if it were a Hermes gateway.
 | **Run** | One answered input: a Durable submission and the turns it took | Durable (`pi.inbox`, tasks, entries). We only keep ids |
 | **Job** | A schedule with a prompt, target bot, optional model/skills, notification policy | `app.jobs`, `app.job_runs` |
 | **Memory item** | A fact or Markdown note owned by one bot, or by a named shared space | `app.memories` + FTS5 index |
-| **Room** | A group chat of 2-6 bots on this gateway: its members and one ordered log of typed events | `app.rooms`, `app.room_events`, `app.room_sessions`, `app.room_turns` |
+| **Room** | A group chat of 2-6 bots (this gateway's or members'): its members and one ordered log of typed events | `app.rooms`, `app.room_events`, `app.room_sessions`, `app.room_turns` |
 
 A bot's identity is separate from all of its sessions. Resetting, compacting, archiving or deleting a
 session never touches the bot, its memory or its jobs. In Hermes terms, a **profile is a bot**; there is
@@ -259,7 +259,12 @@ bot messages bound it.
   the room log, since a turn's prompt also carries other bots' words; later lines of a message are
   indented in prompts so a bot cannot write a line that reads as the owner's.
 - **Notifications:** one when an exchange settles or is bounded with new bot replies.
-- **Scope:** this gateway's bots only. Vory polls `groups.log`; nothing is pushed over the socket.
+- **Members' bots** answer on their own machine: their room session is made there with `session.create
+  {kind: "room"}` (as work this gateway started, so untrusted there and its approvals come back here),
+  catalogued here under the same id so Vory opens it through the member link, and each turn runs with
+  `runOnPeer` keyed by the turn. Its prompt is kept in `room_turns`, so a restart sends it again under the
+  same key and the member drops the repeat. An offline member's turn fails at once.
+- The room lives on the gateway Vory created it on. Vory polls `groups.log`; nothing is pushed over the socket.
 
 ## Hermes compatibility layer (`src/hermes/`)
 

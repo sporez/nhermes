@@ -50,17 +50,14 @@ Status per phase: see `docs/STATUS.md`.
 - [x] **9. Vory settings, notifications and remote bot edits**: Vory push relay notifications, Vory's
   settings and maintenance screens, per-bot skill toggles in the panel, editing members' bots from any
   panel and from Vory. Plan: `docs/REMOTE-BOT-EDITS.md`.
-- [x] **10. Group chats**: Vory's Bot Mode rooms for this gateway's bots (`groups.*`), Hermes' turn
-  planning, member room sessions, approvals and notifications, restart recovery. `src/core/rooms.ts`
-  (open: a pass with the real Vory app and a real model).
+- [x] **10. Group chats**: Vory's Bot Mode rooms (`groups.*`) with this gateway's bots and members'
+  bots, Hermes' turn planning, member room sessions, approvals and notifications, restart recovery.
+  `src/core/rooms.ts`.
 
 ## Future
 
 - **MCP servers.** Vory has an MCP Servers screen (`/api/mcp/servers`: list, enable, test, remove). nHermes
   has no MCP client yet; the screen gets 404 until it does.
-- **Group chats with bots on other machines.** Rooms take this gateway's bots only. Next: run a
-  member's turns on its own machine through `runOnPeer` with the turn id as the key, the way delegation
-  reaches other machines, and keep the room on the gateway Vory created it on.
 
 ## Deferred
 

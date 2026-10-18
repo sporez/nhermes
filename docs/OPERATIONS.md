@@ -92,7 +92,10 @@ They answer one at a time, may pull each other in with `@name`, and stay quiet w
 to add. You get one notification when they are done. A bot that needs your approval shows "<bot> is
 waiting for your approval" in the room; the approval notification opens that bot's own room session
 with the card, and while the approval waits that session ("Group: <name>") is also at the top of Chats. Deleting the group in Vory disbands it (a running turn is stopped; the log stays in
-`app.sqlite`). Group chats take the bots of the gateway Vory is connected to, not other machines' bots.
+`app.sqlite`). Other machines' bots in the network can join too (`Media (media)`, mentioned as
+`@media-media`): they answer on their own machine, and their approvals come to you here. A machine that
+is offline makes its bot's turn fail; the others carry on. The group's message box has no @ suggestions
+(Vory's own limit); type the handle.
 
 ## Administration
 
