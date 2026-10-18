@@ -1,21 +1,30 @@
-// Group chats (Vory's Bot Mode): a room of 2-6 bots on this gateway and one shared log of typed events.
-// The log is the state. After each change a room's driver replays it (planNextTurn, src/core/room-plan.ts)
-// and runs at most one member turn at a time: `turn.started`, the turn's prompt in that member's own room
-// session (kind "room", one per room thread), then its reply as `message.member` with `turn.settled`, or
-// `turn.failed`. A discussion ends with `room.activity` settled or bounded.
+// Group chats (Vory's Bot Mode): a room of 2-6 bots and one shared log of typed events, kept on the gateway
+// Vory created it on. The log is the state. After each change a room's driver replays it (planNextTurn,
+// src/core/room-plan.ts) and runs at most one member turn at a time: `turn.started`, the turn's prompt in
+// that member's own room session (kind "room", one per room thread), then its reply as `message.member`
+// with `turn.settled`, or `turn.failed`. A discussion ends with `room.activity` settled or bounded.
 //
-// Restarts: each turn is submitted under the request id `room:<room>:<turn>` and its submission kept in
-// room_turns, so after a restart the driver waits for the turn already running instead of sending it again.
-// Approvals are asked in the member's room session as in any chat (Jev reviews what it may); the room log
-// says who is waiting, and Vory's approval notification opens that session.
+// A member's bot on another machine answers there, in a room session made on that machine (as work this
+// gateway started, so it is not trusted there and its approvals come back here), reached with runOnPeer like
+// a delegated task. Its session is catalogued here too, so Vory can open it through the member link.
+//
+// Restarts: each turn is submitted under the key `room:<room>:<turn>` and kept in room_turns (the local
+// submission, or the prompt sent to the other machine), so after a restart the driver waits for the turn
+// already running instead of sending it again. Approvals are asked in the member's room session as in any
+// chat (Jev reviews what it may for local bots); the room log says who is waiting, Vory's approval
+// notification opens that session, and while it waits the session is listed in Chats.
 import { randomBytes } from "node:crypto";
 import type { Engine } from "../engine/engine.ts";
+import type { Members } from "../federation/members.ts";
+import type { ProxySessions } from "../federation/proxy.ts";
 import { logger, redact } from "../log.ts";
 import type { Notifier } from "../notify/notifier.ts";
+import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
 import type { AppDb } from "../store/db.ts";
-import type { Bots } from "./bots.ts";
+import type { Approvals } from "./approvals.ts";
+import type { Bot, Bots } from "./bots.ts";
 import type { Hub } from "./events.ts";
-import { planNextTurn, type RoomEvent, type RoomInfo, type RoomMember, type TurnPlan, isPass, turnCoordinates } from "./room-plan.ts";
+import { planNextTurn, type RoomEvent, type RoomInfo, type RoomMember, isPass, turnCoordinates } from "./room-plan.ts";
 import type { SessionRow, Sessions } from "./sessions.ts";
 
 const log = logger("rooms");
@@ -44,13 +53,27 @@ type RoomRow = { id: string; name: string; members: string; created_at: number; 
 type EventRow = { room_id: string; seq: number; event_id: string; kind: string; actor: string; payload: string; created_at: number };
 type Append = { kind: string; actor: { kind: string; id: string }; payload: Record<string, unknown>; eventId?: string };
 
-export type RoomsDeps = { db: AppDb; engine: Engine; sessions: Sessions; bots: Bots; hub: Hub; notifier: Notifier };
+export type RoomsDeps = {
+	db: AppDb;
+	engine: Engine;
+	sessions: Sessions;
+	bots: Bots;
+	hub: Hub;
+	notifier: Notifier;
+	approvals: Approvals;
+	members: Members;
+	proxy: ProxySessions;
+};
+
+type Coords = ReturnType<typeof turnCoordinates>;
 
 export class Rooms {
 	private readonly d: RoomsDeps;
 	/** The driver of each room that has one going, and the rooms that changed while it went. */
 	private readonly drivers = new Map<string, Promise<void>>();
 	private readonly again = new Set<string>();
+	/** Turns running on another machine, by `<room>\0<turn>`: stopped by disbanding or shutting down. */
+	private readonly remoteTurns = new Map<string, AbortController>();
 	private stopped = false;
 
 	constructor(deps: RoomsDeps) {
@@ -128,8 +151,11 @@ export class Rooms {
 				this.d.db.run("UPDATE rooms SET disbanded_at = ? WHERE id = ?", now, room.id);
 				this.appendIn(room.id, [{ kind: "room.disbanded", actor: GATEWAY, payload: {} }]);
 			});
-			for (const t of this.d.db.all<{ session_id: string }>("SELECT session_id FROM room_turns WHERE room_id = ?", room.id)) {
-				await this.d.sessions.interrupt(t.session_id).catch(() => false);
+			for (const t of this.d.db.all<{ turn_id: string; session_id: string }>("SELECT turn_id, session_id FROM room_turns WHERE room_id = ?", room.id)) {
+				const row = this.d.sessions.get(t.session_id);
+				this.remoteTurns.get(`${room.id}\0${t.turn_id}`)?.abort();
+				if (row?.remote_node) await this.d.proxy.forward(row.id, "session.interrupt", { session_id: row.id }).catch(() => undefined);
+				else if (row) await this.d.sessions.interrupt(row.id).catch(() => false);
 			}
 			log.info("room disbanded", { room: room.id });
 		}
@@ -157,9 +183,13 @@ export class Rooms {
 		for (const r of this.d.db.all<{ id: string }>("SELECT id FROM rooms WHERE disbanded_at IS NULL")) this.kick(r.id);
 	}
 
-	/** Stops starting turns; turns going keep running in Durable and are picked up after a restart. */
+	/**
+	 * Stops starting turns. A local turn keeps running in Durable; the wait for one on another machine is
+	 * dropped (it keeps running there). Both are picked up after a restart.
+	 */
 	async stop(): Promise<void> {
 		this.stopped = true;
+		for (const c of this.remoteTurns.values()) c.abort();
 	}
 
 	/** Resolves once the room has nothing more to do right now (tests). */
@@ -190,15 +220,24 @@ export class Rooms {
 			const decision = planNextTurn(info, events);
 			const current = decision.status === "task" ? decision.task.turnId : undefined;
 			// Turns a restart left open that are no longer the next one (a newer message took over): finish
-			// them from their submission, or close them if they never got one.
+			// them from what was kept of them, or close them if nothing was.
 			const open = openTurns(events).filter((t) => t.payload.turn_id !== current);
 			if (open.length > 0) {
-				for (const t of open) await this.finishOpen(info, t);
+				for (const t of open) {
+					const coords = t.payload as Coords;
+					const member = info.members.find((m) => m.member_id === coords.member_id);
+					const seenThrough = Number(/\.s(\d+)\./.exec(coords.turn_id)?.[1] ?? t.seq);
+					await this.turn(info, member, coords, seenThrough, undefined);
+				}
 				continue;
 			}
 			if (decision.status === "idle") return;
 			if (decision.status === "task") {
-				await this.runTurn(info, decision.task, events);
+				const coords = turnCoordinates(decision.task);
+				if (!events.some((e) => e.kind === "turn.started" && e.payload.turn_id === coords.turn_id)) {
+					this.append(roomId, [{ kind: "turn.started", actor: GATEWAY, payload: coords }]);
+				}
+				await this.turn(info, decision.task.member, coords, decision.task.seenThroughSeq, decision.task.prompt);
 				continue;
 			}
 			this.append(roomId, [{ kind: "room.activity", actor: GATEWAY, payload: { status: decision.status, reason_code: decision.reason, thread_id: decision.threadId, discussion_event_id: decision.discussionEventId } }]);
@@ -206,40 +245,129 @@ export class Rooms {
 		}
 	}
 
-	private async runTurn(room: RoomInfo, task: TurnPlan, events: RoomEvent[]): Promise<void> {
-		const coords = turnCoordinates(task);
-		if (!events.some((e) => e.kind === "turn.started" && e.payload.turn_id === task.turnId)) {
-			this.append(room.room_id, [{ kind: "turn.started", actor: GATEWAY, payload: coords }]);
-		}
-		let session: SessionRow;
-		let submission: number;
+	/**
+	 * Runs one member turn to its end and files the outcome. `prompt` is undefined for a turn a restart left
+	 * open that is no longer the next one: it is finished from what room_turns kept of it, or closed.
+	 */
+	private async turn(room: RoomInfo, member: RoomMember | undefined, coords: Coords, seenThrough: number, prompt: string | undefined): Promise<void> {
+		const failed = (error: unknown): Append[] => [{ kind: "turn.failed", actor: GATEWAY, payload: { ...coords, error: oneLine(error), seen_through_seq: seenThrough } }];
+		let outcome: Append[];
 		try {
-			const bot = this.d.bots.get(task.member.profile);
-			if (!bot || bot.isPeer) throw new Error(`${task.member.display_name || task.member.profile} is no longer a bot on this gateway`);
-			session = await this.memberSession(room, task.threadId, task.member);
-			const kept = this.d.db.get<{ submission_id: number }>("SELECT submission_id FROM room_turns WHERE room_id = ? AND turn_id = ?", room.room_id, task.turnId);
-			if (kept) {
-				submission = kept.submission_id;
+			const bot = member ? this.d.bots.get(member.profile) : undefined;
+			if (!member || !bot || (bot.isPeer && !bot.remote)) throw new Error(`${member?.display_name || coords.member_id} is no longer a bot in this network`);
+			const text = bot.remote ? await this.remoteTurn(room, member, bot, coords, prompt) : await this.localTurn(room, member, coords, prompt);
+			if (text === undefined) return; // shutting down: picked up after the restart
+			if (isPass(text)) {
+				outcome = [{ kind: "turn.settled", actor: GATEWAY, payload: { ...coords, passed: true, seen_through_seq: seenThrough } }];
 			} else {
-				await this.d.sessions.followBot(session.id);
-				await this.d.sessions.live(session.id);
-				const r = await this.d.engine.submit(session.conversation_id, task.prompt, { requestId: `room:${room.room_id}:${task.turnId}`, whenBusy: "followUp" });
-				submission = r.submissionId;
-				this.d.db.run("INSERT OR REPLACE INTO room_turns (room_id, turn_id, session_id, submission_id) VALUES (?, ?, ?, ?)", room.room_id, task.turnId, session.id, submission);
-				this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
+				const messageId = newEventId();
+				outcome = [
+					{ kind: "message.member", actor: { kind: "member", id: member.member_id }, payload: { ...coords, text: cut(text) }, eventId: messageId },
+					{ kind: "turn.settled", actor: GATEWAY, payload: { ...coords, passed: false, message_event_id: messageId, seen_through_seq: seenThrough } },
+				];
 			}
 		} catch (error) {
-			return this.closeTurn(room.room_id, task.turnId, [{ kind: "turn.failed", actor: GATEWAY, payload: { ...coords, error: oneLine(error), seen_through_seq: task.seenThroughSeq } }]);
+			if (this.stopped) return;
+			outcome = failed(error);
 		}
-		await this.await(room, task.member, session, submission, coords, task.seenThroughSeq);
+		this.closeTurn(room.room_id, coords.turn_id, outcome);
 	}
 
-	/** Waits for a turn's answer and files it; says in the room while the turn waits for the owner's approval. */
-	private async await(room: RoomInfo, member: RoomMember, session: SessionRow, submission: number, coords: ReturnType<typeof turnCoordinates>, seenThrough: number): Promise<void> {
+	/** A turn of a bot on this gateway: its answer (redacted), or undefined when shutting down. */
+	private async localTurn(room: RoomInfo, member: RoomMember, coords: Coords, prompt: string | undefined): Promise<string | undefined> {
+		const kept = this.d.db.get<{ session_id: string; submission_id: number }>("SELECT session_id, submission_id FROM room_turns WHERE room_id = ? AND turn_id = ?", room.room_id, coords.turn_id);
+		let session: SessionRow;
+		let submission: number;
+		if (kept && kept.submission_id > 0) {
+			const row = this.d.sessions.get(kept.session_id);
+			if (!row) throw new Error("this turn's session was deleted");
+			session = row;
+			submission = kept.submission_id;
+		} else {
+			if (prompt === undefined) throw new Error("the gateway restarted before this turn began");
+			session = await this.memberSession(room, coords.thread_id, member);
+			await this.d.sessions.followBot(session.id);
+			await this.d.sessions.live(session.id);
+			const r = await this.d.engine.submit(session.conversation_id, prompt, { requestId: `room:${room.room_id}:${coords.turn_id}`, whenBusy: "followUp" });
+			submission = r.submissionId;
+			this.d.db.run("INSERT OR REPLACE INTO room_turns (room_id, turn_id, session_id, submission_id) VALUES (?, ?, ?, ?)", room.room_id, coords.turn_id, session.id, submission);
+			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
+		}
 		await this.d.sessions.live(session.id);
-		// While an approval waits, the member's session is listed in Vory's chats (src/hermes/rest.ts) at the
-		// top, so its card can be reached without the notification.
-		const off = this.d.hub.subscribe(session.id, (_sid, e) => {
+		const off = this.watchApprovals(room, member, session, coords);
+		try {
+			const rec = await this.d.engine.waitSubmission(submission);
+			if (rec.type === "input" && rec.status === "done") return redact(await this.d.engine.answerText(session.conversation_id, rec.answer as number)).trim();
+			if (rec.status === "unanswered") throw new Error(rec.reason === "aborted" ? "stopped" : typeof rec.detail === "string" && rec.detail ? rec.detail : rec.reason);
+			throw new Error(`unexpected submission state ${rec.status}`);
+		} catch (error) {
+			if (this.stopped) return undefined;
+			throw error;
+		} finally {
+			off();
+		}
+	}
+
+	/**
+	 * A turn of a member's bot, run on its machine in its room session there (made on its first turn). The
+	 * prompt is kept so a restart sends it again under the same key, which the other machine drops as a
+	 * repeat. Its approvals are asked here, in this gateway's entry for that session.
+	 */
+	private async remoteTurn(room: RoomInfo, member: RoomMember, bot: Bot, coords: Coords, prompt: string | undefined): Promise<string | undefined> {
+		const remote = bot.remote!;
+		const target = this.d.members.target(remote.nodeId);
+		if (!target) throw new Error(`${remote.node} is no longer a member of the network`);
+		const peer: PeerTarget = { ...target, profile: remote.bot };
+		const kept = this.d.db.get<{ session_id: string; prompt: string | null }>("SELECT session_id, prompt FROM room_turns WHERE room_id = ? AND turn_id = ?", room.room_id, coords.turn_id);
+		const text = kept?.prompt ?? prompt;
+		if (text === undefined || text === null) throw new Error("the gateway restarted before this turn began");
+		const session = await this.remoteSession(room, coords.thread_id, member, bot, peer);
+		if (!kept) this.d.db.run("INSERT OR REPLACE INTO room_turns (room_id, turn_id, session_id, submission_id, prompt) VALUES (?, ?, ?, 0, ?)", room.room_id, coords.turn_id, session.id, text);
+		this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
+		const key = `${room.room_id}\0${coords.turn_id}`;
+		const controller = new AbortController();
+		this.remoteTurns.set(key, controller);
+		const off = this.watchApprovals(room, member, session, coords);
+		try {
+			const r = await runOnPeer(peer, text, {
+				key: `room:${room.room_id}:${coords.turn_id}`,
+				sessionId: session.id,
+				failFast: `${remote.node} is offline (its bots cannot be reached right now)`,
+				onApproval: (p) =>
+					this.d.approvals.ask(
+						{
+							sessionId: session.id,
+							bot: bot.name,
+							toolName: String(p.tool_name ?? "tool"),
+							command: String(p.command ?? ""),
+							description: `${String(p.description ?? "needs approval")} (on ${remote.node})`,
+							patternKey: `member:${remote.nodeId}:${String(p.pattern_key ?? "")}`,
+						},
+						controller.signal,
+					),
+				signal: controller.signal,
+				timeoutMs: 24 * 3600_000,
+				maxAttempts: 1000,
+			});
+			this.d.sessions.recordRemote(session.id, { prompt: text, answer: r.text });
+			return redact(r.text).trim();
+		} catch (error) {
+			if (this.stopped) return undefined;
+			if (controller.signal.aborted) throw new Error("stopped");
+			throw error;
+		} finally {
+			off();
+			this.remoteTurns.delete(key);
+		}
+	}
+
+	/**
+	 * While a turn waits for the owner's approval: a line in the room saying who waits and where, and the
+	 * member's session listed at the top of Vory's chats (src/hermes/rest.ts) so its card can be reached
+	 * without the notification. Returns the unsubscribe.
+	 */
+	private watchApprovals(room: RoomInfo, member: RoomMember, session: SessionRow, coords: Coords): () => void {
+		return this.d.hub.subscribe(session.id, (_sid, e) => {
 			if (e.type === "approval.resolved") return this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot });
 			if (e.type !== "approval.requested" || this.row(room.room_id)?.disbanded_at !== null) return;
 			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
@@ -248,44 +376,6 @@ export class Rooms {
 			const status = `${who} is waiting for your approval: open "${session.title}" in Chats`;
 			this.append(room.room_id, [{ kind: "room.activity", actor: GATEWAY, payload: { status, member_id: member.member_id, thread_id: coords.thread_id, discussion_event_id: coords.discussion_event_id } }]);
 		});
-		let outcome: Append[];
-		try {
-			const rec = await this.d.engine.waitSubmission(submission);
-			if (rec.type === "input" && rec.status === "done") {
-				const text = redact(await this.d.engine.answerText(session.conversation_id, rec.answer as number)).trim();
-				if (isPass(text)) {
-					outcome = [{ kind: "turn.settled", actor: GATEWAY, payload: { ...coords, passed: true, seen_through_seq: seenThrough } }];
-				} else {
-					const messageId = newEventId();
-					outcome = [
-						{ kind: "message.member", actor: { kind: "member", id: member.member_id }, payload: { ...coords, text: cut(text) }, eventId: messageId },
-						{ kind: "turn.settled", actor: GATEWAY, payload: { ...coords, passed: false, message_event_id: messageId, seen_through_seq: seenThrough } },
-					];
-				}
-			} else {
-				const why = rec.status === "unanswered" ? (rec.reason === "aborted" ? "stopped" : typeof rec.detail === "string" && rec.detail ? rec.detail : rec.reason) : `unexpected submission state ${rec.status}`;
-				outcome = [{ kind: "turn.failed", actor: GATEWAY, payload: { ...coords, error: oneLine(why), seen_through_seq: seenThrough } }];
-			}
-		} catch (error) {
-			if (this.stopped) return off();
-			outcome = [{ kind: "turn.failed", actor: GATEWAY, payload: { ...coords, error: oneLine(error), seen_through_seq: seenThrough } }];
-		} finally {
-			off();
-		}
-		this.closeTurn(room.room_id, coords.turn_id, outcome);
-	}
-
-	/** A turn left open by a restart and no longer the next one. */
-	private async finishOpen(room: RoomInfo, started: RoomEvent): Promise<void> {
-		const coords = started.payload as ReturnType<typeof turnCoordinates>;
-		const member = room.members.find((m) => m.member_id === coords.member_id);
-		const kept = this.d.db.get<{ session_id: string; submission_id: number }>("SELECT session_id, submission_id FROM room_turns WHERE room_id = ? AND turn_id = ?", room.room_id, coords.turn_id);
-		const session = kept ? this.d.sessions.get(kept.session_id) : undefined;
-		const seenThrough = Number(/\.s(\d+)\./.exec(coords.turn_id)?.[1] ?? started.seq);
-		if (!member || !kept || !session) {
-			return this.closeTurn(room.room_id, coords.turn_id, [{ kind: "turn.failed", actor: GATEWAY, payload: { ...coords, error: "the gateway restarted before this turn began", seen_through_seq: seenThrough } }]);
-		}
-		await this.await(room, member, session, kept.submission_id, coords, seenThrough);
 	}
 
 	private closeTurn(roomId: string, turnId: string, outcome: Append[]): void {
@@ -296,13 +386,28 @@ export class Rooms {
 		});
 	}
 
+	private sessionTitle(room: RoomInfo, threadId: string): string {
+		return `Group: ${room.name}${threadId === "main" ? "" : ` · ${threadId}`}`;
+	}
+
 	/** The member's own session for a room thread, made on its first turn (configured as that bot). */
 	private async memberSession(room: RoomInfo, threadId: string, member: RoomMember): Promise<SessionRow> {
 		const kept = this.d.db.get<{ session_id: string }>("SELECT session_id FROM room_sessions WHERE room_id = ? AND thread_id = ? AND member_id = ?", room.room_id, threadId, member.member_id);
 		const existing = kept ? this.d.sessions.get(kept.session_id) : undefined;
 		if (existing && existing.bot === member.profile) return existing;
-		const title = `Group: ${room.name}${threadId === "main" ? "" : ` · ${threadId}`}`;
-		const row = await this.d.sessions.create(member.profile, { kind: "room", source: "room", title });
+		const row = await this.d.sessions.create(member.profile, { kind: "room", source: "room", title: this.sessionTitle(room, threadId) });
+		this.d.db.run("INSERT OR REPLACE INTO room_sessions (room_id, thread_id, member_id, session_id) VALUES (?, ?, ?, ?)", room.room_id, threadId, member.member_id, row.id);
+		return row;
+	}
+
+	/** A member's bot's room session on its machine, catalogued here under the id it has there. */
+	private async remoteSession(room: RoomInfo, threadId: string, member: RoomMember, bot: Bot, peer: PeerTarget): Promise<SessionRow> {
+		const kept = this.d.db.get<{ session_id: string }>("SELECT session_id FROM room_sessions WHERE room_id = ? AND thread_id = ? AND member_id = ?", room.room_id, threadId, member.member_id);
+		const existing = kept ? this.d.sessions.get(kept.session_id) : undefined;
+		if (existing && existing.bot === bot.name && existing.remote_node === bot.remote!.nodeId) return existing;
+		const title = this.sessionTitle(room, threadId);
+		const id = await createPeerSession(peer, { kind: "room", title });
+		const row = this.d.sessions.registerRemote(id, bot.name, bot.remote!.nodeId, { kind: "room", source: "room", title });
 		this.d.db.run("INSERT OR REPLACE INTO room_sessions (room_id, thread_id, member_id, session_id) VALUES (?, ?, ?, ?)", room.room_id, threadId, member.member_id, row.id);
 		return row;
 	}
@@ -370,7 +475,8 @@ export class Rooms {
 			const profile = typeof m.profile === "string" && m.profile ? m.profile : "";
 			const bot = profile ? this.d.bots.get(profile) : undefined;
 			if (!bot) throw new RoomError(4110, `member ${i + 1}: there is no bot named "${profile}"`);
-			if (bot.isPeer) throw new RoomError(4110, `${bot.displayName} is on another machine; group chats take bots on this gateway only for now`);
+			// A member's bot answers on its own machine; a configured peer agent (`peer:`) cannot join.
+			if (bot.isPeer && !bot.remote) throw new RoomError(4110, `${bot.displayName} is an agent on another gateway that is not in this network; it cannot join a group chat`);
 			const member: RoomMember = {
 				member_id: m.member_id === undefined ? bot.name : identifier(m.member_id, `member ${i + 1} member_id`, 4110),
 				profile: bot.name,

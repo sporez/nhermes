@@ -175,6 +175,8 @@ export class ProxySessions {
 		const id = String(params.session_id ?? "");
 		const row = this.d.sessions().get(id);
 		if (!row || row.remote_node !== nodeId) return { choice: "deny" };
+		// A group chat turn's own connection asks for it (src/core/rooms.ts); asking here too would show two cards.
+		if (row.kind === "room") return undefined;
 		const node = this.d.members.get(nodeId)?.name ?? "another machine";
 		const key = `srq-${String(params.request_id ?? "")}`;
 		const controller = new AbortController();

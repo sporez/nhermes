@@ -146,10 +146,10 @@ class Socket {
 }
 
 /** Starts an empty chat with the peer's bot and returns its id (the first step of a background task). */
-export async function createPeerSession(t: PeerTarget): Promise<string> {
+export async function createPeerSession(t: PeerTarget, extra: Record<string, unknown> = {}): Promise<string> {
 	const s = await Socket.open(t, async () => undefined);
 	try {
-		const created = await s.call<{ session_id: string }>("session.create", t.profile ? { profile: t.profile, source: "peer" } : { source: "peer" });
+		const created = await s.call<{ session_id: string }>("session.create", { ...(t.profile ? { profile: t.profile } : {}), source: "peer", ...extra });
 		return created.session_id;
 	} finally {
 		s.close();

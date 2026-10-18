@@ -363,7 +363,9 @@ export class Connection {
 					return r;
 				}
 				const source = this.member ? memberSource(this.member.node_id, p.relay === true) : typeof p.source === "string" ? p.source : "ios";
-				const row = await sessions.create(bot.name, { kind: "chat", source, title: typeof p.title === "string" ? p.title : undefined });
+				// kind "room": a bot's session for a group chat another gateway runs (src/core/rooms.ts), kept out of chat lists.
+				const kind = p.kind === "room" ? "room" : "chat";
+				const row = await sessions.create(bot.name, { kind, source, title: typeof p.title === "string" ? p.title : undefined });
 				await sessions.live(row.id);
 				this.attach(row.id);
 				return { session_id: row.id, stored_session_id: row.id, message_count: 0, messages: [], info: await this.info(row.id) };

@@ -209,12 +209,12 @@ test("a turn that needs approval says so in the room, is asked in the bot's room
 	}
 });
 
-test("bots on another machine cannot join a group chat yet", async () => {
+test("a configured peer agent outside the network cannot join a group chat; nor can a bot twice", async () => {
 	const { dir, cleanup } = await tempDir();
 	const bots = [...testConfig(dir).bots, { name: "nas", description: "Agent on the NAS", peer: { url: "http://127.0.0.1:9", tokenEnv: "TEST_PEER_TOKEN" } }];
 	const core = await testCore(dir, { models: models().models, config: testConfig(dir, bots) });
 	try {
-		assert.throws(() => core.rooms.create({ name: "Mixed", members: [{ profile: "main" }, { profile: "nas" }] }), /on another machine; group chats take bots on this gateway only for now/);
+		assert.throws(() => core.rooms.create({ name: "Mixed", members: [{ profile: "main" }, { profile: "nas" }] }), /not in this network; it cannot join a group chat/);
 		assert.throws(() => core.rooms.create({ name: "Twice", members: [{ profile: "main" }, { profile: "main" }] }), /in the list twice/);
 	} finally {
 		await core.close();

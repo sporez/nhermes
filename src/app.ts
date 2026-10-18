@@ -294,7 +294,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	engine.resume();
 	const reattached = await sessions.attachBusy();
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
-	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier });
+	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier, approvals, members, proxy });
 	rooms.start();
 
 	return {

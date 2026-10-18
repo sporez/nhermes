@@ -259,6 +259,11 @@ const MIGRATIONS: readonly string[] = [
 		PRIMARY KEY (room_id, turn_id)
 	);
 	`,
+	// 14: a turn run on another machine is sent again after a restart (the other machine drops the repeat by
+	// its key), so its prompt is kept with it
+	`
+	ALTER TABLE room_turns ADD COLUMN prompt TEXT;
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

@@ -140,17 +140,18 @@ export class Sessions {
 	}
 
 	/** Catalogues a chat whose conversation lives on a member, under the id it has there. */
-	registerRemote(id: string, botName: string, nodeId: string, opts: { source?: string; title?: string } = {}): SessionRow {
+	registerRemote(id: string, botName: string, nodeId: string, opts: { source?: string; title?: string; kind?: SessionKind } = {}): SessionRow {
 		const existing = this.get(id);
 		if (existing) return existing;
 		const now = Date.now() / 1000;
 		const placeholder = Math.min(0, this.db.get<{ m: number | null }>("SELECT MIN(conversation_id) AS m FROM sessions")?.m ?? 0) - 1;
 		this.db.run(
 			`INSERT INTO sessions (id, conversation_id, bot, kind, title, title_source, source, created_at, last_active, remote_node)
-			 VALUES (?, ?, ?, 'chat', ?, ?, ?, ?, ?, ?)`,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			placeholder,
 			botName,
+			opts.kind ?? "chat",
 			opts.title ?? "",
 			opts.title ? "given" : "auto",
 			opts.source ?? "ios",
