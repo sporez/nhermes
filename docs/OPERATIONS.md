@@ -176,8 +176,8 @@ at each start, so changing the default there is enough; `openchamber.model` (`pr
 
 The **OpenChamber Alerts** tool group (`openchamber_alerts`, no tools of its own) makes the gateway keep
 one event subscription to OpenChamber and notify the owner when a thread asks for permission, asks a
-question, or finishes or fails (delegated sub-threads are skipped; at most one notification per thread
-and kind per minute). Switch it like any tool group, on Vory's Tools page or in the panel; it starts
+question, or fails (not when it simply finishes, which would be every turn; delegated sub-threads are
+skipped; at most one notification per thread and kind per minute). Switch it like any tool group, on Vory's Tools page or in the panel; it starts
 or stops at once, no restart. It reconnects quietly while OpenChamber is closed. It only listens: Jev
 and the second-opinion reviewer decide before a permission card exists, and the watcher sees a card
 only once they have passed it to the owner.

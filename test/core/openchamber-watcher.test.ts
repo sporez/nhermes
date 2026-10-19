@@ -78,12 +78,13 @@ test("a permission request notifies once with the thread title; a duplicate insi
 	}
 });
 
-test("a top-level thread finishing notifies, a delegated one does not", async () => {
+test("a top-level thread failing notifies; finishing, or a delegated one failing, does not", async () => {
 	const t = await setup(true);
 	try {
 		t.w.start();
 		await until(() => t.s.connects() === 1);
-		t.s.send("session.execution.succeeded", { sessionID: "ses_child" });
+		t.s.send("session.execution.succeeded", { sessionID: "ses_a" });
+		t.s.send("session.execution.failed", { sessionID: "ses_child" });
 		t.s.send("session.execution.failed", { sessionID: "ses_a", error: { message: "boom" } });
 		await until(() => t.sent.length === 1);
 		assert.equal(t.sent[0]!.message, "Fix login failed: boom");
@@ -100,9 +101,9 @@ test("the watcher reconnects after the server drops the stream", async () => {
 		await until(() => t.s.connects() === 1);
 		t.s.drop();
 		await until(() => t.s.connects() === 2);
-		t.s.send("session.execution.succeeded", { sessionID: "ses_a" });
+		t.s.send("session.execution.failed", { sessionID: "ses_a" });
 		await until(() => t.sent.length === 1);
-		assert.equal(t.sent[0]!.message, "Fix login finished");
+		assert.equal(t.sent[0]!.message, "Fix login failed");
 	} finally {
 		await t.done();
 	}

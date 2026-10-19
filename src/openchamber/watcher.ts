@@ -1,5 +1,5 @@
-// Watches OpenChamber's event stream and tells the owner when a thread needs them or is done: a new
-// permission request, a new question, or a top-level thread that finished or failed. One SSE
+// Watches OpenChamber's event stream and tells the owner when a thread needs them: a new permission
+// request, a new question, or a top-level thread that failed (not one that finished). One SSE
 // subscription for the whole gateway; the token is re-read on every (re)connect, and a Mac without
 // OpenChamber running just retries quietly with a growing delay.
 import type { Notifier } from "../notify/notifier.ts";
@@ -161,18 +161,20 @@ export class OpenChamberWatcher {
 				break;
 			}
 			case "session.execution.succeeded":
+				// Every finished turn would be one alert per message; the title cache is all it updates.
+				this.titles.delete(sessionID);
+				return;
 			case "session.execution.failed": {
-				const failed = evt.type === "session.execution.failed";
 				const err = (d.error as { message?: string } | undefined)?.message;
-				kind = failed ? "failed" : "done";
-				line = (t) => (failed ? `${t} failed${err ? `: ${clip(err, 200)}` : ""}` : `${t} finished`);
+				kind = "failed";
+				line = (t) => `${t} failed${err ? `: ${clip(err, 200)}` : ""}`;
 				break;
 			}
 			default:
 				return;
 		}
 		const info = await this.session(oc, sessionID);
-		if (kind === "done" || kind === "failed") {
+		if (kind === "failed") {
 			if (!info || info.parentID) return; // delegated sub-threads report through their parent
 			this.titles.delete(sessionID);
 		}
@@ -181,6 +183,6 @@ export class OpenChamberWatcher {
 		if (now - (this.lastSent.get(key) ?? -Infinity) < (this.o.debounceMs ?? 60_000)) return;
 		this.lastSent.set(key, now);
 		for (const [k, t] of this.lastSent) if (now - t > 10 * 60_000) this.lastSent.delete(k);
-		await this.o.notifier().send({ title: "OpenChamber", message: line(info?.title || "A thread"), priority: kind === "done" ? 0 : 1 });
+		await this.o.notifier().send({ title: "OpenChamber", message: line(info?.title || "A thread"), priority: 1 });
 	}
 }
