@@ -248,8 +248,10 @@ export class VoryPush implements OptionalNotifier {
 		const botName = n.bot ?? row?.bot;
 		const bot = botName ? (this.o.bots.get(botName)?.displayName ?? botName) : undefined;
 		const kind: Kind = n.priority === 1 ? "error" : row?.kind === "job" ? "cron" : "turn";
+		// No session_id at all when there is no chat: Vory opens any string it finds there, "" included,
+		// and an empty id fails as "session_id is required" (OpenChamber alerts, forwarded notifications).
 		const reached = await this.pushAll(kind, bot ? `${bot} · ${n.title}` : n.title, n.message.slice(0, 300), {
-			session_id: n.sessionId ?? "",
+			...(n.sessionId ? { session_id: n.sessionId } : {}),
 			...(botName ? { profile: botName } : {}),
 			title: n.title,
 			text: n.message.slice(0, 1200),
@@ -341,7 +343,7 @@ export class VoryPush implements OptionalNotifier {
 	}
 
 	private async sendTest(nonce: string): Promise<void> {
-		const reached = await this.pushAll("test", "Vory", "Test notification from your gateway ✓", { nonce, session_id: "" }, { collapse: "vory-test" });
+		const reached = await this.pushAll("test", "Vory", "Test notification from your gateway ✓", { nonce }, { collapse: "vory-test" });
 		this.lastTest = { last_test_nonce: nonce, last_test_devices: reached.size, last_test_at: Date.now() / 1000, last_test_detail: this.lastResponse };
 		log.info("test notification sent", { devices: reached.size });
 	}

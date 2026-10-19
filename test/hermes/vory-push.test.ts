@@ -191,6 +191,12 @@ test("Vory notifications through the push relay", async () => {
 		const note = alerts("inst-A", keyA)[0]!;
 		assert.equal(note.alert.title, "Main · Backup failed");
 		assert.equal(note.alert.category, "HERMES_ERROR");
+		// One about no chat (an OpenChamber alert) names none, so tapping it does not open an empty one.
+		sent.length = 0;
+		await core.notifier.send({ title: "OpenChamber", message: "A thread finished" });
+		const loose = alerts("inst-A", keyA)[0]!;
+		assert.equal("session_id" in (loose.alert.hermes as Record<string, unknown>), false);
+		assert.equal(loose.alert.thread_id, "");
 
 		// Uninstall: disabled, nothing more is sent.
 		assert.deepEqual((await call("POST", "/api/dashboard/agent-plugins/vory-push/disable")).json, { ok: true });
