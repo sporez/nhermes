@@ -56,6 +56,11 @@ Status per phase: see `docs/STATUS.md`.
 
 ## Future
 
+- **Provider logins from the panel, on any machine.** Sign a gateway into xAI, Codex, ChatGPT, Copilot,
+  Kimi and other providers from the panel or `nhermes auth`, through Pi's own login flows, with no `pi`
+  CLI. Do it for any member from one panel: the login runs on that machine and its tokens never leave it.
+  Plan: `docs/LOGINS.md`.
+
 - **MCP servers.** Vory has an MCP Servers screen (`/api/mcp/servers`: list, enable, test, remove). nHermes
   has no MCP client yet; the screen gets 404 until it does.
 
