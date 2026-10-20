@@ -18,6 +18,8 @@ export type LiveHooks = {
 	onUserPlaced(sessionId: string, text: string): void;
 	/** A model response was recorded. */
 	onAssistant(sessionId: string): void;
+	/** How a model call ended, for the provider's sign-in record. */
+	onModelOutcome?(m: { provider?: string; stopReason?: string; errorMessage?: string }): void;
 	/** A run ended (catalogue update). */
 	onRunFinished(sessionId: string, text: string, status: RunStatus): void;
 	usage(sessionId: string): Promise<UsageSummary>;
@@ -263,6 +265,7 @@ export class LiveSession {
 		const thought = this.thinking.filter(Boolean).join("\n");
 		if (thought) this.runReasoning.push(thought);
 		this.lastAssistant = { stopReason: m.stopReason, errorMessage: m.errorMessage };
+		this.hooks.onModelOutcome?.({ provider: m.provider, stopReason: m.stopReason, errorMessage: m.errorMessage });
 		this.blocks = [];
 		this.thinking = [];
 		this.streaming = false;

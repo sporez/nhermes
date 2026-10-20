@@ -37,6 +37,7 @@ async function botsScreen(refresh = true) {
 	const item = (key, kids) => h("li", { class: key === ui.bot ? "active" : "", on: { click: () => pick(key) } }, kids);
 	const botItem = (ctx, b) => item(botKey(ctx, b.name), [
 		h("div", { class: "trunc" }, b.effective.displayName || b.name),
+		b.signIn && h("div", { class: "small" }, badge(`Needs sign-in: ${b.signIn.name}`, "bad"), " ", h("a", { href: "#logins", on: { click: (e) => e.stopPropagation() } }, "Logins")),
 		h("div", { class: "row small muted" }, b.name, b.effective.default && badge("default"), b.effective.private && badge("private"), b.effective.trusted && badge("trusted"))]);
 
 	const list = h("ul", { class: "list" }, local.bots.map((b) => botItem(local, b)), item("+new", "+ New bot"));

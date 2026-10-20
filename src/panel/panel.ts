@@ -211,7 +211,10 @@ export class Panel {
 				toolGroups: view.toolGroups,
 				models,
 				modelProviders: providers,
-				bots: view.bots.filter((b) => !c.bots.get(b.name)?.remote),
+				bots: view.bots.filter((b) => !c.bots.get(b.name)?.remote).map((b) => {
+					const signIn = c.logins.signInNeeded(b.effective.model.slice(0, b.effective.model.indexOf("/")));
+					return signIn ? { ...b, signIn } : b;
+				}),
 				remoteBots: c.bots.list().filter((b) => b.remote).map((b) => ({ name: b.name, displayName: b.displayName, description: b.description, node: b.remote!.node, reachable: b.remote!.reachable, model: `${b.model.provider}/${b.model.modelId}` })),
 				spaces: [...new Set(c.config.bots.flatMap((b) => b.sharedMemory ?? []))].sort(),
 				panel: { passwordSet: auth.passwordSet },

@@ -172,6 +172,20 @@ The login is made by the running gateway and stored in `pi.authPath` on that mac
 up in the pickers at once, and leave when you log out. Providers that take only an API key are set under
 Keys (`nhermes secret set`), not here. Plan: `docs/LOGINS.md`.
 
+When a provider's sign-in can no longer be refreshed (the token was revoked or expired for good), a model
+call on it fails with "OAuth refresh failed". The gateway then:
+
+- shows the failure as the provider's last error in `nhermes auth list` and the Logins tab;
+- sends one notification, "<Provider> on <machine> needs signing in again. Open the panel's Logins tab."
+  (through the usual notifier, so a machine with no transport forwards it to a member that has one). It
+  does not repeat until the provider has worked again or been signed in again, even across a restart;
+- marks the bots that use that provider in the Bots tab ("Needs sign-in: <provider>", linking to Logins).
+  The mark also shows for a provider that has no sign-in and no key at all. Both are read without the
+  network. Members' bots are not marked.
+
+Signing in again, or one successful model call on the provider, clears all three. An ordinary API error or
+rate limit is not a sign-in failure.
+
 ## Permission review (Jev)
 
 With `OPENROUTER_API_KEY` set (Keys tab), the approval guard asks Jev before showing an approval card:

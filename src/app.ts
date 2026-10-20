@@ -27,7 +27,7 @@ import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
 import { NetworkNotifier } from "./federation/notify.ts";
-import { FanoutNotifier, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
+import { FanoutNotifier, type Notification, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
 import { VoryPush } from "./notify/vory.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
@@ -155,7 +155,15 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	// Before any chat resumes, so one on a catalog model finds it.
 	const catalogs = new ProviderCatalogs({ models, db, modelsPath: config.pi.modelsPath, catalogs: options.catalogs, fetch: options.catalogFetch });
 	await catalogs.start();
-	const logins = new Logins({ models, db, authPath: config.pi.authPath });
+	// The notifier is built further down; the callback runs only when a model call fails, long after.
+	let tellOwner: ((n: Notification) => Promise<void>) | undefined;
+	const logins = new Logins({
+		models,
+		db,
+		authPath: config.pi.authPath,
+		onNeedsSignIn: (p) =>
+			void tellOwner?.({ title: `${p.name} needs signing in`, message: `${p.name} on ${members.self().name} needs signing in again. Open the panel's Logins tab.` }).catch(() => {}),
+	});
 	const secrets = new Secrets(config, db, catalogs.keys());
 	secrets.registerEnvironment();
 	secrets.onChange((name) => catalogs.keyChanged(name));
@@ -200,6 +208,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	// forwarding to a member as the fallback for when nothing local can deliver.
 	const localNotifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
 	const notifier: Notifier = options.notifier ?? new FanoutNotifier([{ get name() { return localNotifier.name; }, send: (n) => localNotifier.send(n), ready: () => localNotifier.name !== "none" } satisfies OptionalNotifier, new NetworkNotifier(() => members, () => localNotifier)]);
+	tellOwner = (n) => notifier.send(n);
 	let scheduler: Scheduler | undefined;
 	let rooms: Rooms | undefined;
 	const selfServices: SelfServices = {
@@ -295,7 +304,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 		extensions,
 	);
-	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor);
+	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
 	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
 	members.onRevoke(() => proxy.dropGone());
 	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });

@@ -73,7 +73,20 @@ export type LoginsOptions = {
 	timeoutMs?: number;
 	/** How long a finished session stays readable. */
 	keepMs?: number;
+	/** Called once per failure episode when a provider's sign-in can no longer be refreshed. */
+	onNeedsSignIn?: (provider: { id: string; name: string }) => void;
 };
+
+/**
+ * Pi's request path turns a ModelsError with code "oauth" into the assistant message's errorMessage
+ * (the code itself is gone by then), always one of these three texts from `auth/resolve.ts`. Matching
+ * them keeps rate limits and API errors out of the sign-in record.
+ */
+const OAUTH_FAILURE = /^OAuth (?:refresh failed for|refresh returned a token that expires too soon for|auth derivation failed for) (\S+)/;
+
+export type ModelOutcome = { provider?: string; stopReason?: string; errorMessage?: string };
+
+const NOTIFIED_KEY = "logins.notified.";
 
 const MAX_OPEN = 4;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -100,6 +113,7 @@ export class Logins {
 	private readonly clearTimer: (handle: unknown) => void;
 	private readonly timeoutMs: number;
 	private readonly keepMs: number;
+	private readonly onNeedsSignIn?: (provider: { id: string; name: string }) => void;
 	private readonly entries = new Map<string, Entry>();
 	private readonly lastErrors = new Map<string, string>();
 
@@ -116,6 +130,47 @@ export class Logins {
 		this.clearTimer = o.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
 		this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this.keepMs = o.keepMs ?? DEFAULT_KEEP_MS;
+		this.onNeedsSignIn = o.onNeedsSignIn;
+	}
+
+	/** What a finished model call says about its provider's sign-in: a refresh failure is recorded, a success clears it. */
+	modelOutcome(m: ModelOutcome): void {
+		if (!m.provider) return;
+		if (m.stopReason === "error") {
+			const match = m.errorMessage ? OAUTH_FAILURE.exec(m.errorMessage) : null;
+			if (match) this.recordFailure(m.provider, m.errorMessage!);
+		} else if (m.stopReason !== "aborted" && this.lastErrors.has(m.provider)) {
+			this.clearFailure(m.provider);
+		}
+	}
+
+	/** Records that a provider needs signing in again; the owner is told once until it is cleared. */
+	recordFailure(providerId: string, message: string): void {
+		this.lastErrors.set(providerId, text(message).slice(0, 300) || "sign-in needed");
+		if (this.db.get("SELECT 1 FROM settings WHERE key = ?", NOTIFIED_KEY + providerId)) return;
+		this.db.run("INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO NOTHING", NOTIFIED_KEY + providerId);
+		const name = this.models.getProvider(providerId)?.name ?? providerId;
+		log.warn("provider needs signing in again", { provider: providerId });
+		try {
+			this.onNeedsSignIn?.({ id: providerId, name: text(name) });
+		} catch (error) {
+			log.warn("sign-in notification failed", { error: String(error).slice(0, 200) });
+		}
+	}
+
+	private clearFailure(providerId: string): void {
+		this.lastErrors.delete(providerId);
+		this.db.run("DELETE FROM settings WHERE key = ?", NOTIFIED_KEY + providerId);
+	}
+
+	/** Whether a provider that can be signed in to has no working sign-in (no credential, no key, or a failed refresh). No network. */
+	signInNeeded(providerId: string): { provider: string; name: string; reason: string } | undefined {
+		const p = this.models.getProviders().find((x) => x.id === providerId);
+		if (!p || (!p.auth.oauth?.login && p.auth.apiKey === undefined)) return undefined;
+		const err = this.lastErrors.get(providerId);
+		if (err) return { provider: providerId, name: p.name, reason: "needs signing in again" };
+		if (this.status(providerId).kind === "none") return { provider: providerId, name: p.name, reason: "not signed in" };
+		return undefined;
 	}
 
 	/** Providers that can be signed in to (OAuth) or hold a key, with their status. Makes no network call. */
@@ -205,7 +260,7 @@ export class Logins {
 		};
 		void this.models.login(provider, "oauth", interaction, { getDeviceId: () => this.deviceId() }).then(
 			() => {
-				this.lastErrors.delete(provider);
+				this.clearFailure(provider);
 				this.finish(entry, "done", `Signed in to ${text(p.name)}`);
 				log.info("login finished", { provider, by, outcome: "done" });
 			},
@@ -263,7 +318,7 @@ export class Logins {
 		const open = this.openFor(provider);
 		if (open) this.stop(open, "cancelled", "Cancelled");
 		await this.models.logout(provider);
-		this.lastErrors.delete(provider);
+		this.clearFailure(provider);
 		log.info("logout", { provider, by });
 		return { ok: true };
 	}

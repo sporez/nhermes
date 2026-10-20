@@ -8,7 +8,7 @@ import type { AppDb } from "../store/db.ts";
 import type { Approvals } from "./approvals.ts";
 import type { Bot, Bots } from "./bots.ts";
 import type { Hub, UsageSummary } from "./events.ts";
-import { LiveSession } from "./live.ts";
+import { type LiveHooks, LiveSession } from "./live.ts";
 import { projectTranscript, type TranscriptRow } from "./transcript.ts";
 
 const log = logger("sessions");
@@ -96,9 +96,11 @@ export class Sessions {
 	private readonly approvals: Approvals;
 	private readonly agentFor: (bot: Bot) => AgentChange;
 	private remote: RemoteSessionHooks | undefined;
+	private readonly modelOutcome: LiveHooks["onModelOutcome"];
 
-	constructor(engine: Engine, db: AppDb, bots: Bots, hub: Hub, approvals: Approvals, agentFor: (bot: Bot) => AgentChange) {
+	constructor(engine: Engine, db: AppDb, bots: Bots, hub: Hub, approvals: Approvals, agentFor: (bot: Bot) => AgentChange, modelOutcome?: LiveHooks["onModelOutcome"]) {
 		this.agentFor = agentFor;
+		this.modelOutcome = modelOutcome;
 		this.engine = engine;
 		this.db = db;
 		this.bots = bots;
@@ -301,6 +303,7 @@ export class Sessions {
 			live = new LiveSession(id, row.conversation_id, this.engine, this.hub, {
 				onUserPlaced: (sid, text) => this.onUserPlaced(sid, text),
 				onAssistant: (sid) => void this.db.run("UPDATE sessions SET model_calls = model_calls + 1 WHERE id = ?", sid),
+				onModelOutcome: this.modelOutcome,
 				onRunFinished: (sid, text) => this.onRunFinished(sid, text),
 				usage: (sid) => this.usage(sid),
 			});

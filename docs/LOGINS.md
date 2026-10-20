@@ -172,6 +172,23 @@ L1 notes from reading Pi:
 - Mark bots whose model's provider has no working login (panel Bots list).
 - Tests for the failure record, the single notification and the bot mark.
 
+L4 notes:
+
+- Pi flattens the `ModelsError` into the failed assistant message's `errorMessage` before it reaches the
+  engine, so the code is gone. A failure is recognised by the three texts Pi gives its `oauth` errors
+  (`auth/resolve.ts`: refresh failed, refreshed token expires too soon, auth derivation failed) on a
+  message with `stopReason: "error"`. Other errors, rate limits and aborts are not recorded. A Pi change to
+  those texts needs the pattern in `core/logins.ts` updated.
+- The hook is `LiveSession` (every model call of every session, job and room passes through it), which
+  calls `Logins.modelOutcome`. A call that ends without error on a provider with a recorded failure clears
+  it.
+- The last error itself is kept in memory (it shows again only after the next failure); the "already told"
+  mark is in `app.sqlite` settings (`logins.notified.<provider>`), so a restart does not repeat the
+  notification. Signing in, logging out, or a working call removes it.
+- The bot mark is `signIn: { provider, name, reason }` on the panel state's own bots (reason "needs
+  signing in again" or "not signed in"). Members' bots are not marked: the roster carries only the model
+  name. Hermes/Vory responses are unchanged.
+
 ### Acceptance
 
 - Live, by hand:
@@ -208,4 +225,4 @@ L1 notes from reading Pi:
 - [x] L1 login sessions and CLI (`core/logins.ts`, `/admin/logins`, `nhermes auth`; tests in `test/core/logins.test.ts`)
 - [ ] L2 panel (this machine)
 - [ ] L3 remote logins (backend done: `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker is L2's)
-- [ ] L4 status and failures
+- [x] L4 status and failures (`Logins.modelOutcome` from the live projection; `signIn` on the panel state's bots; tests in `test/core/signin-failure.test.ts`)
