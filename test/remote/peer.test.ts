@@ -46,7 +46,7 @@ test("delegating to a peer gateway: answer, relayed approval, reconnect without 
 		if (asked.type !== "approval.requested") return;
 		assert.equal(asked.request.sessionId, s.id);
 		assert.equal(asked.request.bot, "nas");
-		assert.match(asked.request.description, /another machine/);
+		assert.match(asked.request.description, /^from [^:\s]+(:\d+)?: .*another machine/);
 		central.approvals.answer(asked.request.requestId, "deny");
 		// Drop the connection while the peer streams its answer: the central side reconnects and resumes.
 		await new Promise((r) => setTimeout(r, 150));

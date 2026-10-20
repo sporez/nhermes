@@ -109,3 +109,9 @@ export class Approvals {
 		);
 	}
 }
+
+/** An approval description that says which machine the request came from (once; a prefix already there is kept). */
+export function fromMachine(machine: string, description: string): string {
+	const prefix = `from ${machine}: `;
+	return description.startsWith(prefix) ? description : prefix + description;
+}

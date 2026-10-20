@@ -3,7 +3,7 @@
 // member over its link: prompts, steering, interrupts and settings, and back come the member's events,
 // passed on unchanged apart from the bot's name. The member's approval requests are asked here through
 // this gateway's own approvals, so they reach the owner the same way a local bot's do.
-import type { Approvals } from "../core/approvals.ts";
+import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Hub } from "../core/events.ts";
 import type { SessionRow, Sessions } from "../core/sessions.ts";
@@ -197,7 +197,7 @@ export class ProxySessions {
 					bot: row.bot,
 					toolName: String(params.tool_name ?? "tool"),
 					command: String(params.command ?? ""),
-					description: `${String(params.description ?? "needs approval")} (on ${node})`,
+					description: fromMachine(node, String(params.description ?? "needs approval")),
 					patternKey: `member:${nodeId}:${String(params.pattern_key ?? "")}`,
 				},
 				controller.signal,

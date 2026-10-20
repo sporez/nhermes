@@ -21,7 +21,7 @@ import { logger, redact } from "../log.ts";
 import type { Notifier } from "../notify/notifier.ts";
 import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
 import type { AppDb } from "../store/db.ts";
-import type { Approvals } from "./approvals.ts";
+import { type Approvals, fromMachine } from "./approvals.ts";
 import type { Bot, Bots } from "./bots.ts";
 import type { Hub } from "./events.ts";
 import { planNextTurn, type RoomEvent, type RoomInfo, type RoomMember, isPass, turnCoordinates } from "./room-plan.ts";
@@ -340,7 +340,7 @@ export class Rooms {
 							bot: bot.name,
 							toolName: String(p.tool_name ?? "tool"),
 							command: String(p.command ?? ""),
-							description: `${String(p.description ?? "needs approval")} (on ${remote.node})`,
+							description: fromMachine(remote.node, String(p.description ?? "needs approval")),
 							patternKey: `member:${remote.nodeId}:${String(p.pattern_key ?? "")}`,
 						},
 						controller.signal,

@@ -68,3 +68,9 @@ test("stored answers carry on for OpenChamber tools, but never cover oc_approve"
 	assert.equal(decide(call("oc_approve"), pc(false, "smart", { sessionRules: ["tool:oc_approve"] })).action, "ask");
 	assert.equal(decide(call("oc_approve"), pc(false, "smart", { botRules: ["tool:oc_approve"] })).action, "ask");
 });
+
+test("an approval from another machine names it once", async () => {
+	const { fromMachine } = await import("../../src/core/approvals.ts");
+	assert.equal(fromMachine("beta", "run a command as root"), "from beta: run a command as root");
+	assert.equal(fromMachine("beta", "from beta: run a command as root"), "from beta: run a command as root");
+});

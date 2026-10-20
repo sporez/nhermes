@@ -99,7 +99,7 @@ test("a member's bot: the connected gateway notifies, the member does not", asyn
 		// alpha: the approval and the reply, both opening the chat with beta's bot, and the Live Activity finished.
 		const ask = await until(() => a.pushes.find((p) => p.kind === "approval"));
 		assert.equal(ask.title, "Nasbot (beta) · approval needed");
-		assert.match(ask.body, /on beta/);
+		assert.match(ask.body, /from beta: /);
 		assert.deepEqual([ask.hermes.session_id, ask.hermes.profile], [sid, "nasbot-beta"]);
 		const reply = await until(() => a.pushes.find((p) => p.kind === "turn"));
 		assert.equal(reply.title, "Nasbot (beta)");

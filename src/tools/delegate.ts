@@ -18,7 +18,7 @@ import {
 	type Extension,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
-import type { Approvals } from "../core/approvals.ts";
+import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Sessions } from "../core/sessions.ts";
 import type { Members } from "../federation/members.ts";
@@ -139,6 +139,7 @@ function remoteReporter(deps: DelegateDeps) {
 				try {
 					const target = deps.bots().get(bot);
 					if (!target?.isPeer) throw new Error(`${bot} is no longer in the network`);
+					const machine = target.remote?.node ?? new URL(peerTarget(deps, target).url).host;
 					const r = await runOnPeer(peerTarget(deps, target), task.input.task, {
 						key: task.input.key,
 						sessionId: checkpoint.sessionId,
@@ -149,7 +150,7 @@ function remoteReporter(deps: DelegateDeps) {
 									bot,
 									toolName: String(p.tool_name ?? "tool"),
 									command: String(p.command ?? ""),
-									description: `${String(p.description ?? "needs approval")} (asked by ${target.displayName} on another machine, for a task running in the background)`,
+									description: `${fromMachine(machine, String(p.description ?? "needs approval"))} (asked by ${target.displayName} on another machine, for a task running in the background)`,
 									patternKey: `peer:${bot}:${String(p.pattern_key ?? "")}`,
 								},
 								ctx.abortSignal ?? new AbortController().signal,
@@ -212,6 +213,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 			}
 			if (target.isPeer) {
 				const where = peerTarget(deps, target);
+				const machine = target.remote?.node ?? new URL(where.url).host;
 				// The remote session survives a rerun of this call (memo), and the submission key deduplicates it there.
 				const remembered = await api.memo<string>("peer-session", ctx);
 				const attention = deps.attentionSession(caller.id);
@@ -227,7 +229,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 								bot: target.name,
 								toolName: String(p.tool_name ?? "tool"),
 								command: String(p.command ?? ""),
-								description: `${String(p.description ?? "needs approval")} (asked by ${target.displayName} on another machine)`,
+								description: `${fromMachine(machine, String(p.description ?? "needs approval"))} (asked by ${target.displayName} on another machine)`,
 								patternKey: `peer:${target.name}:${String(p.pattern_key ?? "")}`,
 							},
 							ctx.abortSignal ?? new AbortController().signal,
@@ -235,8 +237,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 					signal: ctx.abortSignal,
 				});
 				await api.details({ peer: target.name, remoteSession: r.sessionId }, ctx);
-				const on = target.remote?.node ?? new URL(where.url).host;
-				return { output: [{ type: "text", text: `${target.name} answered (on ${on}, session ${r.sessionId}):\n\n${r.text}` }] };
+				return { output: [{ type: "text", text: `${target.name} answered (on ${machine}, session ${r.sessionId}):\n\n${r.text}` }] };
 			}
 			const change = deps.agentFor(target);
 			const title = `From ${caller.bot}: ${args.task.replace(/\s+/g, " ").slice(0, 60)}`;

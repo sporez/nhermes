@@ -68,7 +68,8 @@ test("a client on alpha chats with beta's bot through alpha", async () => {
 			asked++;
 			assert.equal(method, "approval");
 			assert.equal(params.session_id, sid);
-			assert.match(String(params.description), /on beta/);
+			assert.match(String(params.description), /^from beta: /);
+			assert.doesNotMatch(String(params.description), /^from beta: from beta: /);
 			return { choice: "deny" };
 		};
 		const submitted = await vory.call<{ status: string }>("prompt.submit", { session_id: sid, text: "Install cowsay and check the pool" });

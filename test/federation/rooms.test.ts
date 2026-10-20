@@ -141,7 +141,7 @@ test("a member's bot takes its turns in a group chat on its own machine", async 
 		a.core.rooms.send({ room_id: "net-1", event_id: "e2", payload: { text: "@nasbot-beta how big is /srv?", thread_id: "main" } });
 		const request = await until(() => a.core.approvals.pendingFor(sid)[0]);
 		assert.equal(request.bot, "nasbot-beta");
-		assert.match(request.description, /\(on beta\)$/);
+		assert.match(request.description, /^from beta: /);
 		assert.equal(b.core.approvals.pendingFor(sid).length, 1, "beta waits for alpha's answer");
 		const waiting = await until(() => a.core.rooms.log({ room_id: "net-1" }).events.find((e) => e.kind === "room.activity" && String(e.payload.status).includes("waiting")));
 		assert.equal(waiting.payload.status, 'Nasbot (beta) is waiting for your approval: open "Group: Main, Nasbot" in Chats');
