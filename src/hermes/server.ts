@@ -12,10 +12,11 @@ import type { Core } from "../app.ts";
 import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import type { MemberRow } from "../federation/members.ts";
+import { loginRoutes } from "../federation/logins.ts";
 import { manageRoutes } from "../federation/manage.ts";
 import { forwardVory, voryMemberRoutes } from "../federation/vory.ts";
 import { PSK_TLS } from "../federation/psk.ts";
-import { federationRoutes, KEY_CHANGING_PATHS, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
+import { federationRoutes, KEY_CHANGING_PATHS, KEY_CHANGING_PREFIXES, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
 import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
 import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
@@ -51,7 +52,7 @@ const PSK_PORT_TRIES = 10;
  * as configured (used as given); without it, main port + 1000 or the next free one; null turns it off.
  */
 export async function startHermesServer(core: Core, opts: { host: string; port: number; federationPort?: number | null; extraRouters?: Router[] }): Promise<HermesServer> {
-	const federation = [federationRoutes(core), manageRoutes(core), voryMemberRoutes(core)];
+	const federation = [federationRoutes(core), manageRoutes(core), loginRoutes(core), voryMemberRoutes(core)];
 	const panel = new Panel(core);
 	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
@@ -89,7 +90,7 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 					member = core.members.pskMember(psk!);
 					if (!member) throw new HttpError(401, "Unauthorized");
 					// The previous key only keeps links alive during the grace; it cannot change the pair.
-					if ((KEY_CHANGING_PATHS.has(url.pathname) || url.pathname.startsWith("/federation/manage")) && core.members.usesReplacedKey(psk!)) throw new HttpError(403, "this connection uses a replaced key; reconnect");
+					if ((KEY_CHANGING_PATHS.has(url.pathname) || KEY_CHANGING_PREFIXES.some((p) => url.pathname.startsWith(p))) && core.members.usesReplacedKey(psk!)) throw new HttpError(403, "this connection uses a replaced key; reconnect");
 				}
 			} else if (!PUBLIC.has(url.pathname) && !tokenMatches(requestToken(req, url), core.config.token)) {
 				throw new HttpError(401, "Unauthorized");

@@ -16,6 +16,9 @@ export const OPEN_FEDERATION_PATHS = new Set(["/federation/hello", "/federation/
 /** Routes that change the network or this gateway's settings: a connection made with a replaced pair key cannot use them. */
 export const KEY_CHANGING_PATHS = new Set(["/federation/rotate", "/federation/secrets", "/federation/introduce", "/federation/forget", "/federation/removed", "/federation/moved"]);
 
+/** Path prefixes with the same restriction: these routes are only open to a connection made with the current pair key. */
+export const KEY_CHANGING_PREFIXES = ["/federation/manage", "/federation/logins"];
+
 function member(q: Req): MemberRow {
 	if (!q.member) throw new HttpError(401, "Unauthorized");
 	return q.member;

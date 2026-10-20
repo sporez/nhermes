@@ -7,10 +7,10 @@ import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Core } from "./app.ts";
 import { type BotConfig, ConfigError } from "./config.ts";
-import { LoginError } from "./core/logins.ts";
 import { SecretError } from "./core/secrets.ts";
 import { UpdateError } from "./core/updates.ts";
 import type { BotPatch, GatewayPatch } from "./core/settings.ts";
+import { loginCall, remoteLoginRoutes } from "./federation/logins.ts";
 import { PanelAuth } from "./panel/auth.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
 import { logger } from "./log.ts";
@@ -174,6 +174,7 @@ export function adminRoutes(core: Core): Router {
 	});
 	r.on("DELETE", "/admin/logins/providers/:provider", (q) => loginCall(() => core.logins.logout(q.params.provider!, "cli")));
 	r.on("DELETE", "/admin/logins/:id", (q) => loginCall(() => core.logins.cancel(q.params.id!, "cli")));
+	remoteLoginRoutes(core, r, "/admin/remote");
 	r.on("POST", "/admin/panel/password", (q) => {
 		const p = obj(q.body).password;
 		try {
@@ -226,21 +227,6 @@ function updateCall<T>(fn: () => T): T {
 		return fn();
 	} catch (error) {
 		if (error instanceof UpdateError) throw new HttpError(error.status, error.message);
-		throw error;
-	}
-}
-
-function loginCall<T>(fn: () => T): T {
-	try {
-		const r = fn();
-		// An async result (logout) maps its rejection the same way.
-		if (r instanceof Promise) return r.catch((error: unknown) => {
-			if (error instanceof LoginError) throw new HttpError(error.status, error.message);
-			throw error;
-		}) as T;
-		return r;
-	} catch (error) {
-		if (error instanceof LoginError) throw new HttpError(error.status, error.message);
 		throw error;
 	}
 }

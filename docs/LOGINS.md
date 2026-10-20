@@ -207,5 +207,5 @@ L1 notes from reading Pi:
 - [ ] L0 room in the panel script
 - [x] L1 login sessions and CLI (`core/logins.ts`, `/admin/logins`, `nhermes auth`; tests in `test/core/logins.test.ts`)
 - [ ] L2 panel (this machine)
-- [ ] L3 remote logins
+- [ ] L3 remote logins (backend done: `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker is L2's)
 - [ ] L4 status and failures

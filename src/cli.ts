@@ -36,6 +36,8 @@ Commands:
   auth list                   Model providers you can sign in to, and which are signed in
   auth login <provider>       Sign this machine in to a provider (shows a code or link; the login stays on this machine)
   auth logout <provider>      Remove this machine's login for a provider
+                              Add --machine <member> to any auth command to act on another machine
+                              (it must allow it: Network, "Let other machines sign this machine in")
   update [--check]            Install the latest version from GitHub and restart (--check: only list what is new)
   update rollback             Go back to the version before the last update
   panel password [--clear]    Set (or remove) the web panel's password; without one it is open on the LAN
@@ -232,10 +234,10 @@ async function readLine(prompt: string): Promise<string> {
 }
 
 /** Starts a login through the gateway, shows what the provider asks for, and cancels it on Ctrl-C. */
-async function authLogin(configPath: string, provider: string): Promise<void> {
-	let session = (await admin(configPath, "POST", "/admin/logins", { provider })) as LoginView;
+async function authLogin(configPath: string, provider: string, base: string): Promise<void> {
+	let session = (await admin(configPath, "POST", base, { provider })) as LoginView;
 	const cancel = (): void => {
-		void admin(configPath, "DELETE", `/admin/logins/${session.id}`).catch(() => {}).finally(() => {
+		void admin(configPath, "DELETE", `${base}/${session.id}`).catch(() => {}).finally(() => {
 			process.stderr.write("\nCancelled.\n");
 			process.exit(130);
 		});
@@ -260,11 +262,11 @@ async function authLogin(configPath: string, provider: string): Promise<void> {
 				const n = Number(await readLine(`${p.message}\n${list}\nNumber: `));
 				value = options[n - 1]?.id ?? "";
 			} else value = await readLine(`${p.message}: `);
-			session = (await admin(configPath, "POST", `/admin/logins/${session.id}/answer`, { value })) as LoginView;
+			session = (await admin(configPath, "POST", `${base}/${session.id}/answer`, { value })) as LoginView;
 			continue;
 		}
 		await new Promise((r) => setTimeout(r, 1000));
-		session = (await admin(configPath, "GET", `/admin/logins/${session.id}`)) as LoginView;
+		session = (await admin(configPath, "GET", `${base}/${session.id}`)) as LoginView;
 	}
 }
 
@@ -286,6 +288,7 @@ async function main(): Promise<void> {
 			name: { type: "string" },
 			port: { type: "string" },
 			"data-dir": { type: "string" },
+			machine: { type: "string" },
 		},
 	});
 	const [command, ...rest] = positionals;
@@ -370,18 +373,20 @@ async function main(): Promise<void> {
 		}
 		case "auth": {
 			const [sub, provider] = rest;
+			// --machine: the same routes, forwarded by this gateway to that member (which must allow it).
+			const base = values.machine ? `/admin/remote/${encodeURIComponent(values.machine)}/logins` : "/admin/logins";
 			if (sub === "list" || !sub) {
-				const r = (await admin(configPath, "GET", "/admin/logins")) as { providers: { id: string; name: string; oauth: unknown; apiKey: boolean; status: { kind: string; expires?: number; source?: string }; lastError?: string }[] };
+				const r = (await admin(configPath, "GET", base)) as { providers: { id: string; name: string; oauth: unknown; apiKey: boolean; status: { kind: string; expires?: number; source?: string }; lastError?: string }[] };
 				for (const p of r.providers) {
 					const st = p.status.kind === "oauth" ? `signed in${p.status.expires ? `, until ${new Date(p.status.expires).toLocaleString()}` : ""}` : p.status.kind === "key" ? `key (${p.status.source})` : "not signed in";
 					process.stdout.write(`${p.id}  ${p.name}  ${st}${p.oauth ? "" : "  (key only; see nhermes secret)"}${p.lastError ? `  · last error: ${p.lastError}` : ""}\n`);
 				}
 				return;
 			}
-			if ((sub !== "login" && sub !== "logout") || !provider) throw new ConfigError("usage: nhermes auth list | login <provider> | logout <provider>");
-			if (sub === "login") return authLogin(configPath, provider);
-			await admin(configPath, "DELETE", `/admin/logins/providers/${encodeURIComponent(provider)}`);
-			return void process.stdout.write(`Signed out of ${provider}.\n`);
+			if ((sub !== "login" && sub !== "logout") || !provider) throw new ConfigError("usage: nhermes auth list | login <provider> | logout <provider> [--machine <member>]");
+			if (sub === "login") return authLogin(configPath, provider, base);
+			await admin(configPath, "DELETE", `${base}/providers/${encodeURIComponent(provider)}`);
+			return void process.stdout.write(`Signed out of ${provider}${values.machine ? ` on ${values.machine}` : ""}.\n`);
 		}
 		case "update": {
 			if (values.check) {

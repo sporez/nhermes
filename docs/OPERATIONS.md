@@ -161,6 +161,11 @@ Kimi, Anthropic and others), sign in without the `pi` CLI:
   showing them. Ctrl-C cancels it. A login that is not finished is dropped after 10 minutes (or when the
   code expires).
 - `nhermes auth logout <provider>` removes this machine's login.
+- Add `--machine <member>` to any `auth` command to sign in another machine of the network. This gateway
+  forwards the calls over the encrypted link (`/admin/remote/<member>/logins`); the code, link and prompts
+  appear in your terminal, and the login is saved on that member. It works only when that member has
+  "Let other machines sign this machine in to model providers" on (Network tab, off by default; separate
+  from the keys and bot-edit switches). Otherwise it answers with that message.
 
 The login is made by the running gateway and stored in `pi.authPath` on that machine (default
 `~/.pi/agent/auth.json`, shared with the Pi CLI there); tokens never leave it. The provider's models show
@@ -228,6 +233,9 @@ Every machine runs the same gateway; together they form one network of equals (`
 - A gateway that moves (another port or IP) tells the other members by itself on its next tick.
 - "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
   panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`).
+- "Let other machines sign this machine in to model providers" (Network tab, off by default) lets the other
+  members' panels and `nhermes auth --machine` start, answer and cancel provider sign-ins here, and sign
+  this machine out (`docs/LOGINS.md`). The sign-in is saved on this machine; no token is sent to them.
 
 ## Data
 

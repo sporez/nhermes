@@ -232,6 +232,11 @@ sessions, memory and approvals.
   local chat when this machine has "Let other machines edit this machine's bots" on; `gateway_*` tools
   still need trust and stay refused. Delegated work (source `member:<node>`) is always refused. The mark
   is the member's word, the same trust the switch already gives it.
+- Provider sign-ins on a member (`/federation/logins`, `src/federation/logins.ts`) are opt-in on the
+  machine being signed in ("Let other machines sign this machine in to model providers", off by default,
+  its own switch). Only the flow's device codes, links and prompts travel; the credential is saved by that
+  machine's own store and never sent back. Calls are logged with the member's name and refused on a replaced
+  key.
 - Member secrets never reach prompts, logs or tool environments (the existing secret scrubbing and
   shell environment stripping apply).
 - With no panel password, anyone on the LAN can change bots, invite machines and remove members. That is
@@ -241,7 +246,7 @@ sessions, memory and approvals.
 ## Encrypted links
 
 Everything between two members (pair secrets, keys sent with "Send to…" or "Also set on", relayed chats,
-delegated tasks, approvals, bot edits) goes over TLS 1.2 with the pair secret as a pre-shared key
+delegated tasks, approvals, bot edits, sign-in codes and prompts) goes over TLS 1.2 with the pair secret as a pre-shared key
 (`src/federation/psk.ts`, cipher `ECDHE-PSK-CHACHA20-POLY1305`). There are no certificates: both sides
 prove they hold the secret in the handshake, the secret never travels, and ECDHE gives forward secrecy.
 
@@ -259,7 +264,7 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
   introductions, join answers and key replacements with anything else are refused.
 - **Replacing secrets.** The panel's "Regenerate key" replaces the secret of one pair over the encrypted
   link (`/federation/rotate`, which only the encrypted port serves). The old secret keeps opening the
-  encrypted port for 10 minutes, for connections in flight, then nothing (the maintenance tick drops it). During that time it only keeps links alive: introductions, removals, address moves, key changes, shared keys and bot edits over it are refused (403, "this connection uses a replaced key; reconnect"). This protects against anyone who
+  encrypted port for 10 minutes, for connections in flight, then nothing (the maintenance tick drops it). During that time it only keeps links alive: introductions, removals, address moves, key changes, shared keys, bot edits and provider sign-ins over it are refused (403, "this connection uses a replaced key; reconnect"). This protects against anyone who
   recorded traffic before; against someone actively intercepting at that moment with the old secret,
   remove the member and join it again.
 - **Open links follow membership.** A member's WebSocket is checked once, at the upgrade, so it is also

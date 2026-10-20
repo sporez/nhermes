@@ -402,6 +402,16 @@ export class Members {
 		log.info("bot edits from members", { accepted: on });
 	}
 
+	/** Whether other members may start and answer provider sign-ins on this gateway (off until the owner turns it on). */
+	acceptsLogins(): boolean {
+		return this.flag("federation.acceptLogins");
+	}
+
+	setAcceptsLogins(on: boolean): void {
+		this.setFlag("federation.acceptLogins", on);
+		log.info("sign-ins from members", { accepted: on });
+	}
+
 	private flag(key: string): boolean {
 		return this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", key)?.value === "1";
 	}

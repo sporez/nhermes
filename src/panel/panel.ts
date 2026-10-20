@@ -19,6 +19,7 @@ import type { SessionSpend } from "../core/sessions.ts";
 import { SecretError } from "../core/secrets.ts";
 import { UpdateError } from "../core/updates.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
+import { loginCall, remoteLoginRoutes } from "../federation/logins.ts";
 import { LinkError } from "../federation/link.ts";
 import { FederationError } from "../federation/members.ts";
 import { HttpError, obj, readJson, Router, sendJson } from "../hermes/http.ts";
@@ -29,7 +30,7 @@ import { modelChoices, promptView, skillsView } from "./views.ts";
 
 const log = logger("panel");
 const STATIC_DIR = join(import.meta.dirname, "static");
-const SCRIPTS = ["panel.js", "core.js", "bots.js", "network.js", "sessions.js", "memory.js", "keys.js", "status.js", "gateway.js"];
+const SCRIPTS = ["panel.js", "core.js", "bots.js", "network.js", "sessions.js", "memory.js", "keys.js", "status.js", "gateway.js", "logins.js"];
 const FILES: Record<string, string> = { "": "index.html", "index.html": "index.html", "panel.css": "panel.css", ...Object.fromEntries(SCRIPTS.map((n) => [n, n])) };
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 const OPEN = new Set(["/panel/api/session", "/panel/api/login"]);
@@ -259,7 +260,7 @@ export class Panel {
 		r.on("GET", "/panel/api/remote/:node/bots/:name/prompt", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/prompt`));
 
 		// Network
-		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), pskPort: c.members.pskPort(), members: c.members.list(), acceptsBotEdits: c.members.acceptsBotEdits() }));
+		r.on("GET", "/panel/api/network", () => ({ self: c.members.self(), pskPort: c.members.pskPort(), members: c.members.list(), acceptsBotEdits: c.members.acceptsBotEdits(), acceptsLogins: c.members.acceptsLogins() }));
 		r.on("POST", "/panel/api/network/invite", (q) => {
 			const url = obj(q.body).url;
 			return c.members.invite({ url: typeof url === "string" && url ? url : undefined });
@@ -338,14 +339,33 @@ export class Panel {
 		r.on("POST", "/panel/api/secrets/:name/hint", (q) => ({ hint: c.secrets.hint(q.params.name!) }));
 		r.on("POST", "/panel/api/token/new", () => c.secrets.newToken());
 		r.on("PATCH", "/panel/api/network/settings", (q) => {
-			const { acceptSecrets, acceptBotEdits } = obj(q.body);
-			if (acceptSecrets === undefined && acceptBotEdits === undefined) throw new HttpError(400, "acceptSecrets or acceptBotEdits is required");
+			const { acceptSecrets, acceptBotEdits, acceptLogins } = obj(q.body);
+			if (acceptSecrets === undefined && acceptBotEdits === undefined && acceptLogins === undefined) throw new HttpError(400, "acceptSecrets, acceptBotEdits or acceptLogins is required");
+			if (acceptLogins !== undefined && typeof acceptLogins !== "boolean") throw new HttpError(400, "acceptLogins must be true or false");
 			if (acceptSecrets !== undefined && typeof acceptSecrets !== "boolean") throw new HttpError(400, "acceptSecrets must be true or false");
 			if (acceptBotEdits !== undefined && typeof acceptBotEdits !== "boolean") throw new HttpError(400, "acceptBotEdits must be true or false");
 			if (acceptSecrets !== undefined) c.members.setAcceptsSecrets(acceptSecrets);
 			if (acceptBotEdits !== undefined) c.members.setAcceptsBotEdits(acceptBotEdits);
-			return { acceptsFromMembers: c.members.acceptsSecrets(), acceptsBotEdits: c.members.acceptsBotEdits() };
+			if (acceptLogins !== undefined) c.members.setAcceptsLogins(acceptLogins);
+			return { acceptsFromMembers: c.members.acceptsSecrets(), acceptsBotEdits: c.members.acceptsBotEdits(), acceptsLogins: c.members.acceptsLogins() };
 		});
+
+		// Provider sign-ins: on this machine, or on a member (forwarded; the member must allow it).
+		r.on("GET", "/panel/api/logins", async () => ({ providers: await c.logins.list() }));
+		r.on("POST", "/panel/api/logins", (q) => {
+			const provider = obj(q.body).provider;
+			if (typeof provider !== "string" || !provider) throw new HttpError(400, "provider required");
+			return loginCall(() => c.logins.start(provider, "panel"));
+		});
+		r.on("DELETE", "/panel/api/logins/providers/:provider", (q) => loginCall(() => c.logins.logout(q.params.provider!, "panel")));
+		r.on("GET", "/panel/api/logins/:id", (q) => loginCall(() => c.logins.get(q.params.id!)));
+		r.on("POST", "/panel/api/logins/:id/answer", (q) => {
+			const value = obj(q.body).value;
+			if (typeof value !== "string") throw new HttpError(400, "value required");
+			return loginCall(() => c.logins.answer(q.params.id!, value));
+		});
+		r.on("DELETE", "/panel/api/logins/:id", (q) => loginCall(() => c.logins.cancel(q.params.id!, "panel")));
+		remoteLoginRoutes(c, r, "/panel/api/remote");
 
 		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)
 		r.on("GET", "/panel/api/sessions", async (q) => {

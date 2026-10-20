@@ -235,6 +235,9 @@ run is not submitted twice.
   pair secret, which applies the edit through its own `Settings` and skills; host, workspace, keys and
   gateway settings stay editable only on that machine. Vory's settings requests for a `<bot>-<node>`
   profile follow the same path (`src/federation/vory.ts`): reads always, changes under the same switch.
+- **Signing members in (`src/federation/logins.ts`, `docs/LOGINS.md`):** when a gateway's owner allows it
+  (its own switch), other members' panels and `nhermes auth --machine` call `/federation/logins/*` over the
+  pair secret. The login runs in that gateway's `core/logins.ts`; codes and prompts travel, credentials do not.
 - **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
   answer as if it did not exist; it is not shared with members either. It can still delegate to others
   and is still a Vory profile on its own gateway.

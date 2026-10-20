@@ -15,12 +15,20 @@ async function networkScreen() {
 		try { await api("PATCH", "/network/settings", { acceptBotEdits: edits.checked }); toast("Saved"); }
 		catch (e) { edits.checked = !edits.checked; throw e; }
 	}));
+	const logins = h("input", { type: "checkbox", checked: net.acceptsLogins });
+	logins.addEventListener("change", () => run(async () => {
+		try { await api("PATCH", "/network/settings", { acceptLogins: logins.checked }); toast("Saved"); }
+		catch (e) { logins.checked = !logins.checked; throw e; }
+	}));
 	const acceptCard = h("div", { class: "card" },
 		h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
 		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel encrypted."),
 		h("div", { class: "field" }),
 		h("label", {}, edits, " ", h("strong", {}, "Let other machines edit this machine's bots")),
-		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."));
+		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."),
+		h("div", { class: "field" }),
+		h("label", {}, logins, " ", h("strong", {}, "Let other machines sign this machine in to model providers")),
+		h("div", { class: "hint" }, "Their panels can start and answer sign-ins here (Logins tab). The sign-in is saved on this machine; no tokens are sent to them."));
 	const act = (fn) => () => run(async () => { await fn(); await reload(); });
 	const out = h("div");
 
