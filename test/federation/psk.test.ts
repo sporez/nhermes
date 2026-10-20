@@ -114,7 +114,15 @@ test("pair secrets are replaced over the encrypted link; the old one stops worki
 		// The old secret still opens the encrypted port for a while, then nothing.
 		const old = { ...b.core.members.byName("alpha")!, secret: before };
 		assert.deepEqual(await b.core.members.call(old, "/federation/ping", undefined, "GET"), { name: "alpha", from: "beta" });
+		// ...but it cannot change the pair: no new key, no introductions, removals or other changes.
+		for (const path of ["/federation/rotate", "/federation/secrets", "/federation/manage", "/federation/introduce", "/federation/forget", "/federation/removed", "/federation/moved"]) {
+			await assert.rejects(b.core.members.call(old, path, { secret: "x".repeat(32) }), /uses a replaced key; reconnect/, path);
+		}
+		assert.equal(a.core.members.byName("beta")!.secret, after, "nothing changed");
+		assert.equal(a.core.members.byName("beta")!.prev_secret, before);
 		clock += 11 * 60_000;
+		await a.core.members.maintain();
+		assert.equal(a.core.members.byName("beta")!.prev_secret, null, "the replaced secret is dropped after its grace");
 		await assert.rejects(b.core.members.call(old, "/federation/ping", undefined, "GET"), /no longer accepts this machine/);
 		assert.deepEqual(await b.core.members.call(b.core.members.byName("alpha")!, "/federation/ping", undefined, "GET"), { name: "alpha", from: "beta" });
 

@@ -259,7 +259,7 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
   introductions, join answers and key replacements with anything else are refused.
 - **Replacing secrets.** The panel's "Regenerate key" replaces the secret of one pair over the encrypted
   link (`/federation/rotate`, which only the encrypted port serves). The old secret keeps opening the
-  encrypted port for 10 minutes, for connections in flight, then nothing. This protects against anyone who
+  encrypted port for 10 minutes, for connections in flight, then nothing (the maintenance tick drops it). During that time it only keeps links alive: introductions, removals, address moves, key changes, shared keys and bot edits over it are refused (403, "this connection uses a replaced key; reconnect"). This protects against anyone who
   recorded traffic before; against someone actively intercepting at that moment with the old secret,
   remove the member and join it again.
 - **Only encrypted.** There is no plain HTTP path between members and no fallback to one; a fallback is

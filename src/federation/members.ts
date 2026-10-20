@@ -217,6 +217,14 @@ export class Members {
 		return null;
 	}
 
+	/** Whether the connection's key has since been replaced (it was opened with the previous secret, within the grace). */
+	usesReplacedKey(identity: string): boolean {
+		const id = parseIdentity(identity);
+		if (id?.kind !== "member") return false;
+		const m = this.get(id.nodeId);
+		return m !== undefined && keyId(m.secret) !== id.keyId;
+	}
+
 	/** The member an encrypted connection belongs to (its handshake already proved the key). */
 	pskMember(identity: string): MemberRow | undefined {
 		const id = parseIdentity(identity);
@@ -450,6 +458,7 @@ export class Members {
 	/** Housekeeping on every tick: tell the others when this gateway's address changed, and deliver the outbox. */
 	async maintain(): Promise<void> {
 		this.announce();
+		this.db.run("UPDATE members SET prev_secret = NULL, prev_until = NULL WHERE prev_until IS NOT NULL AND prev_until < ?", this.now() / 1000);
 		await this.flush();
 	}
 

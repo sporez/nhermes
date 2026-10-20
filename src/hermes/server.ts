@@ -15,7 +15,7 @@ import type { MemberRow } from "../federation/members.ts";
 import { manageRoutes } from "../federation/manage.ts";
 import { forwardVory, voryMemberRoutes } from "../federation/vory.ts";
 import { PSK_TLS } from "../federation/psk.ts";
-import { federationRoutes, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
+import { federationRoutes, KEY_CHANGING_PATHS, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
 import { Panel } from "../panel/panel.ts";
 import { logger } from "../log.ts";
 import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
@@ -83,6 +83,8 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 				} else if (!OPEN_FEDERATION_PATHS.has(url.pathname)) {
 					member = core.members.pskMember(psk!);
 					if (!member) throw new HttpError(401, "Unauthorized");
+					// The previous key only keeps links alive during the grace; it cannot change the pair.
+					if ((KEY_CHANGING_PATHS.has(url.pathname) || url.pathname.startsWith("/federation/manage")) && core.members.usesReplacedKey(psk!)) throw new HttpError(403, "this connection uses a replaced key; reconnect");
 				}
 			} else if (!PUBLIC.has(url.pathname) && !tokenMatches(requestToken(req, url), core.config.token)) {
 				throw new HttpError(401, "Unauthorized");

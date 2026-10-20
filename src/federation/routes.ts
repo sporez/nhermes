@@ -13,6 +13,9 @@ import { publish } from "./roster.ts";
 
 export const OPEN_FEDERATION_PATHS = new Set(["/federation/hello", "/federation/join"]);
 
+/** Routes that change the network or this gateway's settings: a connection made with a replaced pair key cannot use them. */
+export const KEY_CHANGING_PATHS = new Set(["/federation/rotate", "/federation/secrets", "/federation/introduce", "/federation/forget", "/federation/removed", "/federation/moved"]);
+
 function member(q: Req): MemberRow {
 	if (!q.member) throw new HttpError(401, "Unauthorized");
 	return q.member;
