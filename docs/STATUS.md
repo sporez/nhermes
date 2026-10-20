@@ -41,6 +41,43 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
   rows and events (`test/core/web.test.ts`). Redaction of streamed text works per delta, so a secret split
   across two deltas would not be caught there (the stored transcript row is still redacted).
 
+Found in a security audit (2026-10-20), fixed with regression tests:
+
+- A bot's `http_request`, `web_fetch` and browser tools could use the gateway's own passwordless panel
+  from the machine itself (read the token, answer their own approvals) → the gateway's `/panel` is
+  refused to them, also after a redirect (`test/core/web.test.ts`, `test/computer/browser.test.ts`).
+  The browser tools also refuse `file://` URLs inside the gateway's own folders.
+- `http_request` carried a key in a custom header across a redirect to another host → secret headers are
+  dropped on a cross-origin hop, and a 307/308 with a key in its body or URL is not followed
+  (`test/core/web.test.ts`).
+- A backup without `--secrets` blanked pair secrets to `''`, and the encrypted port accepted the key of an
+  empty secret, which anyone can compute → blank and short secrets never open the encrypted port
+  (`test/federation/psk.test.ts`). Such backups also leave out previous secrets, queued introductions and the
+  panel cookie key. Every backup is written owner-only (`test/core/backup.test.ts`).
+- Members talk only over TLS-PSK. The member-secret header login and `/federation/*` on the main port are
+  gone, so no pair secret or key travels in clear and the upgrade probe can no longer be blocked. Done after
+  checking that every live pair was encrypted and rotated (`test/federation/network.test.ts`,
+  `psk.test.ts`).
+- A connection made with the replaced pair key during its grace period could rotate the pair to a key of
+  its choosing → that key keeps links alive but cannot change the pair, and it is cleared after the grace
+  (`test/federation/psk.test.ts`).
+- A removed member's open WebSocket kept working → member sockets close when the member is forgotten or
+  their key stops being accepted (`test/federation/network.test.ts`).
+- Live events (reasoning, errors, tool results, approval cards, resume snapshots), approval audit rows and
+  forwarded notifications were not redacted. JSON-escaped forms of a key were missed, and keys from the
+  service environment were never registered → all are redacted now (`test/hermes/protocol.test.ts`,
+  `test/core/secrets.test.ts`, `test/federation/notify.test.ts`).
+- Smaller hardening:
+  - A `peer:` token travels in a header, not the URL.
+  - The TLS-PSK handshake has a 10 s timeout.
+  - Repeated wrong panel passwords make that address wait.
+  - The panel cookie is `Secure` behind an HTTPS proxy.
+  - The Host header is parsed strictly.
+  - Short keys show no characters on Vory's env screen.
+  - Updates are refused from `http://`/`git://` remotes.
+  - `secrets.env` is created `0600`.
+  - Approval cards from another machine start with "from \<machine\>:".
+
 ## Models
 
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own
