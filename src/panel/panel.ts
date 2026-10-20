@@ -43,6 +43,12 @@ export function localHost(hostHeader: string | undefined, nodeUrl?: string): boo
 	return nodeUrl !== undefined && new URL(nodeUrl).hostname.toLowerCase() === host;
 }
 
+/** Whether a proxy in front says the browser used HTTPS (the cookie then gets `Secure`). */
+function viaHttps(req: IncomingMessage): boolean {
+	const proto = req.headers["x-forwarded-proto"];
+	return (Array.isArray(proto) ? proto[0] : proto)?.split(",")[0]?.trim().toLowerCase() === "https";
+}
+
 function str(v: unknown, what: string): string {
 	if (typeof v !== "string" || !v.trim()) throw new HttpError(400, `${what} is required`);
 	return v;
@@ -164,14 +170,21 @@ export class Panel {
 		// Sign-in
 		r.on("GET", "/panel/api/session", (q) => ({ passwordSet: auth.passwordSet, signedIn: auth.allowed(q.raw.headers.cookie) }));
 		r.on("POST", "/panel/api/login", (q) => {
-			if (!auth.checkPassword(str(obj(q.body).password ?? "-", "password"))) throw new HttpError(401, "wrong password");
-			return { ok: true, setCookie: PanelAuth.cookie(auth.issue()) };
+			const from = q.raw.socket.remoteAddress ?? "";
+			if (auth.passwordSet) {
+				const wait = auth.waitSeconds(from);
+				if (wait > 0) throw new HttpError(429, `too many tries; wait ${wait} seconds`);
+			}
+			const ok = auth.checkPassword(str(obj(q.body).password ?? "-", "password"));
+			if (auth.passwordSet) auth.loginResult(from, ok);
+			if (!ok) throw new HttpError(401, "wrong password");
+			return { ok: true, setCookie: PanelAuth.cookie(auth.issue(), viaHttps(q.raw)) };
 		});
-		r.on("POST", "/panel/api/logout", () => ({ ok: true, setCookie: PanelAuth.clearCookie() }));
+		r.on("POST", "/panel/api/logout", (q) => ({ ok: true, setCookie: PanelAuth.clearCookie(viaHttps(q.raw)) }));
 		r.on("POST", "/panel/api/password", (q) => {
 			const p = obj(q.body).password;
 			auth.setPassword(typeof p === "string" && p ? p : null);
-			return { ok: true, passwordSet: auth.passwordSet, setCookie: auth.passwordSet ? PanelAuth.cookie(auth.issue()) : PanelAuth.clearCookie() };
+			return { ok: true, passwordSet: auth.passwordSet, setCookie: auth.passwordSet ? PanelAuth.cookie(auth.issue(), viaHttps(q.raw)) : PanelAuth.clearCookie(viaHttps(q.raw)) };
 		});
 
 		// Overview, bots and gateway settings

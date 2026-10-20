@@ -10,6 +10,7 @@ import { adminRoutes } from "../../src/admin.ts";
 import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
 import { startHermesServer } from "../../src/hermes/server.ts";
+import { setThrottleClock } from "../../src/panel/auth.ts";
 import { localHost } from "../../src/panel/panel.ts";
 import { collect, fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
@@ -153,12 +154,23 @@ test("panel: every skill a bot could use, switched on and off per bot", async ()
 
 test("with a password the panel needs a login cookie", async () => {
 	const { core, server, base, panel, forgetCookie, cleanup } = await setup();
+	let now = 1_000_000;
+	setThrottleClock(() => now);
 	try {
 		const set = await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
 		assert.equal(set.status, 200);
 		assert.deepEqual((await panel("GET", "/session")).json, { passwordSet: true, signedIn: false });
 		assert.equal((await panel("GET", "/state")).status, 401);
 		assert.equal((await panel("POST", "/login", { password: "wrong-one" })).status, 401);
+		// A failed login makes the same address wait before trying again (1 s, then 2 s, ...).
+		const early = await panel("POST", "/login", { password: "hunter22" });
+		assert.equal(early.status, 429);
+		assert.match(String(early.json.detail), /wait \d+ seconds/);
+		now += 1500;
+		assert.equal((await panel("POST", "/login", { password: "wrong-two" })).status, 401);
+		now += 1500;
+		assert.equal((await panel("POST", "/login", { password: "hunter22" })).status, 429, "the second wait is 2 s");
+		now += 1000;
 		assert.equal((await panel("POST", "/login", { password: "hunter22" })).status, 200);
 		assert.equal((await panel("GET", "/state")).status, 200);
 		assert.equal((await panel("POST", "/password", { password: "abc" })).status, 400, "too short");
@@ -173,6 +185,21 @@ test("with a password the panel needs a login cookie", async () => {
 		assert.equal((await panel("POST", "/password", { password: null })).status, 200);
 		forgetCookie();
 		assert.equal((await panel("GET", "/state")).status, 200, "no password: open again");
+	} finally {
+		setThrottleClock(Date.now);
+		await server.close();
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("the login cookie is Secure only when a proxy says the browser used HTTPS", async () => {
+	const { core, server, base, cleanup } = await setup();
+	try {
+		await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
+		const login = (extra: Record<string, string>) => fetch(`${base}/panel/api/login`, { method: "POST", headers: { "content-type": "application/json", "x-nhermes-panel": "1", ...extra }, body: JSON.stringify({ password: "hunter22" }) });
+		assert.ok(!(await login({})).headers.get("set-cookie")!.includes("Secure"));
+		assert.ok((await login({ "x-forwarded-proto": "https" })).headers.get("set-cookie")!.includes("; Secure"));
 	} finally {
 		await server.close();
 		await core.close();

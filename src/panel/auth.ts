@@ -7,6 +7,13 @@ import type { AppDb } from "../store/db.ts";
 export const COOKIE = "nh_panel";
 const SESSION_S = 30 * 24 * 3600;
 
+let clock: () => number = Date.now;
+
+/** Test hook: the clock the login throttle reads. */
+export function setThrottleClock(next: () => number): void {
+	clock = next;
+}
+
 export class PanelAuth {
 	private readonly db: AppDb;
 
@@ -76,11 +83,28 @@ export class PanelAuth {
 		return mac.length === want.length && timingSafeEqual(Buffer.from(mac), Buffer.from(want));
 	}
 
-	static cookie(value: string): string {
-		return `${COOKIE}=${value}; Path=/panel; HttpOnly; SameSite=Strict; Max-Age=${SESSION_S}`;
+	/** `secure` is for a request that arrived over HTTPS through a proxy; plain HTTP keeps the cookie as it was. */
+	static cookie(value: string, secure = false): string {
+		return `${COOKIE}=${value}; Path=/panel; HttpOnly; SameSite=Strict; Max-Age=${SESSION_S}${secure ? "; Secure" : ""}`;
 	}
 
-	static clearCookie(): string {
-		return `${COOKIE}=; Path=/panel; HttpOnly; SameSite=Strict; Max-Age=0`;
+	static clearCookie(secure = false): string {
+		return `${COOKIE}=; Path=/panel; HttpOnly; SameSite=Strict; Max-Age=0${secure ? "; Secure" : ""}`;
+	}
+
+	private readonly failures = new Map<string, { count: number; until: number }>();
+
+	/** Seconds this address must still wait after failed logins; 0 when it may try. */
+	waitSeconds(address: string): number {
+		const f = this.failures.get(address);
+		return f ? Math.max(0, Math.ceil((f.until - clock()) / 1000)) : 0;
+	}
+
+	/** Records a login result: each failure doubles the wait (1 s, 2 s, 4 s … up to 30 s); a success clears it. */
+	loginResult(address: string, ok: boolean): void {
+		if (ok) return void this.failures.delete(address);
+		const count = (this.failures.get(address)?.count ?? 0) + 1;
+		if (this.failures.size > 1000) this.failures.clear();
+		this.failures.set(address, { count, until: clock() + Math.min(30, 2 ** (count - 1)) * 1000 });
 	}
 }
