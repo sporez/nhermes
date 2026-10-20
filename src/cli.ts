@@ -1,6 +1,6 @@
 // nHermes: the gateway daemon and its small admin CLI (the `nhermes` command).
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
@@ -125,8 +125,7 @@ function init(dir: string, o: InitOptions = {}): void {
 	if (existsSync(cfg)) throw new ConfigError(`${cfg} already exists; not overwriting`);
 	writeFileSync(cfg, sampleConfig(o));
 	if (!existsSync(secrets)) {
-		writeFileSync(secrets, `# Gateway session token: paste into Vory (Session token mode)\nNHERMES_TOKEN=${randomBytes(24).toString("base64url")}\n# PUSHOVER_USER_KEY=\n# PUSHOVER_APP_TOKEN=\n`);
-		chmodSync(secrets, 0o600);
+		writeFileSync(secrets, `# Gateway session token: paste into Vory (Session token mode)\nNHERMES_TOKEN=${randomBytes(24).toString("base64url")}\n# PUSHOVER_USER_KEY=\n# PUSHOVER_APP_TOKEN=\n`, { mode: 0o600 });
 	}
 	process.stdout.write(`Wrote ${cfg} and ${secrets}\n`);
 }
@@ -315,9 +314,7 @@ async function main(): Promise<void> {
 				await admin(configPath, "POST", "/admin/panel/password", { password: null });
 				return void process.stdout.write("The panel no longer asks for a password.\n");
 			}
-			const rl = createInterface({ input: process.stdin, output: process.stdout });
-			const password = await rl.question("New panel password (shown as you type): ");
-			rl.close();
+			const password = await readHidden("New panel password (not shown): ");
 			await admin(configPath, "POST", "/admin/panel/password", { password });
 			return void process.stdout.write("Panel password set; browsers sign in again.\n");
 		}
