@@ -152,6 +152,10 @@ test("config, tool groups, model and keys are written for the selected bot", asy
 		// Keys: set and clear; never the gateway token.
 		assert.equal((await api("PUT", "/api/env", { key: "BRAVE_API_KEY", value: "brave-0123456789" })).status, 200);
 		assert.equal((await api("GET", "/api/env")).json.BRAVE_API_KEY.is_set, true);
+		assert.equal((await api("GET", "/api/env")).json.BRAVE_API_KEY.redacted_value, "«redacted:…6789»");
+		assert.equal((await api("DELETE", "/api/env", { key: "BRAVE_API_KEY" })).status, 200);
+		assert.equal((await api("PUT", "/api/env", { key: "BRAVE_API_KEY", value: "abcd" })).status, 200);
+		assert.equal((await api("GET", "/api/env")).json.BRAVE_API_KEY.redacted_value, "«redacted»", "a short value shows no characters");
 		assert.equal((await api("DELETE", "/api/env", { key: "BRAVE_API_KEY" })).status, 200);
 		assert.equal((await api("PUT", "/api/env", { key: "NHERMES_TOKEN", value: "x".repeat(32) })).status, 403);
 		assert.equal((await api("PUT", "/api/env", { key: "bad name", value: "x" })).status, 400);

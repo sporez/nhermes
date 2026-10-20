@@ -310,7 +310,7 @@ export function restRoutes(core: Core): Router {
 			const provider = sec.usedBy.find((u) => u.startsWith("models: "))?.slice(8) ?? null;
 			out[sec.name] = {
 				is_set: sec.set,
-				redacted_value: v ? `«redacted:…${v.slice(-4)}»` : null,
+				redacted_value: v ? (v.length > 8 ? `«redacted:…${v.slice(-4)}»` : "«redacted»") : null, // same threshold as Secrets.hint
 				description: sec.description,
 				category: provider ? "LLM Providers" : "Gateway",
 				is_password: true,
