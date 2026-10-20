@@ -33,6 +33,9 @@ Commands:
   secret list                 The gateway's keys and tokens (names only) and what uses them
   secret set <NAME>           Set a key in secrets.env (asks for the value without showing it)
   secret rm <NAME>            Remove a key
+  auth list                   Model providers you can sign in to, and which are signed in
+  auth login <provider>       Sign this machine in to a provider (shows a code or link; the login stays on this machine)
+  auth logout <provider>      Remove this machine's login for a provider
   update [--check]            Install the latest version from GitHub and restart (--check: only list what is new)
   update rollback             Go back to the version before the last update
   panel password [--clear]    Set (or remove) the web panel's password; without one it is open on the LAN
@@ -179,7 +182,13 @@ async function readHidden(prompt: string): Promise<string> {
 					process.stdout.write("\n");
 					return resolve(value.trim());
 				}
-				if (ch === "\u0003") process.exit(130);
+				if (ch === "\u0003") {
+					// Raw mode swallows Ctrl-C; hand it to the SIGINT handlers (a login cancels itself there).
+					process.stdin.setRawMode(false);
+					process.stdout.write("\n");
+					process.kill(process.pid, "SIGINT");
+					return;
+				}
 				if (ch === "\u007f") value = value.slice(0, -1);
 				else value += ch;
 			}
@@ -196,6 +205,67 @@ function describeSoftware(s: SoftwareView): string {
 	if (s.available.length === 0) lines.push("Up to date.");
 	else lines.push(`${s.available.length} new commit${s.available.length === 1 ? "" : "s"}:`, ...s.available.map((c) => `  ${c.hash} ${c.subject}`), "Run nhermes update to install.");
 	return `${lines.join("\n")}\n`;
+}
+
+type LoginView = {
+	id: string;
+	state: "waiting" | "prompt" | "done" | "failed" | "cancelled";
+	events: ({ type: string; message?: string; links?: { url: string; label?: string }[]; url?: string; instructions?: string; userCode?: string; verificationUri?: string; expiresInSeconds?: number })[];
+	prompt?: { type: "text" | "secret" | "select" | "manual_code"; message: string; options?: { id: string; label: string; description?: string }[] };
+	message?: string;
+};
+
+function describeLoginEvent(e: LoginView["events"][number]): string {
+	if (e.type === "device_code") return `Open ${e.verificationUri} and enter the code ${e.userCode}${e.expiresInSeconds ? ` (valid for ${Math.max(1, Math.round(e.expiresInSeconds / 60))} min)` : ""}.`;
+	if (e.type === "auth_url") return `Open this link in a browser:\n  ${e.url}${e.instructions ? `\n${e.instructions}` : ""}\nIf the browser ends on a page that cannot load (127.0.0.1), copy that page's address and paste it when asked.`;
+	const links = (e.links ?? []).map((l) => `\n  ${l.label ? `${l.label}: ` : ""}${l.url}`).join("");
+	return `${e.message ?? ""}${links}`;
+}
+
+async function readLine(prompt: string): Promise<string> {
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	try {
+		return (await rl.question(prompt)).trim();
+	} finally {
+		rl.close();
+	}
+}
+
+/** Starts a login through the gateway, shows what the provider asks for, and cancels it on Ctrl-C. */
+async function authLogin(configPath: string, provider: string): Promise<void> {
+	let session = (await admin(configPath, "POST", "/admin/logins", { provider })) as LoginView;
+	const cancel = (): void => {
+		void admin(configPath, "DELETE", `/admin/logins/${session.id}`).catch(() => {}).finally(() => {
+			process.stderr.write("\nCancelled.\n");
+			process.exit(130);
+		});
+	};
+	process.once("SIGINT", cancel);
+	let shown = 0;
+	let answered = "";
+	for (;;) {
+		for (const e of session.events.slice(shown)) process.stdout.write(`${describeLoginEvent(e)}\n`);
+		shown = session.events.length;
+		if (session.state === "done") return void process.stdout.write(`${session.message ?? "Signed in."}\n`);
+		if (session.state === "failed" || session.state === "cancelled") throw new ConfigError(session.message ?? `login ${session.state}`);
+		const p = session.prompt;
+		if (session.state !== "prompt") answered = "";
+		if (session.state === "prompt" && p && answered !== p.message) {
+			answered = p.message;
+			let value: string;
+			if (p.type === "secret") value = await readHidden(`${p.message} (not shown): `);
+			else if (p.type === "select") {
+				const options = p.options ?? [];
+				const list = options.map((o, i) => `  ${i + 1}. ${o.label}${o.description ? ` · ${o.description}` : ""}`).join("\n");
+				const n = Number(await readLine(`${p.message}\n${list}\nNumber: `));
+				value = options[n - 1]?.id ?? "";
+			} else value = await readLine(`${p.message}: `);
+			session = (await admin(configPath, "POST", `/admin/logins/${session.id}/answer`, { value })) as LoginView;
+			continue;
+		}
+		await new Promise((r) => setTimeout(r, 1000));
+		session = (await admin(configPath, "GET", `/admin/logins/${session.id}`)) as LoginView;
+	}
 }
 
 const print = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
@@ -297,6 +367,21 @@ async function main(): Promise<void> {
 			const value = await readHidden(`Value for ${name} (not shown): `);
 			const r = (await admin(configPath, "PUT", `/admin/secrets/${encodeURIComponent(name)}`, { value })) as { restartNeeded: boolean };
 			return void process.stdout.write(`Set ${name}.${r.restartNeeded ? " Restart the gateway for it to take effect." : " In effect now."}\n`);
+		}
+		case "auth": {
+			const [sub, provider] = rest;
+			if (sub === "list" || !sub) {
+				const r = (await admin(configPath, "GET", "/admin/logins")) as { providers: { id: string; name: string; oauth: unknown; apiKey: boolean; status: { kind: string; expires?: number; source?: string }; lastError?: string }[] };
+				for (const p of r.providers) {
+					const st = p.status.kind === "oauth" ? `signed in${p.status.expires ? `, until ${new Date(p.status.expires).toLocaleString()}` : ""}` : p.status.kind === "key" ? `key (${p.status.source})` : "not signed in";
+					process.stdout.write(`${p.id}  ${p.name}  ${st}${p.oauth ? "" : "  (key only; see nhermes secret)"}${p.lastError ? `  · last error: ${p.lastError}` : ""}\n`);
+				}
+				return;
+			}
+			if ((sub !== "login" && sub !== "logout") || !provider) throw new ConfigError("usage: nhermes auth list | login <provider> | logout <provider>");
+			if (sub === "login") return authLogin(configPath, provider);
+			await admin(configPath, "DELETE", `/admin/logins/providers/${encodeURIComponent(provider)}`);
+			return void process.stdout.write(`Signed out of ${provider}.\n`);
 		}
 		case "update": {
 			if (values.check) {

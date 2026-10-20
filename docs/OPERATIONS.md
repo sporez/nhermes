@@ -148,6 +148,25 @@ the systemd unit) wins over the file and is read-only here. "Generate new token"
 token once: update Vory and restart the gateway. A key can also be set on other machines in the network,
 on those whose panel allows "Accept keys from other machines" (off by default).
 
+## Signing in to model providers
+
+For providers that use a subscription or account login (xAI/Grok, ChatGPT, OpenAI Codex, GitHub Copilot,
+Kimi, Anthropic and others), sign in without the `pi` CLI:
+
+- `nhermes auth list` shows the providers, whether each is signed in, set by a key, or neither, and the
+  last sign-in failure if there was one.
+- `nhermes auth login <provider>` starts the provider's own sign-in on this gateway and prints what to do:
+  a code and a link to approve on any device, or a link to open (when the browser ends on a page that
+  cannot load, copy that page's address and paste it at the prompt). Keys and other prompts are typed without
+  showing them. Ctrl-C cancels it. A login that is not finished is dropped after 10 minutes (or when the
+  code expires).
+- `nhermes auth logout <provider>` removes this machine's login.
+
+The login is made by the running gateway and stored in `pi.authPath` on that machine (default
+`~/.pi/agent/auth.json`, shared with the Pi CLI there); tokens never leave it. The provider's models show
+up in the pickers at once, and leave when you log out. Providers that take only an API key are set under
+Keys (`nhermes secret set`), not here. Plan: `docs/LOGINS.md`.
+
 ## Permission review (Jev)
 
 With `OPENROUTER_API_KEY` set (Keys tab), the approval guard asks Jev before showing an approval card:

@@ -289,6 +289,9 @@ forward-only migrations), `workspaces/<bot>/`, `browser/<bot>/` (Playwright prof
 `vory/` (Vory push registrations); logs go to stderr (journal / launchd log), with the last 500 lines
 kept in memory for `/api/logs`. Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
 they are never in prompts, transcripts or logs (the logger redacts known secret values).
+Provider sign-ins (`src/core/logins.ts`) run Pi's own login flows inside the gateway, which is the only writer of
+`auth.json`; the sessions are in memory, the CLI and panel only relay a flow's prompts and answers, and tokens never leave
+the machine.
 
 Backup: `nhermes backup` asks the running service (over its admin API) for consistent copies
 (`VACUUM INTO` for both databases) plus config, skills, workspaces and browser profiles, in one tarball. Restore: stop the service, `nhermes

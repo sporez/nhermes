@@ -8,6 +8,7 @@ import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
+import { Logins } from "./core/logins.ts";
 import { Rooms } from "./core/rooms.ts";
 import { Scheduler } from "./core/scheduler.ts";
 import { Sessions } from "./core/sessions.ts";
@@ -53,6 +54,8 @@ export type Core = {
 	hub: Hub;
 	approvals: Approvals;
 	models: Models;
+	/** Provider sign-in sessions (nhermes auth, the panel). */
+	logins: Logins;
 	toolGroups: ToolGroups;
 	deps: AgentDeps;
 	hosts: HostEnvs;
@@ -152,6 +155,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	// Before any chat resumes, so one on a catalog model finds it.
 	const catalogs = new ProviderCatalogs({ models, db, modelsPath: config.pi.modelsPath, catalogs: options.catalogs, fetch: options.catalogFetch });
 	await catalogs.start();
+	const logins = new Logins({ models, db, authPath: config.pi.authPath });
 	const secrets = new Secrets(config, db, catalogs.keys());
 	secrets.registerEnvironment();
 	secrets.onChange((name) => catalogs.keyChanged(name));
@@ -342,6 +346,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		hub,
 		approvals,
 		models,
+		logins,
 		toolGroups,
 		deps,
 		hosts,
@@ -365,6 +370,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		agentFor,
 		close: async () => {
 			members.stop();
+			logins.close();
 			updates.stop();
 			catalogs.stop();
 			vory.stop();

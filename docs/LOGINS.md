@@ -123,6 +123,18 @@ Each phase lands as tested commits and updates `docs/STATUS.md`, `docs/OPERATION
   - that logout calls through
   - that a restart drops open sessions
 
+L1 notes from reading Pi:
+
+- `Models.login(id, "oauth", interaction, options)` takes `LoginOptions { getDeviceId?, agentName? }`. Only
+  `openai-chatgpt` needs `getDeviceId` (a UUID); the gateway makes one on first use and keeps it in
+  `app.sqlite` settings.
+- `ModelRuntime.login`/`logout` already refresh the provider's models and availability, so nothing extra is
+  needed for the pickers.
+- Status needs no network: `ModelRuntime.isUsingOAuth` and `getProviderAuthStatus` read the stored
+  credential and auth sources. The OAuth expiry is read from the `expires` field of `auth.json` (no token
+  is read).
+- A flow does not report which account was signed in, so the step view cannot show it.
+
 ### L2. Logins in the panel (this machine)
 
 - A **Logins** tab of its own (owner, 2026-10-20):
@@ -193,7 +205,7 @@ Each phase lands as tested commits and updates `docs/STATUS.md`, `docs/OPERATION
 ## Progress
 
 - [ ] L0 room in the panel script
-- [ ] L1 login sessions and CLI
+- [x] L1 login sessions and CLI (`core/logins.ts`, `/admin/logins`, `nhermes auth`; tests in `test/core/logins.test.ts`)
 - [ ] L2 panel (this machine)
 - [ ] L3 remote logins
 - [ ] L4 status and failures
