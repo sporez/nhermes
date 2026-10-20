@@ -5,8 +5,11 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { BotConfig } from "../config.ts";
-import { registerSecret } from "../log.ts";
+import { type BotConfig, cleartextRemote } from "../config.ts";
+import { logger, registerSecret } from "../log.ts";
+
+const log = logger("openchamber");
+let warnedCleartext = false;
 
 export const DEFAULT_SETTINGS_PATH = join(homedir(), ".config", "openchamber", "settings.json");
 
@@ -58,6 +61,10 @@ export class OpenChamber {
 			if (!token) throw new OpenChamberError(`OpenChamber's settings file ${path} has no desktopLocalClientToken`);
 		}
 		registerSecret(token);
+		if (!warnedCleartext && cleartextRemote(base)) {
+			warnedCleartext = true;
+			log.warn("OpenChamber is reached over plain http:// on another machine, so its token travels unencrypted; use https:// or a private network");
+		}
 		return { base, token };
 	}
 

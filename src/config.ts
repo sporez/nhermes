@@ -242,7 +242,7 @@ function parseBot(raw: unknown, i: number): BotConfig {
 }
 
 /** Whether a peer URL is http:// to a host other than this machine. */
-function cleartextRemote(url: string): boolean {
+export function cleartextRemote(url: string): boolean {
 	try {
 		const u = new URL(url);
 		return u.protocol === "http:" && !/^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/.test(u.hostname);

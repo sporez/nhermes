@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setLogLevel, setLogSink } from "../../src/log.ts";
 import { condenseMessages, type Message, OpenChamber } from "../../src/openchamber/client.ts";
 import { redact } from "../../src/log.ts";
 import { openchamberFeature } from "../../src/tools/openchamber.ts";
@@ -339,5 +340,24 @@ test("oc_start follows the defaults picked in OpenChamber, read at each start", 
 	} finally {
 		fake.close();
 		await cleanup();
+	}
+});
+
+test("a plain http:// OpenChamber on another machine logs one warning; loopback does not", () => {
+	const lines: string[] = [];
+	setLogSink((l) => void lines.push(l));
+	setLogLevel("warn");
+	process.env.OC_TEST_TOKEN = "oc-test-token-0123456789";
+	try {
+		new OpenChamber({ config: { url: "http://127.0.0.1:3000", tokenEnv: "OC_TEST_TOKEN" } }).resolve();
+		assert.equal(lines.length, 0);
+		const remote = new OpenChamber({ config: { url: "http://192.0.2.5:3000", tokenEnv: "OC_TEST_TOKEN" } });
+		remote.resolve();
+		remote.resolve();
+		assert.equal(lines.filter((l) => l.includes("plain http://")).length, 1);
+	} finally {
+		delete process.env.OC_TEST_TOKEN;
+		setLogLevel("error");
+		setLogSink((l) => process.stderr.write(l + "\n"));
 	}
 });
