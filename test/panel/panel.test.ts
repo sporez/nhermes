@@ -73,6 +73,12 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal(localHost("hermes.tail1234.ts.net"), true);
 		assert.equal(localHost("[fd7a::1]:9119"), true);
 		assert.equal(localHost("panel.example.com", "http://panel.example.com:9119"), true);
+		assert.equal(localHost("192.0.2.7"), true);
+		assert.equal(localHost("localhost:9119"), true);
+		assert.equal(localHost("hermes.home.arpa:9119"), true);
+		assert.equal(localHost("nas.internal"), true);
+		assert.equal(localHost("[::1]"), true);
+		for (const bad of ["evil.com:1:2", "evil.com:80:lan", "host\u0000.lan", "300.300.300.300", "host:abc", "host:123456", "[evil.com]:80", "[::1", "a b", "host.lan/x", "user@host.lan", ""]) assert.equal(localHost(bad), false, JSON.stringify(bad));
 
 		// A bot edit goes to config.yaml through the same settings service.
 		const edited = await panel("PATCH", "/bots/ops", { description: "Machines", private: true });

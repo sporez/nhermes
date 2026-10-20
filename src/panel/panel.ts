@@ -33,11 +33,22 @@ const FILES: Record<string, string> = { "": "index.html", "index.html": "index.h
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 const OPEN = new Set(["/panel/api/session", "/panel/api/login"]);
 
+/** Splits a Host header into host and port; null when it is not a well-formed `host`, `host:port` or `[v6]:port`. */
+function parseHost(value: string): string | null {
+	if (/[\x00-\x20\x7f/\\@?#]/.test(value)) return null;
+	const bracket = /^\[([0-9a-fA-F:.]+)\](?::(\d{1,5}))?$/.exec(value);
+	if (bracket) return bracket[1]!.includes(":") ? bracket[1]!.toLowerCase() : null;
+	const m = /^([^:]+)(?::(\d{1,5}))?$/.exec(value);
+	return m ? m[1]!.toLowerCase() : null;
+}
+
 /** Host names a browser on the LAN or tailnet uses for this machine. */
 export function localHost(hostHeader: string | undefined, nodeUrl?: string): boolean {
 	if (!hostHeader) return false;
-	const host = hostHeader.replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
-	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) return true;
+	const host = parseHost(hostHeader);
+	if (host === null) return false;
+	if (host.includes(":")) return true;
+	if (/^\d+(\.\d+){3}$/.test(host)) return host.split(".").every((o) => o.length <= 3 && Number(o) <= 255);
 	if (host === "localhost" || !host.includes(".")) return true;
 	if (/\.(local|lan|home|home\.arpa|internal|ts\.net)$/.test(host)) return true;
 	return nodeUrl !== undefined && new URL(nodeUrl).hostname.toLowerCase() === host;
