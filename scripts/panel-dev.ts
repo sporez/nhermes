@@ -23,6 +23,50 @@ const fakeJev = (async (_url: string, init: RequestInit) => {
 	return new Response(JSON.stringify({ answers: { permission: { type: "choice", choice: p > 0.5 ? "allow" : "deny", confidence: Math.max(p, 1 - p), probabilities: { allow: p, deny: 1 - p } } } }));
 }) as typeof fetch;
 
+// Dev-only fake sign-in providers so the Logins tab has something to drive: a device code that is "approved"
+// after 8 seconds, a flow that asks for a pasted address, and a provider that only takes a key.
+function withFakeLogins<T extends { getProviders(): unknown[] }>(models: T): T {
+	const wait = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej) => {
+		const t = setTimeout(res, ms);
+		signal?.addEventListener("abort", () => { clearTimeout(t); rej(new Error("cancelled")); });
+	});
+	const oauth = (name: string, loginLabel: string) => ({ name, loginLabel, isSubscription: true, login: async () => ({}), refresh: async () => ({}), toAuth: async () => ({}) });
+	const fakes = [
+		{ id: "fake-device", name: "Fake Device", getModels: () => [], auth: { oauth: oauth("Fake Device", "Sign in with a device code") } },
+		{ id: "fake-paste", name: "Fake Paste", getModels: () => [], auth: { oauth: oauth("Fake Paste", "Sign in with a pasted address") } },
+		{ id: "fake-key", name: "Fake Key", getModels: () => [], auth: { apiKey: { name: "FAKE_API_KEY", check: async () => ({ configured: false }), resolve: async () => ({ ok: false }) } } },
+	];
+	const signedIn = new Set<string>();
+	const flows: Record<string, (i: any, signal?: AbortSignal) => Promise<void>> = {
+		"fake-device": async (i, signal) => {
+			i.notify({ type: "info", message: "This is a fake provider for panel development." });
+			i.notify({ type: "device_code", userCode: "ABCD-1234", verificationUri: "https://example.com/device", expiresInSeconds: 600 });
+			i.notify({ type: "progress", message: "Waiting for approval" });
+			await wait(8000, signal);
+		},
+		"fake-paste": async (i) => {
+			i.notify({ type: "auth_url", url: "https://example.com/authorize", instructions: "Open the page, approve, then paste the address you land on." });
+			const v = await i.prompt({ type: "manual_code", message: "Paste the address", placeholder: "http://127.0.0.1:1455/callback?code=…" });
+			if (!String(v).includes("code=")) throw new Error("That address has no code in it");
+		},
+	};
+	return new Proxy(models, {
+		get: (t, k, r) => {
+			if (k === "getProviders") return () => [...t.getProviders(), ...fakes];
+			if (k === "login") return async (provider: string, type: string, interaction: any, options: any) => {
+				const flow = flows[provider];
+				if (!flow) return (t as any).login(provider, type, interaction, options);
+				await flow(interaction, options?.signal ?? interaction.signal);
+				signedIn.add(provider);
+				return { type: "oauth" };
+			};
+			if (k === "logout") return async (provider: string) => { if (!signedIn.delete(provider)) return (t as any).logout(provider); };
+			if (k === "isUsingOAuth") return (id: string) => signedIn.has(id);
+			return Reflect.get(t, k, r);
+		},
+	});
+}
+
 async function gateway(name: string, port: number, bots: string) {
 	const dir = join(root, name);
 	const path = join(dir, "config.yaml");
@@ -30,7 +74,7 @@ async function gateway(name: string, port: number, bots: string) {
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(path, `# ${name} (panel dev)\nserver:\n  host: 127.0.0.1\n  port: ${port}\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\nbots:\n${bots}`);
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 200 });
-	const models = createModels();
+	const models = withFakeLogins(createModels());
 	models.setProvider(faux.provider);
 	const core = await createCore(loadConfig(path), { models, reviewFetch: fakeJev });
 	const server = await startHermesServer(core, { host: "127.0.0.1", port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
@@ -69,6 +113,7 @@ const b = await gateway(
     description: Runs on the NAS
 `,
 );
+(b.core.members as unknown as { setAcceptsLogins?(on: boolean): void }).setAcceptsLogins?.(true);
 await b.core.members.join(a.core.members.invite().code);
 await Promise.all([a.core.roster.sync(), b.core.roster.sync()]);
 

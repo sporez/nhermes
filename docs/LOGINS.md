@@ -223,6 +223,6 @@ L4 notes:
 
 - [ ] L0 room in the panel script
 - [x] L1 login sessions and CLI (`core/logins.ts`, `/admin/logins`, `nhermes auth`; tests in `test/core/logins.test.ts`)
-- [ ] L2 panel (this machine)
+- [x] L2 panel (this machine): Logins tab (`src/panel/static/logins.js`) with a machine picker, so it also drives members; walked in `scripts/panel-dev.ts` (fake providers), light and dark
 - [ ] L3 remote logins (backend done: `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker is L2's)
 - [x] L4 status and failures (`Logins.modelOutcome` from the live projection; `signIn` on the panel state's bots; tests in `test/core/signin-failure.test.ts`)

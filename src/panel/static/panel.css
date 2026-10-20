@@ -101,3 +101,7 @@ dialog.ask { max-width: min(26rem, 90vw); padding: 1rem 1.1rem; border: 1px soli
 dialog.ask::backdrop { background: rgb(0 0 0 / .45); }
 dialog.ask p { margin: 0 0 1rem; white-space: pre-line; }
 .row.end { justify-content: flex-end; }
+
+/* Logins tab: links styled as buttons. */
+a.btn { display: inline-block; text-decoration: none; }
+a.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
