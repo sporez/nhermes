@@ -1,7 +1,7 @@
 // Federation HTTP API. `/federation/hello` and `/federation/join` are open (a join proves itself with the
 // invite secret); every other `/federation/*` route needs a member, checked by the server before the
-// handler runs (`req.member`): by its TLS-PSK handshake on the encrypted port, or by its node id and pair
-// secret on the main port (older versions). The owner's side lives under `/admin/` (token).
+// handler runs (`req.member`): by its TLS-PSK handshake. They are served on the encrypted port only; the main
+// port answers 404 for all of `/federation/*`. The owner's side lives under `/admin/` (token).
 import type { Core } from "../app.ts";
 import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
 import { SecretError } from "../core/secrets.ts";
@@ -32,13 +32,13 @@ export function federationRoutes(core: Core): Router {
 	const r = new Router();
 	const m = core.members;
 	r.on("GET", "/federation/hello", () => m.hello());
-	r.on("POST", "/federation/join", (q) => federationCall(() => m.acceptJoin(obj(q.body), q.psk)));
+	r.on("POST", "/federation/join", (q) => federationCall(() => m.acceptJoin(obj(q.body), q.psk ?? "")));
 	r.on("GET", "/federation/ping", (q) => ({ name: m.self().name, from: member(q).name }));
 	r.on("GET", "/federation/roster", (q) => (member(q), publish(core.bots.list())));
 	r.on("POST", "/federation/introduce", (q) => federationCall(() => (m.introduce(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/forget", (q) => federationCall(() => (m.forget(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/removed", (q) => (m.removed(member(q)), { ok: true }));
-	r.on("POST", "/federation/rotate", (q) => federationCall(() => (m.acceptRotate(member(q), obj(q.body), q.psk !== undefined), { ok: true })));
+	r.on("POST", "/federation/rotate", (q) => federationCall(() => (m.acceptRotate(member(q), obj(q.body)), { ok: true })));
 	r.on("POST", "/federation/moved", (q) => federationCall(() => (m.moved(member(q), obj(q.body)), { ok: true })));
 	// A member with no notification transport asks this gateway to deliver for it. Only the local notifier is
 	// used, never the network forwarder, so it cannot loop.

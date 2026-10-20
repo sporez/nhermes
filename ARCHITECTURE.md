@@ -221,8 +221,8 @@ run is not submitted twice.
   restart of either side resumes it without sending the task twice. Peers are not listed as Vory profiles; to chat
   with one directly, add it to Vory as its own gateway.
 - **Network of members (`src/federation/`, `docs/FEDERATION.md`):** gateways join one network of equals
-  with `nhermes invite` / `join`; each pair shares a generated secret (`members`), sent as
-  `x-nhermes-node` + `x-nhermes-member-secret`. Members reach only `/federation/*` and the WebSocket,
+  with `nhermes invite` / `join`; each pair shares a generated secret (`members`) that keys a TLS-PSK
+  link on the encrypted port; it never travels. Members reach only `/federation/*` and the WebSocket,
   never `/api/*` or `/admin/*`. Each member publishes its shareable bots (`/federation/roster`); the
   others list them as `<bot>-<node>` (`remote_bots`, kept while a member is offline) and delegate to them
   over the WebSocket like a peer. On the owning gateway such a chat has source `member:<node id>`: a

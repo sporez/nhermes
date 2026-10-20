@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Core } from "../../src/app.ts";
-import { encodeInvite, NODE_HEADER, SECRET_HEADER } from "../../src/federation/members.ts";
+import { encodeInvite } from "../../src/federation/members.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -67,13 +67,15 @@ test("joining any member joins the whole network; removal and leaving reach ever
 			const m = from.core.members.byName(to.core.members.self().name)!;
 			assert.deepEqual(await from.core.members.call(m, "/federation/ping", undefined, "GET"), { name: to.core.members.self().name, from: from.core.members.self().name });
 		}
-		// A wrong secret, or no member headers, is refused; the gateway token does not open member routes.
-		const ping = (headers: Record<string, string>) => fetch(`${a.url}/federation/ping`, { headers }).then((r) => r.status);
-		assert.equal(await ping({ [NODE_HEADER]: c.core.members.self().id, [SECRET_HEADER]: "wrong-secret-0123456789" }), 401);
-		assert.equal(await ping({ "X-Hermes-Session-Token": TOKEN }), 401);
-		// ...and a member secret does not open the owner's API.
+		// The main port serves no /federation/* at all: not with member headers, not with the gateway token.
 		const secret = c.core.members.byName("alpha")!.secret;
-		assert.equal((await fetch(`${a.url}/api/profiles`, { headers: { [NODE_HEADER]: c.core.members.self().id, [SECRET_HEADER]: secret } })).status, 401);
+		const memberHeaders = { "x-nhermes-node": c.core.members.self().id, "x-nhermes-member-secret": secret };
+		const ping = (headers: Record<string, string>) => fetch(`${a.url}/federation/ping`, { headers }).then((r) => r.status);
+		assert.equal(await ping(memberHeaders), 404);
+		assert.equal(await ping({ "X-Hermes-Session-Token": TOKEN }), 404);
+		assert.equal(await ping({}), 404);
+		// ...and a member secret does not open the owner's API.
+		assert.equal((await fetch(`${a.url}/api/profiles`, { headers: memberHeaders })).status, 401);
 
 		// Already in a network: joining another one is refused.
 		assert.equal((await c.admin("POST", "/admin/federation/join", { code: await invite(a) })).status, 409);
@@ -106,7 +108,7 @@ test("expired codes, name clashes and an offline member during an introduction",
 		clock += 11 * 60_000;
 		assert.equal((await b.admin("POST", "/admin/federation/join", { code: old })).status, 403);
 		assert.equal((await b.admin("POST", "/admin/federation/join", { code: "hello" })).status, 400);
-		assert.equal((await b.admin("POST", "/admin/federation/join", { code: encodeInvite({ url: a.url, secret: "guess" }) })).status, 403);
+		assert.equal((await b.admin("POST", "/admin/federation/join", { code: encodeInvite({ url: a.url, secret: "guess", pskPort: a.server.pskPort! }) })).status, 403);
 
 		assert.equal((await b.admin("POST", "/admin/federation/join", { code: await invite(a) })).status, 200);
 		const clash = await twin.admin("POST", "/admin/federation/join", { code: await invite(a) });

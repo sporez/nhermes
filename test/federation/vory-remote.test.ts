@@ -72,7 +72,7 @@ test("Vory's settings screens follow a member's bot to its machine", async () =>
 		await assert.rejects(a.core.members.call(row, "/federation/manage/vory/nasbot", { method: "DELETE", path: "/api/sessions/x" }), /not something a member can ask for/);
 		await assert.rejects(a.core.members.call(row, "/federation/manage/vory/ghost", { method: "GET", path: "/api/skills" }), /no bot named "ghost"/);
 		await assert.rejects(a.core.members.call(row, "/federation/manage/vory/nasbot", { method: "PUT", path: "/api/profiles/other/soul", body: { content: "x" } }), /names another bot/);
-		assert.equal((await fetch(`${b.url}/federation/manage/vory/nasbot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: "GET", path: "/api/skills" }) })).status, 401);
+		assert.equal((await fetch(`${b.url}/federation/manage/vory/nasbot`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: "GET", path: "/api/skills" }) })).status, 404);
 	} finally {
 		await a.server.close();
 		await b.server.close();

@@ -11,7 +11,7 @@ import { WebSocketServer } from "ws";
 import type { Core } from "../app.ts";
 import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
-import { type MemberRow, NODE_HEADER, SECRET_HEADER } from "../federation/members.ts";
+import type { MemberRow } from "../federation/members.ts";
 import { manageRoutes } from "../federation/manage.ts";
 import { forwardVory, voryMemberRoutes } from "../federation/vory.ts";
 import { PSK_TLS } from "../federation/psk.ts";
@@ -41,11 +41,6 @@ function requestToken(req: IncomingMessage, url: URL): string | null {
 	return url.searchParams.get("token");
 }
 
-function header(req: IncomingMessage, name: string): string | undefined {
-	const v = req.headers[name];
-	return typeof v === "string" ? v : undefined;
-}
-
 export type HermesServer = { server: Server; port: number; pskPort: number | null; close(): Promise<void>; dropConnections(): void };
 
 /** How many ports up from the default the encrypted listener tries before giving up. */
@@ -63,13 +58,6 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 	// The handshake identity of each encrypted connection, for its requests.
 	const identities = new WeakMap<object, string>();
 
-	/** A plain request from a member is refused once it has reached us encrypted, or when the owner refuses them all. */
-	const plainMember = (req: IncomingMessage): MemberRow | undefined => {
-		const member = core.members.verify(header(req, NODE_HEADER), header(req, SECRET_HEADER));
-		if (member && (member.psk_inbound || core.members.requiresPsk())) throw new HttpError(403, `${core.members.self().name} takes requests from ${member.name} only on its encrypted port`);
-		return member;
-	};
-
 	const handle = async (req: IncomingMessage, res: ServerResponse, psk?: string) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const method = req.method ?? "GET";
@@ -84,16 +72,16 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			}
 		}
 		try {
-			// Members reach only /federation/*; everything else takes the gateway token.
+			// Members reach only /federation/*, and only on the encrypted port; everything else takes the gateway token.
 			let member: MemberRow | undefined;
 			const isFederation = url.pathname.startsWith("/federation/");
-			if (encrypted && !isFederation) throw new HttpError(404, "Not Found");
+			if (encrypted !== isFederation) throw new HttpError(404, "Not Found");
 			if (isFederation) {
 				if (encrypted && psk.startsWith("i:")) {
 					// A joiner's connection, keyed by its invite: it can only join.
 					if (url.pathname !== "/federation/join" && url.pathname !== "/federation/hello") throw new HttpError(401, "Unauthorized");
 				} else if (!OPEN_FEDERATION_PATHS.has(url.pathname)) {
-					member = encrypted ? core.members.pskMember(psk) : plainMember(req);
+					member = core.members.pskMember(psk!);
 					if (!member) throw new HttpError(401, "Unauthorized");
 				}
 			} else if (!PUBLIC.has(url.pathname) && !tokenMatches(requestToken(req, url), core.config.token)) {
@@ -136,13 +124,6 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 				return void (member ? new Connection(ws, core, member) : ws.close(4401, "not a member"));
 			}
 			if (tokenMatches(requestToken(req, url), core.config.token)) return void new Connection(ws, core);
-			let member: MemberRow | undefined;
-			try {
-				member = plainMember(req);
-			} catch {
-				return void ws.close(4403, "use the encrypted port");
-			}
-			if (member) return void new Connection(ws, core, member);
 			ws.close(4401, "invalid session token");
 		});
 	};
@@ -159,6 +140,8 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			? undefined
 			: createTlsServer({
 					...PSK_TLS,
+					// A client that never finishes the handshake must not hold a socket open.
+					handshakeTimeout: 10_000,
 					pskCallback: (socket, identity) => {
 						const key = core.members.pskKey(identity);
 						if (key) identities.set(socket, identity);

@@ -513,24 +513,12 @@ async function networkScreen() {
 		try { await api("PATCH", "/network/settings", { acceptBotEdits: edits.checked }); toast("Saved"); }
 		catch (e) { edits.checked = !edits.checked; throw e; }
 	}));
-	const plainCount = net.members.filter((m) => !m.encrypted).length;
-	const strict = h("input", { type: "checkbox", checked: net.requiresPsk });
-	strict.addEventListener("change", () => run(async () => {
-		if (strict.checked && plainCount > 0 && !await ask(`${plainCount} member${plainCount === 1 ? " is" : "s are"} not encrypted yet and will be cut off until updated. Refuse plain connections anyway?`)) { strict.checked = false; return; }
-		try { await api("PATCH", "/network/settings", { requirePsk: strict.checked }); toast("Saved"); }
-		catch (e) { strict.checked = !strict.checked; throw e; }
-	}));
 	const acceptCard = h("div", { class: "card" },
 		h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
-		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Between machines that are both up to date, keys travel encrypted."),
+		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel encrypted."),
 		h("div", { class: "field" }),
 		h("label", {}, edits, " ", h("strong", {}, "Let other machines edit this machine's bots")),
-		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."),
-		h("div", { class: "field" }),
-		h("label", {}, strict, " ", h("strong", {}, "Refuse unencrypted connections from all members")),
-		h("div", { class: "hint" }, plainCount === 0
-			? "Every member talks to this machine encrypted. Turning this on also cuts off any older machine that joins later until it is updated."
-			: `${plainCount} member${plainCount === 1 ? " still talks" : "s still talk"} to this machine unencrypted (an older version). Update ${plainCount === 1 ? "it" : "them"} first.`));
+		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."));
 	const act = (fn) => () => run(async () => { await fn(); await reload(); });
 	const out = h("div");
 
@@ -538,7 +526,7 @@ async function networkScreen() {
 		? net.members.map((m) => h("div", { class: "card row between" },
 			h("div", { class: "grow" },
 				h("div", {}, h("span", { class: `dot ${m.reachable ? "" : "off"}` }), h("strong", {}, m.name), " ", badge(m.reachable ? "reachable" : "unreachable", m.reachable ? "ok" : "bad"), " ",
-					m.encrypted ? badge("encrypted", "ok") : badge("not encrypted (update it)", "warn")),
+					m.encrypted ? badge("encrypted", "ok") : badge("No encrypted link: remove this machine and join it again", "warn")),
 				h("div", { class: "muted small trunc" }, m.url, m.psk_port ? ` · encrypted port ${m.psk_port}` : ""),
 				h("div", { class: "muted small" }, `Last seen ${ago(m.last_seen)}`, m.last_error ? ` - ${m.last_error}` : "")),
 			h("div", { class: "row" },

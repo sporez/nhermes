@@ -17,8 +17,7 @@ management.
 - All edits already go through the owning gateway's services: `Settings.editBot/addBot/removeBot`
   (`src/core/settings.ts`), `Skills.catalog/setEnabled`, `personaParts` for the prompt view, and
   `configView` (`src/admin.ts`) for the editor's data.
-- Members already talk HTTP with the pair secret (`Members.call`, `x-nhermes-node` +
-  `x-nhermes-member-secret`) and reach only `/federation/*`. The owner-controlled precedent is
+- Members already talk TLS-PSK keyed by the pair secret (`Members.call`) and reach only `/federation/*`. The owner-controlled precedent is
   `federation.acceptSecrets`: off until the owner turns it on in that machine's panel (Network).
 - The roster only carries shareable bots (not private), with a short public view; it is the wrong channel
   for config.

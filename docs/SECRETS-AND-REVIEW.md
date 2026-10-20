@@ -77,8 +77,8 @@ Status: implemented (S1–S6); decisions recorded at the end.
   gateway token is never sent.
 - Off by default on the receiving side: a gateway accepts keys from members only when its owner turns
   on "accept keys from network members" (per gateway). Every received key is logged with the sender.
-- Between members that both run the encrypted port, values travel over TLS-PSK
-  (`docs/FEDERATION.md`, "Encrypted links"); to an older member, in clear.
+- Values travel to members over TLS-PSK (`docs/FEDERATION.md`, "Encrypted links"); there is no
+  unencrypted path to a member.
 
 ### S4. Jev permission review in the guard
 

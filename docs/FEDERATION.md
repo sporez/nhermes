@@ -102,8 +102,10 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
   member everywhere (each member deletes its secret for it). `nhermes leave` does the same from the
   leaving side.
 - Member-to-member calls go over TLS-PSK keyed by the pair secret (see "Encrypted links" below), so a
-  member's credential never travels and cannot open the admin API. A member on an older version still
-  authenticates with the pair secret in a header (`x-nhermes-member-secret`) over plain HTTP/WS.
+  member's credential never travels and cannot open the admin API. Members talk TLS-PSK only: the main
+  port serves no `/federation/*` at all (404), and a member's WebSocket upgrade there is closed with 4401.
+  A machine on a version without the encrypted port must be updated before it can join; a join code made
+  by such a machine is refused before any request is sent.
 - Vory and the panel stay plain HTTP on the main port; put them behind a TLS proxy (Caddy) or Tailscale
   for encryption there.
 - Migration: an existing `peer:` bot entry keeps working unchanged. Once its gateway joins, its bots
@@ -250,26 +252,22 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
 - **Identity.** The handshake identity names the caller and which secret it uses (`m:<node id>:<key
   id>`); the server answers with that member's key or refuses the handshake. A joiner uses `i:<invite id>`
   with a key derived from the invite, so the join itself, and the pair secret it hands out, are
-  encrypted with a key only the code's holder can make. Spent and expired codes fail in the handshake.
-- **Upgrade.** Every minute a gateway asks members with no known encrypted port for `/federation/hello`;
-  once it answers with one, that member is only reached encrypted. There is no fallback to plain HTTP:
-  a fallback is what an attacker on the LAN would force.
-- **Replacing secrets.** Secrets of older versions travelled in clear on every request. Once a pair talks
-  encrypted, the member with the lower node id replaces the secret over the encrypted link
-  (`/federation/rotate`, refused in clear). The old secret keeps opening the encrypted port for 10
-  minutes, for connections in flight, then nothing. The panel's "Regenerate key" does the same on demand.
-  This protects against anyone who recorded traffic before; against someone actively intercepting at that
-  moment with the old secret, remove the member and join it again.
-- **Refusing plain HTTP.** A member that has reached this gateway encrypted is refused on the main port
-  (403, WebSocket close 4403). "Refuse unencrypted connections from all members" (Network) refuses every
-  member there, including older ones; it is off by default.
+  encrypted with a key only the code's holder can make. Spent and expired codes fail in the handshake. The preview before joining reads `/federation/hello` the same way, so it also needs an open code.
+- **Replacing secrets.** The panel's "Regenerate key" replaces the secret of one pair over the encrypted
+  link (`/federation/rotate`, which only the encrypted port serves). The old secret keeps opening the
+  encrypted port for 10 minutes, for connections in flight, then nothing. This protects against anyone who
+  recorded traffic before; against someone actively intercepting at that moment with the old secret,
+  remove the member and join it again.
+- **Only encrypted.** There is no plain HTTP path between members and no fallback to one; a fallback is
+  what an attacker on the LAN would force. A member row without an encrypted port (left over from an
+  older version) cannot be reached: calls say "<name> has no encrypted link; remove it and join it
+  again", the panel shows the same, and startup logs a warning. Joins, introductions and join answers
+  without an encrypted port are refused.
 - **Address changes.** Every gateway remembers the address it last told the others (main URL and
   encrypted port). On every tick it compares, and when either changed it tells each member
   (`/federation/moved`, through the outbox, so an offline member gets it later). The moved gateway starts
   the call because it still knows where the others are; any one machine can move. A message can change a
-  member's address but never take it back to plain HTTP.
-- **Rolling back** a gateway to a version without the encrypted port cuts its links: the others keep
-  calling its encrypted port. Update it again, or remove and re-join it.
+  member's address and port but never remove the port.
 - Hand-listed `peer:` gateways (token in config) are not members and are not covered.
 
 ## Notifications raised by a member

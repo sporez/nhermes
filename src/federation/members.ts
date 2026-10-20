@@ -4,11 +4,10 @@
 // links it already has. Messages a member could not deliver (the other side was offline) wait in
 // member_outbox and are retried.
 //
-// Members that both run this version talk TLS-PSK on their encrypted port (src/federation/psk.ts): the pair
-// secret keys the handshake and never travels. A member is reached that way as soon as its port is known,
-// with no fallback to plain HTTP; the first secret of every pair travelled in clear (on every request, in
-// older versions), so it is replaced once over the encrypted link.
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+// Members talk only TLS-PSK on their encrypted port (src/federation/psk.ts): the pair secret keys the
+// handshake and never travels. There is no plain HTTP path between members and no fallback to one; a member
+// row without an encrypted port cannot be reached and has to be removed and joined again.
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
 import type { ConnectionOptions } from "node:tls";
 import { type Config, NODE_NAME } from "../config.ts";
@@ -18,8 +17,6 @@ import { clientTls, inviteId, inviteKey, keyId, keyRefused, memberIdentity, pair
 
 const log = logger("members");
 
-export const NODE_HEADER = "x-nhermes-node";
-export const SECRET_HEADER = "x-nhermes-member-secret";
 const INVITE_TTL_MS = 10 * 60_000;
 const INVITE_REFUSED = "the join code is wrong, expired or already used; make a new one with nhermes invite";
 /** Connection errors that mean the other machine was not reached at all (as opposed to refusing a handshake). */
@@ -35,13 +32,11 @@ export type MemberRow = {
 	joined_at: number;
 	last_seen: number | null;
 	last_error: string | null;
-	/** Its encrypted port; null until known (an older version has none). */
+	/** Its encrypted port. Null only in a row from an older version, which cannot be reached (remove and join again). */
 	psk_port: number | null;
 	/** The secret before the last replacement, accepted until prev_until (seconds). */
 	prev_secret: string | null;
 	prev_until: number | null;
-	/** 1 once it has reached this gateway over the encrypted port: plain requests from it are then refused. */
-	psk_inbound: number;
 	/** 1 once the pair secret was replaced over the encrypted link. */
 	rotated: number;
 };
@@ -54,8 +49,8 @@ export type Self = { id: string; name: string; url: string };
 /** What a member is told about another member when it is introduced. */
 type Introduction = { node_id: string; name: string; url: string; secret: string; psk_port?: number | null };
 
-/** How a WebSocket reaches a member: its URL, and either TLS-PSK options or identifying headers. */
-export type MemberTarget = { url: string; headers: Record<string, string>; tls?: ConnectionOptions };
+/** How a WebSocket reaches a member: its encrypted URL and the TLS-PSK options. */
+export type MemberTarget = { url: string; tls: ConnectionOptions };
 
 export class FederationError extends Error {
 	readonly status: number;
@@ -73,12 +68,6 @@ function hash(s: string): string {
 	return createHash("sha256").update(s).digest("hex");
 }
 
-function same(a: string, b: string): boolean {
-	const x = Buffer.from(a);
-	const y = Buffer.from(b);
-	return x.length === y.length && timingSafeEqual(x, y);
-}
-
 /** The host name as a node name: "Neils-MacBook-Pro.local" → "neils-macbook-pro". */
 export function defaultNodeName(): string {
 	const n = hostname().split(".")[0]!.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 31);
@@ -92,7 +81,7 @@ export function lanAddress(): string {
 	return lan ?? all.find((a) => a.startsWith("100.")) ?? all[0] ?? "127.0.0.1";
 }
 
-/** `pskPort`: the inviter's encrypted port, so the join itself is encrypted (absent from older codes). */
+/** `pskPort`: the inviter's encrypted port, so the join itself is encrypted (a code without it is refused). */
 export type InviteCode = { url: string; secret: string; pskPort?: number };
 
 export function encodeInvite(c: InviteCode): string {
@@ -111,12 +100,26 @@ export function decodeInvite(code: string): InviteCode {
 	}
 }
 
-export type MembersOptions = { fetch?: typeof fetch; now?: () => number };
+/** A code made by a version without the encrypted port cannot be used: refused before any request. */
+function encryptedInvite(code: string): { url: string; secret: string; pskPort: number } {
+	const { url, secret, pskPort } = decodeInvite(code);
+	if (!pskPort) throw new FederationError(400, "this join code comes from an older version of nHermes; update that machine and make a new code");
+	return { url, secret, pskPort };
+}
+
+const noLink = (name: string) => `${name} has no encrypted link; remove it and join it again`;
+
+/** An encrypted port a machine reported about itself or another member. */
+function validPort(v: unknown, who: string): number {
+	if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 65535) throw new FederationError(400, `${who} has no encrypted port; update that machine and try again`);
+	return v;
+}
+
+export type MembersOptions = { now?: () => number };
 
 export class Members {
 	private readonly db: AppDb;
 	private readonly config: Config;
-	private readonly fetch: typeof fetch;
 	private readonly now: () => number;
 	private port = 0;
 	private pskPortNo = 0;
@@ -127,11 +130,11 @@ export class Members {
 	constructor(db: AppDb, config: Config, opts: MembersOptions = {}) {
 		this.db = db;
 		this.config = config;
-		this.fetch = opts.fetch ?? fetch;
 		this.now = opts.now ?? Date.now;
 		for (const m of this.rows()) {
 			registerSecret(m.secret);
 			if (m.prev_secret) registerSecret(m.prev_secret);
+			if (m.psk_port === null) log.warn(`${m.name} has no encrypted link; remove it and join it again`, { member: m.name });
 		}
 	}
 
@@ -175,7 +178,7 @@ export class Members {
 	}
 
 	list(): MemberView[] {
-		return this.rows().map(({ secret: _s, prev_secret: _p, prev_until: _u, ...m }) => ({ ...m, reachable: m.last_error === null && m.last_seen !== null, encrypted: m.psk_port !== null }));
+		return this.rows().map(({ secret: _s, prev_secret: _p, prev_until: _u, psk_inbound: _i, ...m }: MemberRow & { psk_inbound?: number }) => ({ ...m, reachable: m.last_error === null && m.last_seen !== null, encrypted: m.psk_port !== null }));
 	}
 
 	get(nodeId: string): MemberRow | undefined {
@@ -210,26 +213,7 @@ export class Members {
 		if (id?.kind !== "member") return undefined;
 		const m = this.get(id.nodeId);
 		if (!m) return undefined;
-		this.db.run("UPDATE members SET last_seen = ?, last_error = NULL, psk_inbound = 1 WHERE node_id = ?", this.now() / 1000, m.node_id);
-		return { ...m, psk_inbound: 1 };
-	}
-
-	/** Whether plain requests from every member are refused (the owner's switch, once all are encrypted). */
-	requiresPsk(): boolean {
-		return this.flag("federation.requirePsk");
-	}
-
-	setRequiresPsk(on: boolean): void {
-		this.setFlag("federation.requirePsk", on);
-		log.info("plain requests from members", { refused: on });
-	}
-
-	/** The member a request comes from, when its node id and secret match. */
-	verify(nodeId: string | undefined, secret: string | undefined): MemberRow | undefined {
-		if (!nodeId || !secret) return undefined;
-		const m = this.get(nodeId);
-		if (!m || !same(m.secret, secret)) return undefined;
-		this.db.run("UPDATE members SET last_seen = ?, last_error = NULL WHERE node_id = ?", this.now() / 1000, nodeId);
+		this.seen(m.node_id);
 		return m;
 	}
 
@@ -244,34 +228,32 @@ export class Members {
 
 	/** What a join code leads to, for the owner to confirm before joining. */
 	async preview(code: string): Promise<{ name: string; url: string; members: number }> {
-		const { url } = decodeInvite(code);
-		const hello = await this.request<{ name: string; members: number }>(url, "GET", "/federation/hello");
+		const { url, secret, pskPort } = encryptedInvite(code);
+		const hello = await this.inviteRequest<{ name: string; members: number }>(url, pskPort, secret, "GET", "/federation/hello");
 		return { name: hello.name, url, members: hello.members };
+	}
+
+	/** A request to the inviter, encrypted with a key only the code's holder can make. */
+	private inviteRequest<T>(url: string, pskPort: number, secret: string, method: string, path: string, body?: unknown): Promise<T> {
+		const h = hash(secret);
+		return this.answer<T>(url, () =>
+			pskRequest(pskBase(url, pskPort), clientTls(`i:${inviteId(h)}`, inviteKey(h)), method, path, body, 10_000).catch((error: NodeJS.ErrnoException) => {
+				// Reached, but the handshake was refused: the inviter has no open invite for this key.
+				if (!UNREACHABLE.has(error.code ?? "") && !/no answer within/.test(error.message)) throw new FederationError(403, INVITE_REFUSED);
+				throw error;
+			}),
+		);
 	}
 
 	/** Joins the network the code comes from. Returns the members this gateway now knows. */
 	async join(code: string): Promise<string[]> {
 		if (this.rows().length > 0) throw new FederationError(409, "this gateway is already in a network; leave it first (nhermes leave)");
-		const { url, secret, pskPort } = decodeInvite(code);
+		const { url, secret, pskPort } = encryptedInvite(code);
 		const me = this.self();
+		if (!this.pskPort()) throw new FederationError(409, "this gateway has no encrypted port to join with (see the log)");
 		const body = { invite: secret, node_id: me.id, name: me.name, url: me.url, psk_port: this.pskPort() };
 		type Joined = { node: { node_id: string; name: string; url: string; psk_port?: number | null }; secret: string; members: Introduction[] };
-		// With the inviter's encrypted port in the code, the join (and the pair secret it hands out) is
-		// encrypted with a key only the code's holder can make.
-		let r: Joined;
-		if (pskPort) {
-			const h = hash(secret);
-			r = await this.answer<Joined>(url, () =>
-				pskRequest(pskBase(url, pskPort), clientTls(`i:${inviteId(h)}`, inviteKey(h)), "POST", "/federation/join", body, 10_000).catch((error: NodeJS.ErrnoException) => {
-					// Reached, but the handshake was refused: the inviter has no open invite for this key.
-					if (!UNREACHABLE.has(error.code ?? "") && !/no answer within/.test(error.message)) throw new FederationError(403, INVITE_REFUSED);
-					throw error;
-				}),
-			);
-		} else {
-			log.warn("joining over plain HTTP: the inviting gateway is an older version");
-			r = await this.request<Joined>(url, "POST", "/federation/join", body);
-		}
+		const r = await this.inviteRequest<Joined>(url, pskPort, secret, "POST", "/federation/join", body);
 		this.db.tx(() => {
 			this.insert({ ...r.node, url: r.node.url || url, secret: r.secret });
 			for (const m of r.members) this.insert(m);
@@ -283,13 +265,14 @@ export class Members {
 	}
 
 	/** The inviting side of a join: checks the invite, adds the newcomer and introduces it to everyone. */
-	acceptJoin(body: Record<string, unknown>, pskIdentity?: string): { node: { node_id: string; name: string; url: string; psk_port: number | null }; secret: string; members: Introduction[] } {
+	acceptJoin(body: Record<string, unknown>, pskIdentity: string): { node: { node_id: string; name: string; url: string; psk_port: number | null }; secret: string; members: Introduction[] } {
 		const { invite, node_id, name, url } = body;
 		if (typeof invite !== "string" || typeof node_id !== "string" || typeof name !== "string" || typeof url !== "string") throw new FederationError(400, "invite, node_id, name and url are required");
-		// Over the encrypted port the handshake used one invite's key; the body must name that same invite.
-		if (pskIdentity !== undefined && pskIdentity !== `i:${inviteId(hash(invite))}`) throw new FederationError(403, "the join code does not match this connection");
-		const psk_port = typeof body.psk_port === "number" ? body.psk_port : null;
+		// The handshake used one invite's key; the body must name that same invite.
+		if (pskIdentity !== `i:${inviteId(hash(invite))}`) throw new FederationError(403, "the join code does not match this connection");
+		const psk_port = validPort(body.psk_port, name);
 		const me = this.self();
+		for (const m of this.rows()) if (m.psk_port === null) throw new FederationError(409, `${m.name} has no encrypted link; remove it and join it again, then make a new code`);
 		if (!NODE_NAME.test(name)) throw new FederationError(400, `node name "${name}" is not valid`);
 		if (name === me.name || this.byName(name)) throw new FederationError(409, `a member is already named "${name}"; set node.name in that machine's config.yaml`);
 		if (node_id === me.id || this.get(node_id)) throw new FederationError(409, "that gateway is already a member");
@@ -305,7 +288,7 @@ export class Members {
 			}
 			this.insert({ node_id, name, url, secret, psk_port });
 		});
-		log.info("member joined", { name, url, encrypted: pskIdentity !== undefined });
+		log.info("member joined", { name, url });
 		void this.flush();
 		this.changed();
 		return { node: { node_id: me.id, name: me.name, url: me.url, psk_port: this.pskPort() }, secret, members: others };
@@ -315,9 +298,10 @@ export class Members {
 	introduce(from: MemberRow, body: Record<string, unknown>): void {
 		const { node_id, name, url, secret } = body;
 		if (typeof node_id !== "string" || typeof name !== "string" || typeof url !== "string" || typeof secret !== "string") throw new FederationError(400, "bad introduction");
+		const psk_port = validPort(body.psk_port, name);
 		if (this.get(node_id)) return;
 		if (this.byName(name)) throw new FederationError(409, `a member is already named "${name}"`);
-		this.insert({ node_id, name, url, secret, psk_port: typeof body.psk_port === "number" ? body.psk_port : null });
+		this.insert({ node_id, name, url, secret, psk_port });
 		log.info("member introduced", { name, by: from.name });
 		this.changed();
 	}
@@ -399,30 +383,24 @@ export class Members {
 		return { node_id: me.id, name: me.name, members: this.rows().length + 1, psk_port: this.pskPort() };
 	}
 
-	/** Headers that identify this gateway to `m` over plain HTTP (a member without an encrypted port). */
-	headersFor(m: MemberRow): Record<string, string> {
-		return { [NODE_HEADER]: this.self().id, [SECRET_HEADER]: m.secret };
-	}
-
 	/** TLS-PSK options for `m`, keyed by the pair secret. */
 	private tlsFor(m: MemberRow): ConnectionOptions {
 		return clientTls(memberIdentity(this.self().id, m.secret), pairKey(m.secret));
 	}
 
-	/** How a WebSocket reaches `m`: encrypted when its port is known, else plain with the identifying headers. */
+	/** How a WebSocket reaches `m` (undefined when it is no longer a member). */
 	target(nodeId: string): MemberTarget | undefined {
 		const m = this.get(nodeId);
 		if (!m) return undefined;
-		if (m.psk_port) return { url: pskBase(m.url, m.psk_port), headers: {}, tls: this.tlsFor(m) };
-		return { url: m.url, headers: this.headersFor(m) };
+		if (!m.psk_port) throw new FederationError(502, noLink(m.name));
+		return { url: pskBase(m.url, m.psk_port), tls: this.tlsFor(m) };
 	}
 
-	/** Calls a member's federation API: over TLS-PSK when its encrypted port is known, else signed with the pair secret. */
+	/** Calls a member's federation API over TLS-PSK. */
 	async call<T = unknown>(m: MemberRow, path: string, body?: unknown, method = "POST", timeoutMs?: number): Promise<T> {
 		try {
-			const r = m.psk_port
-				? await this.answer<T>(m.url, () => pskRequest(pskBase(m.url, m.psk_port!), this.tlsFor(m), method, path, body, timeoutMs ?? 10_000))
-				: await this.request<T>(m.url, method, path, body, this.headersFor(m), timeoutMs);
+			if (!m.psk_port) throw new FederationError(502, noLink(m.name));
+			const r = await this.answer<T>(m.url, () => pskRequest(pskBase(m.url, m.psk_port!), this.tlsFor(m), method, path, body, timeoutMs ?? 10_000));
 			this.seen(m.node_id);
 			return r;
 		} catch (error) {
@@ -457,35 +435,17 @@ export class Members {
 		}
 	}
 
-	/**
-	 * Housekeeping on every tick: learn members' encrypted ports, replace pair secrets that travelled in
-	 * clear, and tell the others when this gateway's address changed.
-	 */
+	/** Housekeeping on every tick: tell the others when this gateway's address changed, and deliver the outbox. */
 	async maintain(): Promise<void> {
 		this.announce();
-		for (const m of this.rows()) {
-			if (m.psk_port === null) {
-				const hello = await this.request<{ node_id?: string; psk_port?: unknown }>(m.url, "GET", "/federation/hello", undefined, {}, 5_000).catch(() => undefined);
-				if (hello?.node_id === m.node_id && typeof hello.psk_port === "number") {
-					this.db.run("UPDATE members SET psk_port = ? WHERE node_id = ?", hello.psk_port, m.node_id);
-					log.info("member reachable encrypted", { name: m.name, port: hello.psk_port });
-					this.changed();
-				}
-			}
-		}
-		// One side of each pair replaces the secret (the lower node id), so both never do it at once.
-		const me = this.self().id;
-		for (const m of this.rows()) {
-			if (m.psk_port !== null && !m.rotated && me < m.node_id) await this.rotate(m.name).catch((e: unknown) => log.warn("could not replace a pair secret yet", { name: m.name, error: String(e) }));
-		}
 		await this.flush();
 	}
 
-	/** Replaces the secret shared with one member, over the encrypted link (the panel's "Regenerate key", and maintain()). */
+	/** Replaces the secret shared with one member, over the encrypted link (the panel's "Regenerate key"). */
 	async rotate(name: string): Promise<void> {
 		const m = this.byName(name);
 		if (!m) throw new FederationError(404, `no member named "${name}"`);
-		if (!m.psk_port) throw new FederationError(409, `${name} has no encrypted port yet (it runs an older version); update it first`);
+		if (!m.psk_port) throw new FederationError(409, noLink(name));
 		const next = secretNow();
 		registerSecret(next);
 		await this.call(m, "/federation/rotate", { secret: next });
@@ -493,9 +453,8 @@ export class Members {
 		log.info("pair secret replaced", { name });
 	}
 
-	/** The other side of rotate(): only over the encrypted port, so the new secret never travels in clear. */
-	acceptRotate(from: MemberRow, body: Record<string, unknown>, encrypted: boolean): void {
-		if (!encrypted) throw new FederationError(403, "a pair secret is only replaced over the encrypted port");
+	/** The other side of rotate(). It only arrives over the encrypted port, so the new secret never travels in clear. */
+	acceptRotate(from: MemberRow, body: Record<string, unknown>): void {
 		if (typeof body.secret !== "string" || body.secret.length < 24) throw new FederationError(400, "secret required");
 		registerSecret(body.secret);
 		this.replaceSecret(from, body.secret);
@@ -529,7 +488,6 @@ export class Members {
 			throw new FederationError(400, "url required");
 		}
 		const port = typeof body.psk_port === "number" ? body.psk_port : null;
-		// An encrypted member never goes back to plain HTTP by a message: that would be a downgrade.
 		const psk_port = port ?? from.psk_port;
 		if (url === from.url && psk_port === from.psk_port) return;
 		this.db.run("UPDATE members SET url = ?, psk_port = ? WHERE node_id = ?", url, psk_port, from.node_id);
@@ -552,8 +510,9 @@ export class Members {
 	}
 
 	private insert(m: Introduction): void {
+		const psk_port = validPort(m.psk_port, m.name);
 		registerSecret(m.secret);
-		this.db.run("INSERT INTO members (node_id, name, url, secret, joined_at, psk_port) VALUES (?, ?, ?, ?, ?, ?)", m.node_id, m.name, m.url.replace(/\/$/, ""), m.secret, this.now() / 1000, m.psk_port ?? null);
+		this.db.run("INSERT INTO members (node_id, name, url, secret, joined_at, psk_port) VALUES (?, ?, ?, ?, ?, ?)", m.node_id, m.name, m.url.replace(/\/$/, ""), m.secret, this.now() / 1000, psk_port);
 	}
 
 	private forgetRow(nodeId: string): void {
@@ -569,36 +528,19 @@ export class Members {
 		this.db.run("INSERT INTO member_outbox (node_id, path, body, created_at) VALUES (?, ?, ?, ?)", nodeId, path, JSON.stringify(body), this.now() / 1000);
 	}
 
-	/** An encrypted request's outcome, with the same errors as request(). */
+	/** An encrypted request's outcome as an answer or a FederationError. */
 	private async answer<T>(base: string, send: () => Promise<{ status: number; json: Record<string, unknown> }>): Promise<T> {
 		let r: { status: number; json: Record<string, unknown> };
 		try {
 			r = await send();
 		} catch (error) {
 			if (error instanceof FederationError) throw error;
-			// The member refused our key: like a 401 over plain HTTP, the pairing is gone on its side.
+			// The member refused our key: the pairing is gone on its side.
 			if (keyRefused(error)) throw new FederationError(401, `${base} no longer accepts this machine's key`);
 			throw new FederationError(502, `${base} is not reachable encrypted (${error instanceof Error ? error.message : String(error)})`);
 		}
 		const detail = typeof r.json.detail === "string" ? r.json.detail : undefined;
 		if (r.status < 200 || r.status >= 300) throw new FederationError(r.status === 401 ? 401 : r.status >= 500 ? 502 : r.status, detail ?? `${base} answered ${r.status}`);
 		return r.json as T;
-	}
-
-	private async request<T>(base: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}, timeoutMs = 10_000): Promise<T> {
-		let res: Response;
-		try {
-			res = await this.fetch(`${base}${path}`, {
-				method,
-				headers: { ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: AbortSignal.timeout(timeoutMs),
-			});
-		} catch (error) {
-			throw new FederationError(502, `${base} is not reachable (${error instanceof Error ? error.message : String(error)})`);
-		}
-		const json = (await res.json().catch(() => ({}))) as { detail?: string };
-		if (!res.ok) throw new FederationError(res.status === 401 ? 401 : res.status >= 500 ? 502 : res.status, json.detail ?? `${base} answered ${res.status}`);
-		return json as T;
 	}
 }

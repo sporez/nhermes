@@ -203,7 +203,9 @@ Every machine runs the same gateway; together they form one network of equals (`
   the host name.
 - Members talk encrypted on a second port: the main port + 1000 (10119 with the default 9119), or the
   next free one, or `server.federationPort`. Open it between the machines if a firewall sits between
-  them. The panel (Network) shows the port and whether each member is encrypted.
+  them. The panel (Network) shows the port and whether each member is encrypted. Members talk only
+  encrypted: a machine on a version without the encrypted port must be updated before it can join, and
+  a member the panel marks "No encrypted link" must be removed and joined again.
 - A gateway that moves (another port or IP) tells the other members by itself on its next tick.
 - "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
   panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`).

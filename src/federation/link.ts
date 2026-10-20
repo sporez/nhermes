@@ -1,5 +1,4 @@
-// A lasting Hermes WebSocket to one network member: TLS-PSK on its encrypted port, or (an older member)
-// plain with the pair secret in a header. Chats with that
+// A lasting Hermes WebSocket to one network member, TLS-PSK on its encrypted port. Chats with that
 // member's bots go through it: calls, the member's events for those chats, and its approval requests
 // (answered by a handler here). It reconnects on its own; after a reconnect, the chats being watched are
 // resumed so the member sends their events again.
@@ -80,10 +79,15 @@ export class MemberLink {
 	}
 
 	private open(): Promise<void> {
-		const t = this.o.target();
+		let t: ReturnType<LinkOptions["target"]>;
+		try {
+			t = this.o.target();
+		} catch (error) {
+			return Promise.reject(new LinkError(4503, error instanceof Error ? error.message : String(error)));
+		}
 		if (!t) return Promise.reject(new LinkError(4503, `${this.o.name} is no longer a member`));
 		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws`;
-		const ws = new WebSocket(url, { handshakeTimeout: 10_000, headers: t.headers, ...t.tls });
+		const ws = new WebSocket(url, { handshakeTimeout: 10_000, ...t.tls });
 		return new Promise<void>((resolve, reject) => {
 			let opened = false;
 			const fail = (why: string) => reject(new LinkError(4503, `${this.o.name} is offline (${why})`));

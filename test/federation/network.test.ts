@@ -104,10 +104,11 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		await link(a, b);
 		const ownerChat = await b.core.sessions.create("nasbot");
 		const m = a.core.members.byName("beta")!;
-		// alpha has reached beta encrypted (the roster sync), so beta refuses its plain WebSocket.
-		const plain = await HermesClient.connect(b.port, undefined, a.core.members.headersFor(m));
+		// Member headers on the main port's WebSocket open nothing: members come in on the encrypted port only.
+		const memberHeaders = { "x-nhermes-node": a.core.members.self().id, "x-nhermes-member-secret": m.secret };
+		const plain = await HermesClient.connect(b.port, undefined, memberHeaders);
 		await new Promise((r) => plain.ws.once("close", r));
-		assert.equal(plain.closeCode, 4403);
+		assert.equal(plain.closeCode, 4401);
 		const t = a.core.members.target(m.node_id)!;
 		ws = await HermesClient.connect(b.server.pskPort!, undefined, {}, t.tls);
 		await ws.waitEvent("gateway.ready");
@@ -124,7 +125,7 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		ws = undefined;
 		// A wrong secret is refused: in the handshake on the encrypted port, like a wrong token on the main one.
 		await assert.rejects(HermesClient.connect(b.server.pskPort!, undefined, {}, { ...t.tls, pskCallback: () => ({ identity: `m:${a.core.members.self().id}:000000000000`, psk: Buffer.alloc(32) }) }));
-		const bad = await HermesClient.connect(b.port, undefined, { ...a.core.members.headersFor(m), "x-nhermes-member-secret": "nope-nope-nope-nope" });
+		const bad = await HermesClient.connect(b.port, undefined, { ...memberHeaders, "x-nhermes-member-secret": "nope-nope-nope-nope" });
 		await new Promise((r) => bad.ws.once("close", r));
 		assert.equal(bad.closeCode, 4401);
 

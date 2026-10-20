@@ -55,8 +55,8 @@ test("a member's bots are edited from another panel once that machine allows it"
 		assert.equal(refused.status, 403);
 		assert.equal(b.core.bots.get("nasbot")!.description, "Runs on the NAS");
 		assert.equal(a.core.members.list()[0]!.reachable, true);
-		// Members' routes need the pair secret.
-		assert.equal((await fetch(`${b.url}/federation/manage`)).status, 401);
+		// The main port serves no member routes.
+		assert.equal((await fetch(`${b.url}/federation/manage`)).status, 404);
 
 		// beta's owner allows it in beta's panel.
 		assert.equal((await panel(b, "PATCH", "/network/settings", { acceptBotEdits: true })).status, 200);

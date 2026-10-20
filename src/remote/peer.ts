@@ -18,7 +18,7 @@ export function setPeerHeartbeat(ms: number): void {
 
 type Frame = { id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
 
-/** A gateway to reach: with the owner's token (configured peer), or as a member (TLS-PSK, or headers for an older one). */
+/** A gateway to reach: with the owner's token (configured peer), or as a member (TLS-PSK). */
 export type PeerTarget = { url: string; token?: string; headers?: Record<string, string>; tls?: ConnectionOptions; profile?: string };
 export type PeerApproval = (params: Record<string, unknown>) => Promise<"once" | "session" | "always" | "deny">;
 

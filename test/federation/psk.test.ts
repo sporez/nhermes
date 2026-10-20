@@ -1,15 +1,15 @@
 // Encrypted links between members (TLS-PSK keyed by the pair secret, src/federation/psk.ts): joining is
-// encrypted with the invite's key, a member that has reached us encrypted can no longer use plain HTTP,
-// pair secrets are replaced over the encrypted link (the old one opens nothing after its grace period),
-// an older gateway without an encrypted port still works in the clear, and the encrypted port moves up
-// when its default is taken.
+// encrypted with the invite's key, the main port serves no member routes at all, pair secrets are replaced
+// over the encrypted link (the old one opens nothing after its grace period), a machine without an
+// encrypted port cannot join or be introduced, and the encrypted port moves up when its default is taken.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Core } from "../../src/app.ts";
-import { decodeInvite, NODE_HEADER, SECRET_HEADER } from "../../src/federation/members.ts";
-import { clientTls, pairKey, pskRequest } from "../../src/federation/psk.ts";
+import * as membersModule from "../../src/federation/members.ts";
+import { clientTls, inviteId, inviteKey, pairKey, pskRequest } from "../../src/federation/psk.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -33,7 +33,7 @@ async function close(...gs: Gw[]) {
 	}
 }
 
-const plainPing = (to: Gw, from: Gw, secret: string) => fetch(`${to.url}/federation/ping`, { headers: { [NODE_HEADER]: from.core.members.self().id, [SECRET_HEADER]: secret } }).then((r) => r.status);
+const { decodeInvite } = membersModule;
 
 /** A free TCP port, and a server holding another one. */
 async function freePort(): Promise<number> {
@@ -49,7 +49,7 @@ async function hold(port: number): Promise<Server> {
 	return s;
 }
 
-test("joining is encrypted, and a member that reached us encrypted is refused in the clear", async () => {
+test("joining is encrypted, and the main port serves no member routes", async () => {
 	const { dir, cleanup } = await tempDir();
 	const [a, b] = [await gateway(dir, "alpha"), await gateway(dir, "beta")];
 	try {
@@ -62,10 +62,12 @@ test("joining is encrypted, and a member that reached us encrypted is refused in
 		assert.equal(beta.psk_port, b.server.pskPort, "the joiner told the inviter its encrypted port");
 		assert.deepEqual(b.core.members.list().map((m) => m.encrypted), [true]);
 
-		// Calls go encrypted; after that, the same member's plain requests are refused.
+		// Calls go encrypted; the same member's headers on the main port open nothing (the header login is gone).
 		assert.deepEqual(await b.core.members.call(alpha, "/federation/ping", undefined, "GET"), { name: "alpha", from: "beta" });
-		assert.equal(a.core.members.byName("beta")!.psk_inbound, 1);
-		assert.equal(await plainPing(a, b, alpha.secret), 403);
+		assert.equal("NODE_HEADER" in membersModule || "SECRET_HEADER" in membersModule, false);
+		const headers = { "x-nhermes-node": b.core.members.self().id, "x-nhermes-member-secret": alpha.secret };
+		assert.equal((await fetch(`${a.url}/federation/ping`, { headers })).status, 404);
+		assert.equal((await fetch(`${a.url}/federation/hello`)).status, 404);
 
 		// The encrypted port serves members only: no panel, no owner API, no unknown key.
 		const tls = clientTls(`m:${b.core.members.self().id}:${"0".repeat(12)}`, Buffer.alloc(32));
@@ -95,17 +97,18 @@ test("pair secrets are replaced over the encrypted link; the old one stops worki
 	try {
 		await b.core.members.join(a.core.members.invite().code);
 		const before = a.core.members.byName("beta")!.secret;
-		// The lower node id replaces it on its maintenance tick; the other side never does.
-		const [low, high] = a.core.members.self().id < b.core.members.self().id ? [a, b] : [b, a];
-		await high.core.members.maintain();
-		assert.equal(a.core.members.byName("beta")!.secret, before, "the higher id waits");
-		await low.core.members.maintain();
+		// Nothing replaces it on its own; the panel's "Regenerate key" does, from either side.
+		await a.core.members.maintain();
+		await b.core.members.maintain();
+		assert.equal(a.core.members.byName("beta")!.secret, before);
+		assert.equal(a.core.members.byName("beta")!.rotated, 0);
+		await a.core.members.rotate("beta");
 		const after = a.core.members.byName("beta")!.secret;
 		assert.notEqual(after, before);
 		assert.equal(b.core.members.byName("alpha")!.secret, after, "both sides hold the new secret");
 		assert.equal(a.core.members.byName("beta")!.rotated, 1);
 		assert.equal(b.core.members.byName("alpha")!.rotated, 1);
-		await low.core.members.maintain();
+		await a.core.members.maintain();
 		assert.equal(a.core.members.byName("beta")!.secret, after, "replaced once");
 
 		// The old secret still opens the encrypted port for a while, then nothing.
@@ -116,51 +119,62 @@ test("pair secrets are replaced over the encrypted link; the old one stops worki
 		assert.deepEqual(await b.core.members.call(b.core.members.byName("alpha")!, "/federation/ping", undefined, "GET"), { name: "alpha", from: "beta" });
 
 		// The panel's "Regenerate key" does the same on demand, from either side.
-		await high.core.members.rotate(high === a ? "beta" : "alpha");
+		await b.core.members.rotate("alpha");
 		assert.notEqual(a.core.members.byName("beta")!.secret, after);
 		assert.equal(a.core.members.byName("beta")!.secret, b.core.members.byName("alpha")!.secret);
 
-		// A new secret is never accepted in the clear.
-		const plain = await fetch(`${a.url}/federation/rotate`, { method: "POST", headers: { [NODE_HEADER]: b.core.members.self().id, [SECRET_HEADER]: a.core.members.byName("beta")!.secret, "content-type": "application/json" }, body: JSON.stringify({ secret: "x".repeat(32) }) });
-		assert.equal(plain.status, 403);
+		// A new secret is never accepted on the main port.
+		const plain = await fetch(`${a.url}/federation/rotate`, { method: "POST", headers: { "x-nhermes-node": b.core.members.self().id, "x-nhermes-member-secret": a.core.members.byName("beta")!.secret, "content-type": "application/json" }, body: JSON.stringify({ secret: "x".repeat(32) }) });
+		assert.equal(plain.status, 404);
 	} finally {
 		await close(a, b);
 		await cleanup();
 	}
 });
 
-test("an older gateway without an encrypted port still joins and talks in the clear; the owner can refuse that", async () => {
+test("a machine without an encrypted port cannot join or be introduced", async () => {
 	const { dir, cleanup } = await tempDir();
 	const old = await gateway(dir, "old", { federationPort: null });
-	const b = await gateway(dir, "beta");
+	const [a, b] = [await gateway(dir, "alpha"), await gateway(dir, "beta")];
+	// A server that records whether anything reaches it, standing in for a machine of an older version.
+	let connections = 0;
+	const listener = createServer((socket) => (connections++, socket.destroy()));
+	await new Promise<void>((r) => listener.listen(0, "127.0.0.1", () => r()));
 	try {
-		const { code } = old.core.members.invite();
-		assert.equal(decodeInvite(code).pskPort, undefined);
-		await b.core.members.join(code);
-		// An older version would not know about beta's encrypted port either (its first roster sync, which
-		// runs in the background after the join, used it).
-		await old.core.roster.sync();
-		await new Promise((r) => setTimeout(r, 200));
-		old.core.db.run("UPDATE members SET psk_port = NULL");
-		b.core.db.run("UPDATE members SET psk_inbound = 0");
-		const m = b.core.members.byName("old")!;
-		assert.equal(m.psk_port, null);
-		assert.deepEqual(b.core.members.list().map((x) => x.encrypted), [false]);
-		assert.deepEqual(await b.core.members.call(m, "/federation/ping", undefined, "GET"), { name: "old", from: "beta" });
-		const secret = old.core.members.byName("beta")!.secret;
-		assert.equal(await plainPing(b, old, secret), 200);
-		// beta looks for an encrypted port and finds none (an older version answers no /federation/moved,
-		// so this comes last: here it would teach "old" beta's port).
-		await b.core.members.maintain();
-		assert.equal(b.core.members.byName("old")!.psk_port, null, "nothing to upgrade to");
-		assert.equal(b.core.members.byName("old")!.rotated, 0);
+		// A code without the encrypted port is refused before any request is sent.
+		const noPort = decodeInvite(old.core.members.invite().code);
+		assert.equal(noPort.pskPort, undefined);
+		const code = membersModule.encodeInvite({ url: `http://127.0.0.1:${(listener.address() as { port: number }).port}`, secret: noPort.secret });
+		await assert.rejects(b.core.members.join(code), /older version of nHermes; update that machine and make a new code/);
+		await assert.rejects(b.core.members.preview(code), /older version of nHermes/);
+		assert.equal(connections, 0, "no request was made");
+		assert.deepEqual(b.core.members.list(), []);
 
-		// beta's owner refuses plain requests from every member.
-		b.core.db.run("UPDATE members SET psk_inbound = 0");
-		b.core.members.setRequiresPsk(true);
-		assert.equal(await plainPing(b, old, secret), 403);
+		// A joiner that reports no encrypted port is refused, and the code stays usable.
+		const invite = decodeInvite(a.core.members.invite().code);
+		const h = createHash("sha256").update(invite.secret).digest("hex");
+		const join = (extra: Record<string, unknown>) =>
+			pskRequest(`https://127.0.0.1:${a.server.pskPort}`, clientTls(`i:${inviteId(h)}`, inviteKey(h)), "POST", "/federation/join", { invite: invite.secret, node_id: "11111111-2222-3333-4444-555555555555", name: "delta", url: "http://192.0.2.7:8642", ...extra }, 5000);
+		assert.equal((await join({})).status, 400);
+		assert.equal((await join({ psk_port: "9999" })).status, 400);
+		assert.deepEqual(a.core.members.list(), []);
+
+		// A member cannot introduce a newcomer without an encrypted port either.
+		await b.core.members.join(a.core.members.invite().code);
+		const beta = b.core.members.byName("alpha")!;
+		const newcomer = { node_id: "66666666-7777-8888-9999-000000000000", name: "gamma", url: "http://192.0.2.8:8642", secret: "s".repeat(32) };
+		await assert.rejects(b.core.members.call(beta, "/federation/introduce", newcomer), /no encrypted port/);
+		assert.deepEqual(a.core.members.list().map((m) => m.name), ["beta"]);
+		await b.core.members.call(beta, "/federation/introduce", { ...newcomer, psk_port: 9999 });
+		assert.deepEqual(a.core.members.list().map((m) => m.name), ["beta", "gamma"]);
+
+		// A row without an encrypted port (from an older version) cannot be reached, and says what to do.
+		a.core.db.run("UPDATE members SET psk_port = NULL WHERE name = 'gamma'");
+		await assert.rejects(a.core.members.call(a.core.members.byName("gamma")!, "/federation/ping", undefined, "GET"), /gamma has no encrypted link; remove it and join it again/);
+		assert.throws(() => a.core.members.target(a.core.members.byName("gamma")!.node_id), /remove it and join it again/);
 	} finally {
-		await close(old, b);
+		listener.close();
+		await close(old, a, b);
 		await cleanup();
 	}
 });
