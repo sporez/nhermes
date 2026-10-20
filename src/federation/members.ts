@@ -107,6 +107,16 @@ function encryptedInvite(code: string): { url: string; secret: string; pskPort: 
 	return { url, secret, pskPort };
 }
 
+/** A pair secret as secretNow() makes it: 32 base64url characters. A blank one (a backup made without --secrets) never opens a link. */
+function validSecret(v: unknown): v is string {
+	return typeof v === "string" && /^[A-Za-z0-9_-]{32,}$/.test(v);
+}
+
+/** A node id as randomUUID() makes it. */
+function validNodeId(v: unknown): v is string {
+	return typeof v === "string" && /^[A-Za-z0-9-]{1,64}$/.test(v);
+}
+
 const noLink = (name: string) => `${name} has no encrypted link; remove it and join it again`;
 
 /** An encrypted port a machine reported about itself or another member. */
@@ -202,8 +212,8 @@ export class Members {
 		}
 		const m = this.get(id.nodeId);
 		if (!m) return null;
-		if (keyId(m.secret) === id.keyId) return pairKey(m.secret);
-		if (m.prev_secret && m.prev_until !== null && m.prev_until * 1000 >= this.now() && keyId(m.prev_secret) === id.keyId) return pairKey(m.prev_secret);
+		if (validSecret(m.secret) && keyId(m.secret) === id.keyId) return pairKey(m.secret);
+		if (validSecret(m.prev_secret) && m.prev_until !== null && m.prev_until * 1000 >= this.now() && keyId(m.prev_secret) === id.keyId) return pairKey(m.prev_secret);
 		return null;
 	}
 
@@ -270,6 +280,7 @@ export class Members {
 		if (typeof invite !== "string" || typeof node_id !== "string" || typeof name !== "string" || typeof url !== "string") throw new FederationError(400, "invite, node_id, name and url are required");
 		// The handshake used one invite's key; the body must name that same invite.
 		if (pskIdentity !== `i:${inviteId(hash(invite))}`) throw new FederationError(403, "the join code does not match this connection");
+		if (!validNodeId(node_id)) throw new FederationError(400, "node_id is not valid");
 		const psk_port = validPort(body.psk_port, name);
 		const me = this.self();
 		for (const m of this.rows()) if (m.psk_port === null) throw new FederationError(409, `${m.name} has no encrypted link; remove it and join it again, then make a new code`);
@@ -298,6 +309,7 @@ export class Members {
 	introduce(from: MemberRow, body: Record<string, unknown>): void {
 		const { node_id, name, url, secret } = body;
 		if (typeof node_id !== "string" || typeof name !== "string" || typeof url !== "string" || typeof secret !== "string") throw new FederationError(400, "bad introduction");
+		if (!validNodeId(node_id) || !validSecret(secret)) throw new FederationError(400, "bad introduction");
 		const psk_port = validPort(body.psk_port, name);
 		if (this.get(node_id)) return;
 		if (this.byName(name)) throw new FederationError(409, `a member is already named "${name}"`);
@@ -455,7 +467,7 @@ export class Members {
 
 	/** The other side of rotate(). It only arrives over the encrypted port, so the new secret never travels in clear. */
 	acceptRotate(from: MemberRow, body: Record<string, unknown>): void {
-		if (typeof body.secret !== "string" || body.secret.length < 24) throw new FederationError(400, "secret required");
+		if (!validSecret(body.secret)) throw new FederationError(400, "secret required");
 		registerSecret(body.secret);
 		this.replaceSecret(from, body.secret);
 		log.info("pair secret replaced", { name: from.name, by: from.name });
@@ -510,6 +522,7 @@ export class Members {
 	}
 
 	private insert(m: Introduction): void {
+		if (!validNodeId(m.node_id) || !validSecret(m.secret)) throw new FederationError(502, `${m.name} sent an invalid identity or key`);
 		const psk_port = validPort(m.psk_port, m.name);
 		registerSecret(m.secret);
 		this.db.run("INSERT INTO members (node_id, name, url, secret, joined_at, psk_port) VALUES (?, ?, ?, ?, ?, ?)", m.node_id, m.name, m.url.replace(/\/$/, ""), m.secret, this.now() / 1000, psk_port);

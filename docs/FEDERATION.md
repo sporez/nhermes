@@ -253,6 +253,10 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
   id>`); the server answers with that member's key or refuses the handshake. A joiner uses `i:<invite id>`
   with a key derived from the invite, so the join itself, and the pair secret it hands out, are
   encrypted with a key only the code's holder can make. Spent and expired codes fail in the handshake. The preview before joining reads `/federation/hello` the same way, so it also needs an open code.
+- **Valid secrets only.** A pair secret is 32 or more base64url characters and a node id is letters,
+  digits and hyphens (up to 64). The encrypted port refuses a row whose secret is blank or shorter (a
+  backup made without `--secrets` blanks them, and the key for a blank secret is public); joins,
+  introductions, join answers and key replacements with anything else are refused.
 - **Replacing secrets.** The panel's "Regenerate key" replaces the secret of one pair over the encrypted
   link (`/federation/rotate`, which only the encrypted port serves). The old secret keeps opening the
   encrypted port for 10 minutes, for connections in flight, then nothing. This protects against anyone who

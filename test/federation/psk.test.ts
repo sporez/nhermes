@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Core } from "../../src/app.ts";
 import * as membersModule from "../../src/federation/members.ts";
-import { clientTls, inviteId, inviteKey, pairKey, pskRequest } from "../../src/federation/psk.ts";
+import { clientTls, inviteId, inviteKey, keyId, pairKey, pskRequest } from "../../src/federation/psk.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -175,6 +175,36 @@ test("a machine without an encrypted port cannot join or be introduced", async (
 	} finally {
 		listener.close();
 		await close(old, a, b);
+		await cleanup();
+	}
+});
+
+test("a blank or short pair secret never opens the encrypted port", async () => {
+	const { dir, cleanup } = await tempDir();
+	const [a, b] = [await gateway(dir, "alpha"), await gateway(dir, "beta")];
+	try {
+		await b.core.members.join(a.core.members.invite().code);
+		// A backup made without --secrets blanks every pair secret; the key for "" is public knowledge.
+		const betaId = b.core.members.self().id;
+		a.core.db.run("UPDATE members SET secret = ''");
+		const blank = clientTls(`m:${betaId}:${keyId("")}`, pairKey(""));
+		await assert.rejects(pskRequest(`https://127.0.0.1:${a.server.pskPort}`, blank, "GET", "/federation/ping", undefined, 5000), /unknown psk identity/);
+		a.core.db.run("UPDATE members SET secret = 'short'");
+		const short = clientTls(`m:${betaId}:${keyId("short")}`, pairKey("short"));
+		await assert.rejects(pskRequest(`https://127.0.0.1:${a.server.pskPort}`, short, "GET", "/federation/ping", undefined, 5000), /unknown psk identity/);
+		assert.equal(a.core.members.pskKey(`m:${betaId}:${keyId("short")}`), null);
+
+		// Introductions and key replacements with a bad secret or node id are refused.
+		const alpha = b.core.members.byName("alpha")!;
+		a.core.db.run("UPDATE members SET secret = ?", alpha.secret);
+		const newcomer = { node_id: "66666666-7777-8888-9999-000000000000", name: "gamma", url: "http://192.0.2.8:8642", secret: "s".repeat(32), psk_port: 9999 };
+		for (const bad of [{ secret: "" }, { secret: "short" }, { secret: `${"s".repeat(31)}!` }, { node_id: "../etc" }, { node_id: "" }]) {
+			await assert.rejects(b.core.members.call(alpha, "/federation/introduce", { ...newcomer, ...bad }), /bad introduction/);
+		}
+		await assert.rejects(b.core.members.call(alpha, "/federation/rotate", { secret: "x".repeat(24) }), /secret required/);
+		assert.deepEqual(a.core.members.list().map((m) => m.name), ["beta"]);
+	} finally {
+		await close(a, b);
 		await cleanup();
 	}
 });
