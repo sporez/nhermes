@@ -88,9 +88,21 @@ export class Updates {
 		this.db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
 	}
 
+	/** The checkout's remote URL (as git has it, credentials included), or undefined without one. */
+	private remoteUrl(): string | undefined {
+		try {
+			const upstream = this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+			return this.git(["remote", "get-url", upstream.split("/")[0]!]);
+		} catch {
+			return undefined;
+		}
+	}
+
 	/** Why this checkout cannot be updated in place, or undefined when it can. */
 	private blocker(): string | undefined {
 		if (!existsSync(join(this.codeDir, ".git"))) return "the code is not a git checkout; reinstall with the install script to get updates";
+		const url = this.remoteUrl();
+		if (url !== undefined && /^(http|git):\/\//i.test(url)) return "the checkout's remote uses an unencrypted address (http:// or git://); point it at https:// or ssh before updating";
 		try {
 			this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
 		} catch {
@@ -108,7 +120,7 @@ export class Updates {
 		try {
 			base.branch = this.git(["rev-parse", "--abbrev-ref", "HEAD"]);
 			const upstream = this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
-			base.remote = this.git(["remote", "get-url", upstream.split("/")[0]!]);
+			base.remote = this.git(["remote", "get-url", upstream.split("/")[0]!]).replace(/^((?:https?|git):\/\/)[^/@]*@/i, "$1");
 			base.available = this.git(["log", "--format=%h%x00%ct%x00%s", `HEAD..${upstream}`])
 				.split("\n")
 				.filter(Boolean)
@@ -128,6 +140,8 @@ export class Updates {
 	/** Fetches from the remote and returns the status with the commits now available. */
 	check(): SoftwareStatus {
 		if (!existsSync(join(this.codeDir, ".git"))) throw new UpdateError(409, "the code is not a git checkout; reinstall with the install script to get updates");
+		const url = this.remoteUrl();
+		if (url !== undefined && /^(http|git):\/\//i.test(url)) throw new UpdateError(409, "the checkout's remote uses an unencrypted address (http:// or git://); point it at https:// or ssh before updating");
 		try {
 			this.git(["fetch", "--quiet"], 60_000);
 		} catch (error) {

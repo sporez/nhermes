@@ -99,3 +99,35 @@ test("a copy that is not a git checkout says how to get updates", async () => {
 		await cleanup();
 	}
 });
+
+test("a remote on http:// or git:// is refused, and credentials in the remote address are not shown", async () => {
+	const { dir, cleanup } = await tempDir();
+	const origin = join(dir, "origin.git");
+	const code = join(dir, "code");
+	const dev = join(dir, "dev");
+	mkdirSync(dev);
+	git(dir, "init", "-q", "--bare", "-b", "main", origin);
+	git(dev, "init", "-q", "-b", "main");
+	commit(dev, "package.json", "{}", "first");
+	git(dev, "remote", "add", "origin", origin);
+	git(dev, "push", "-q", "origin", "main");
+	git(dir, "clone", "-q", origin, code);
+	const updates = new Updates(new AppDb(":memory:"), { codeDir: code, installPackages: () => {}, managed: false });
+	try {
+		assert.equal(updates.status().updatable, true, "a local path is fine");
+		git(code, "remote", "set-url", "origin", "https://user:pass@example.com/repo.git");
+		assert.equal(updates.status().remote, "https://example.com/repo.git");
+		git(code, "remote", "set-url", "origin", "http://example.com/repo.git");
+		const s = updates.status();
+		assert.equal(s.updatable, false);
+		assert.match(s.reason ?? "", /unencrypted/);
+		assert.throws(() => updates.check(), /unencrypted/);
+		assert.throws(() => updates.update(), /unencrypted/);
+		git(code, "remote", "set-url", "origin", "git://example.com/repo.git");
+		assert.throws(() => updates.check(), /unencrypted/);
+		git(code, "remote", "set-url", "origin", "git@example.com:me/repo.git");
+		assert.equal(updates.status().updatable, true, "ssh is fine");
+	} finally {
+		await cleanup();
+	}
+});
