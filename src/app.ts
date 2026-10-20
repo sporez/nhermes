@@ -153,6 +153,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const catalogs = new ProviderCatalogs({ models, db, modelsPath: config.pi.modelsPath, catalogs: options.catalogs, fetch: options.catalogFetch });
 	await catalogs.start();
 	const secrets = new Secrets(config, db, catalogs.keys());
+	secrets.registerEnvironment();
 	secrets.onChange((name) => catalogs.keyChanged(name));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
 

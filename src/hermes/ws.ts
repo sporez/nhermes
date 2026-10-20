@@ -250,7 +250,7 @@ export class Connection {
 				status: snap.running ? (snap.inflight?.streaming ? "streaming" : "working") : "idle",
 				turn_started_at: snap.running ? snap.turnStartedAt : null,
 				started_at: snap.session.created_at,
-				inflight: snap.inflight ?? null,
+				inflight: snap.inflight ? { ...snap.inflight, user: redact(snap.inflight.user), assistant: redact(snap.inflight.assistant) } : null,
 				open_requests: pending.map((r) => ({ id: srqId(r.requestId), method: "approval", params: approvalParams(r) })),
 				pending_approval: pending[0] ? approvalParams(pending[0]) : null,
 			};
@@ -279,18 +279,18 @@ export class Connection {
 			case "text.delta":
 				return this.event("message.delta", sid, { text: redact(e.text) });
 			case "reasoning.delta":
-				return this.event("reasoning.delta", sid, { text: e.text });
+				return this.event("reasoning.delta", sid, { text: redact(e.text) });
 			case "tool.started":
 				return this.event("tool.start", sid, { tool_id: e.callId, name: e.name, context: redact(e.preview), args: JSON.parse(redact(JSON.stringify(e.args))) as Record<string, Json>, args_text: redact(JSON.stringify(e.args, null, 2)).slice(0, 2000) });
 			case "tool.finished": {
 				const text = e.resultText.length > RESULT_TEXT_LIMIT ? `${e.resultText.slice(0, RESULT_TEXT_LIMIT)}\n… (${e.resultText.length - RESULT_TEXT_LIMIT} more characters)` : e.resultText;
 				const firstLine = e.resultText.split("\n").find((l) => l.trim()) ?? "";
-				return this.event("tool.complete", sid, { tool_id: e.callId, name: e.name, duration_s: Math.round(e.durationS * 100) / 100, result_text: text, summary: (e.isError ? "Failed: " : "") + firstLine.slice(0, 120) });
+				return this.event("tool.complete", sid, { tool_id: e.callId, name: e.name, duration_s: Math.round(e.durationS * 100) / 100, result_text: redact(text), summary: redact((e.isError ? "Failed: " : "") + firstLine.slice(0, 120)) });
 			}
 			case "run.finished": {
 				const payload: Record<string, Json | undefined> = { text: redact(e.text), status: e.status, usage: usageJson(e.usage) };
-				if (e.reasoning) payload.reasoning = e.reasoning;
-				if (e.error) payload.error = e.error;
+				if (e.reasoning) payload.reasoning = redact(e.reasoning);
+				if (e.error) payload.error = redact(e.error);
 				this.event("session.usage", sid, { usage: usageJson(e.usage) });
 				return this.event("message.complete", sid, payload);
 			}

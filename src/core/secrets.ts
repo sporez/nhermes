@@ -128,6 +128,11 @@ export class Secrets {
 		return out;
 	}
 
+	/** Redacts the keys the service environment supplies (not only the ones in secrets.env) for every name the gateway knows. */
+	registerEnvironment(): void {
+		for (const name of this.catalogue().keys()) registerSecret(process.env[name]);
+	}
+
 	list(): SecretInfo[] {
 		const file = this.inFile();
 		const cat = this.catalogue();

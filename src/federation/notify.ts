@@ -3,7 +3,7 @@
 // that has one. It is only "ready" when nothing local can deliver, and the receiving route uses the local
 // notifier alone, so a notification never travels more than one hop.
 import { FederationError, type Members } from "./members.ts";
-import { logger } from "../log.ts";
+import { logger, redact } from "../log.ts";
 import { type Notification, NotifyError, type Notifier, type OptionalNotifier } from "../notify/notifier.ts";
 
 const log = logger("notify");
@@ -34,7 +34,7 @@ export class NetworkNotifier implements OptionalNotifier {
 		const rank = (m: { node_id: string; reachable: boolean }) => (m.node_id === this.lastGood ? 0 : m.reachable ? 1 : 2);
 		const order = [...list].sort((a, b) => rank(a) - rank(b));
 		// A member's session ids mean nothing on another gateway.
-		const body = { title: n.title, message: n.message, priority: n.priority, url: n.url, urlTitle: n.urlTitle, bot: n.bot };
+		const body = { title: redact(n.title), message: redact(n.message), priority: n.priority, url: n.url, urlTitle: n.urlTitle, bot: n.bot };
 		const tried: string[] = [];
 		for (const view of order) {
 			const row = members.get(view.node_id);

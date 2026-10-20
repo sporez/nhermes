@@ -14,7 +14,12 @@ export function registerSecret(value: string | undefined): void {
 
 export function redact(text: string): string {
 	let out = text;
-	for (const s of secrets) if (out.includes(s)) out = out.split(s).join("[redacted]");
+	for (const s of secrets) {
+		if (out.includes(s)) out = out.split(s).join("[redacted]");
+		// The same value inside a JSON string is escaped (quotes, backslashes, non-ASCII).
+		const escaped = JSON.stringify(s).slice(1, -1);
+		if (escaped !== s && out.includes(escaped)) out = out.split(escaped).join("[redacted]");
+	}
 	return out;
 }
 

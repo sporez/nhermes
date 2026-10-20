@@ -7,6 +7,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { configView } from "../admin.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
+import { redact } from "../log.ts";
 import type { Core, Feature, LateServices } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
 import type { BotPatch, GatewayPatch, Settings } from "../core/settings.ts";
@@ -261,7 +262,7 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 
 	const audit = (api: { conversationId: unknown }, bot: Bot, tool: string, detail: unknown) => {
 		const row = late.sessions().byConversation(api.conversationId as number);
-		late.db.run("INSERT INTO audit (at, bot, session_id, kind, detail) VALUES (?, ?, ?, ?, ?)", Date.now() / 1000, bot.name, row?.id ?? null, `config.${tool}`, JSON.stringify(detail).slice(0, 4000));
+		late.db.run("INSERT INTO audit (at, bot, session_id, kind, detail) VALUES (?, ?, ?, ?, ?)", Date.now() / 1000, bot.name, row?.id ?? null, `config.${tool}`, redact(JSON.stringify(detail)).slice(0, 4000));
 	};
 	const wrap = <T>(fn: () => T): T => {
 		try {

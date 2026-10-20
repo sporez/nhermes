@@ -1,5 +1,6 @@
 // Canonical objects → Hermes wire shapes (field names per Hermes's generated contract, restricted to
 // what Vory decodes). Pure functions; no state.
+import { redact } from "../log.ts";
 import type { Bot } from "../core/bots.ts";
 import type { ApprovalRequest, UsageSummary } from "../core/events.ts";
 import type { SessionRow } from "../core/sessions.ts";
@@ -116,8 +117,8 @@ export function approvalParams(r: ApprovalRequest): Record<string, Json> {
 	return {
 		session_id: r.sessionId,
 		request_id: r.requestId,
-		command: r.command,
-		description: r.description,
+		command: redact(r.command),
+		description: redact(r.description),
 		choices: r.choices,
 		allow_permanent: true,
 		allow_session: true,

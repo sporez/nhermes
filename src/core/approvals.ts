@@ -4,6 +4,7 @@
 // call waits, Durable re-runs the hook after restart and the question is asked again.
 import { randomUUID } from "node:crypto";
 import type { AppDb } from "../store/db.ts";
+import { redact } from "../log.ts";
 import type { ApprovalRequest, Hub } from "./events.ts";
 
 export type Choice = "once" | "session" | "always" | "deny";
@@ -104,7 +105,7 @@ export class Approvals {
 			r.bot,
 			r.sessionId,
 			`approval.${what}`,
-			JSON.stringify({ tool: r.toolName, command: r.command.slice(0, 500), pattern: r.patternKey }),
+			JSON.stringify({ tool: r.toolName, command: redact(r.command).slice(0, 500), pattern: r.patternKey }),
 		);
 	}
 }

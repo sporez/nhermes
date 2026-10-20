@@ -2,8 +2,9 @@
 // mid-answer, approvals as server→client requests, fan-out, REST shapes.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
+import { registerSecret } from "../../src/log.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { TOKEN, tempDir, testCore } from "../helpers.ts";
 import { type Ev, HermesClient } from "./client.ts";
@@ -142,6 +143,33 @@ test("approvals: a dangerous call becomes a server request; the answer is enforc
 	await watcher.waitEvent("message.complete", sid);
 	assert.equal((await c.call<{ approvals: unknown[] }>("approval.pending", { session_id: sid })).approvals.length, 0);
 	assert.equal(watcher.eventsOf("request.cancel").length, 0, "answered elsewhere is not a withdrawal");
+	await c.close();
+	await watcher.close();
+});
+
+test("live events and approval cards never carry a registered secret", async () => {
+	const secret = "live-secret-\"quoted\"-value-9f3a";
+	registerSecret(secret);
+	const c = await ready();
+	await c.call("client.capabilities", { server_requests: true });
+	const { session_id: sid } = await c.call<{ session_id: string }>("session.create", {});
+	faux.setResponses([
+		fauxAssistantMessage([fauxThinking(`thinking about ${secret}`), fauxToolCall("bash", { command: `echo '${secret}'; rm -rf ./tmpdir` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("done")]),
+	]);
+	await c.call("prompt.submit", { session_id: sid, text: "go" });
+	const req = await c.waitFor((f) => typeof f.id === "string" && f.method === "approval");
+	assert.ok(!JSON.stringify(req).includes("live-secret"), "approval card is redacted");
+	assert.match(String((req.params as { command: string }).command), /\[redacted\]/);
+	const watcher = await ready();
+	const snap = await watcher.call("session.resume", { session_id: sid });
+	assert.ok(!JSON.stringify(snap).includes("live-secret"), "resume snapshot is redacted");
+	c.respond(req.id as string, { choice: "once" });
+	await c.waitEvent("message.complete", sid);
+	for (const f of c.frames) assert.ok(!JSON.stringify(f).includes("live-secret"), JSON.stringify(f));
+	const audit = core.db.all<{ detail: string }>("SELECT detail FROM audit WHERE session_id = ?", sid);
+	assert.ok(audit.length > 0);
+	for (const a of audit) assert.ok(!a.detail.includes("live-secret"), "stored audit text is redacted");
 	await c.close();
 	await watcher.close();
 });

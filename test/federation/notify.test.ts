@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Core, LateServices } from "../../src/app.ts";
+import { registerSecret } from "../../src/log.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { type Notification, type Notifier, NotifyError } from "../../src/notify/notifier.ts";
 import { scheduleFeature } from "../../src/tools/schedule.ts";
@@ -107,6 +108,24 @@ test("the notify tool reports sent when forwarding is possible", async () => {
 		await a.server.close();
 		await b.server.close();
 		await alone.server.close();
+		await cleanup();
+	}
+});
+
+test("a forwarded notification never carries a registered secret", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", "main", true);
+	const b = await gateway(dir, "beta", "chamber", false);
+	try {
+		await pair(a, b);
+		registerSecret("forwarded-secret-8f2c1d");
+		await b.core.notifier.send({ title: "key forwarded-secret-8f2c1d", message: "has forwarded-secret-8f2c1d inside", priority: 1, sessionId: "s", bot: "chamber" });
+		const got = a.sent[0]!;
+		assert.ok(!`${got.title} ${got.message}`.includes("forwarded-secret"));
+		assert.equal(got.message, "has [redacted] inside");
+	} finally {
+		await a.server.close();
+		await b.server.close();
 		await cleanup();
 	}
 });

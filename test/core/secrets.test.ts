@@ -8,7 +8,7 @@ import { adminRoutes } from "../../src/admin.ts";
 import { createCore } from "../../src/app.ts";
 import { loadConfig, scrubbedShellEnv } from "../../src/config.ts";
 import { startHermesServer } from "../../src/hermes/server.ts";
-import { redact } from "../../src/log.ts";
+import { redact, registerSecret } from "../../src/log.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
 test("set, replace and remove keys; nothing ever hands a value back", async () => {
@@ -80,6 +80,29 @@ test("set, replace and remove keys; nothing ever hands a value back", async () =
 		await server.close();
 		await core.close();
 		delete process.env.FROM_SERVICE_KEY;
+		await cleanup();
+	}
+});
+
+test("redact also catches a value inside JSON text, where quotes, backslashes and non-ASCII are escaped", () => {
+	const value = 'pa"ss\\word-é-12345';
+	registerSecret(value);
+	assert.equal(redact(JSON.stringify({ a: value })), '{"a":"[redacted]"}');
+	assert.equal(redact(`raw ${value}`), "raw [redacted]");
+});
+
+test("keys supplied by the service environment are redacted from the start", async () => {
+	const { dir, cleanup } = await tempDir();
+	delete process.env.NHERMES_TOKEN;
+	writeFileSync(join(dir, "secrets.env"), `NHERMES_TOKEN=${TOKEN}\n`, { mode: 0o600 });
+	writeFileSync(join(dir, "config.yaml"), `server: { host: 127.0.0.1, port: 0 }\ndefaults: { model: faux/faux-1 }\nbots:\n  - name: main\n    secrets: [ENV_ONLY_KEY]\n`);
+	process.env.ENV_ONLY_KEY = "environment-only-key-5566778899";
+	const core = await createCore(loadConfig(join(dir, "config.yaml")), { models: fauxModels().models });
+	try {
+		assert.equal(redact("x environment-only-key-5566778899 y"), "x [redacted] y");
+	} finally {
+		delete process.env.ENV_ONLY_KEY;
+		await core.close();
 		await cleanup();
 	}
 });
