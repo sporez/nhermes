@@ -152,6 +152,38 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 	}
 });
 
+test("removing a member closes its open connections", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
+	let ws: HermesClient | undefined;
+	try {
+		await link(a, b);
+		const t = a.core.members.target(b.core.members.self().id)!;
+		ws = await HermesClient.connect(b.server.pskPort!, undefined, {}, t.tls);
+		await ws.waitEvent("gateway.ready");
+		const mine = await ws.call<{ session_id: string }>("session.create", { profile: "nasbot" });
+		assert.ok(mine.session_id);
+
+		// beta removes alpha: the connection alpha already had open is closed, and nothing more is accepted on it.
+		const closed = new Promise<number>((r) => ws!.ws.once("close", r));
+		await b.core.members.remove("alpha");
+		assert.equal(await closed, 4401);
+		const sendError = await new Promise<Error | undefined>((r) => ws!.ws.send(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "prompt.submit", params: { session_id: mine.session_id, text: "hello" } }), r));
+		assert.match(String(sendError), /not open/);
+		assert.equal(b.core.sessions.isRunning(mine.session_id), false);
+		assert.deepEqual(b.core.members.list(), []);
+		ws = undefined;
+	} finally {
+		await ws?.close();
+		for (const g of [a, b]) {
+			await g.server.close();
+			await g.core.close();
+		}
+		await cleanup();
+	}
+});
+
 test("wait: false to a member's bot returns at once; the answer arrives later as a new message", async () => {
 	const { dir, cleanup } = await tempDir();
 	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);

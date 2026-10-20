@@ -262,6 +262,10 @@ prove they hold the secret in the handshake, the secret never travels, and ECDHE
   encrypted port for 10 minutes, for connections in flight, then nothing (the maintenance tick drops it). During that time it only keeps links alive: introductions, removals, address moves, key changes, shared keys and bot edits over it are refused (403, "this connection uses a replaced key; reconnect"). This protects against anyone who
   recorded traffic before; against someone actively intercepting at that moment with the old secret,
   remove the member and join it again.
+- **Open links follow membership.** A member's WebSocket is checked once, at the upgrade, so it is also
+  closed (4401) when that member is removed, leaves or is removed, and when its key was replaced and the
+  grace has passed (the maintenance tick checks). Links this gateway opened to a removed member are
+  closed too.
 - **Only encrypted.** There is no plain HTTP path between members and no fallback to one; a fallback is
   what an attacker on the LAN would force. A member row without an encrypted port (left over from an
   older version) cannot be reached: calls say "<name> has no encrypted link; remove it and join it

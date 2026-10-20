@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo, Socket } from "node:net";
 import type { Duplex } from "node:stream";
-import { WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 import type { Core } from "../app.ts";
 import { UnknownBot } from "../core/bots.ts";
 import { UnknownSession } from "../core/sessions.ts";
@@ -57,6 +57,11 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 	// The handshake identity of each encrypted connection, for its requests.
 	const identities = new WeakMap<object, string>();
+	// Member sockets are authenticated once, at the upgrade: close them when the member is forgotten or the key they used stops working.
+	const memberSockets = new Map<WebSocket, string>();
+	core.members.onRevoke(() => {
+		for (const [ws, identity] of memberSockets) if (!core.members.pskKey(identity)) ws.close(4401, "no longer a member");
+	});
 
 	const handle = async (req: IncomingMessage, res: ServerResponse, psk?: string) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
@@ -123,7 +128,10 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 			// A network member drives this gateway's shareable bots, within the limits Connection sets for it.
 			if (psk !== undefined) {
 				const member = core.members.pskMember(psk);
-				return void (member ? new Connection(ws, core, member) : ws.close(4401, "not a member"));
+				if (!member) return void ws.close(4401, "not a member");
+				memberSockets.set(ws, psk);
+				ws.on("close", () => memberSockets.delete(ws));
+				return void new Connection(ws, core, member);
 			}
 			if (tokenMatches(requestToken(req, url), core.config.token)) return void new Connection(ws, core);
 			ws.close(4401, "invalid session token");

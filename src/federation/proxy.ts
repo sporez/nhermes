@@ -37,6 +37,15 @@ export class ProxySessions {
 		this.d = deps;
 	}
 
+	/** Closes the links to machines that are no longer members. */
+	dropGone(): void {
+		for (const [nodeId, link] of this.links) {
+			if (this.d.members.get(nodeId)) continue;
+			link.close();
+			this.links.delete(nodeId);
+		}
+	}
+
 	/** Whether a session is a chat with a member's bot. */
 	isProxy(id: string): boolean {
 		return Boolean(this.d.sessions().get(id)?.remote_node);

@@ -9,9 +9,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Core } from "../../src/app.ts";
 import * as membersModule from "../../src/federation/members.ts";
-import { clientTls, inviteId, inviteKey, keyId, pairKey, pskRequest } from "../../src/federation/psk.ts";
+import { clientTls, inviteId, inviteKey, keyId, memberIdentity, pairKey, pskRequest } from "../../src/federation/psk.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { HermesClient } from "../hermes/client.ts";
 import { fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Gw = { core: Core; server: HermesServer; url: string };
@@ -120,8 +121,15 @@ test("pair secrets are replaced over the encrypted link; the old one stops worki
 		}
 		assert.equal(a.core.members.byName("beta")!.secret, after, "nothing changed");
 		assert.equal(a.core.members.byName("beta")!.prev_secret, before);
+		// A WebSocket opened with the old key stays up during the grace and is closed once it has passed.
+		const stale = await HermesClient.connect(a.server.pskPort!, undefined, {}, clientTls(memberIdentity(b.core.members.self().id, before), pairKey(before)));
+		await stale.waitEvent("gateway.ready");
+		const staleClosed = new Promise<number>((r) => stale.ws.once("close", r));
+		await a.core.members.maintain();
+		assert.equal(stale.closeCode, undefined, "still open within the grace");
 		clock += 11 * 60_000;
 		await a.core.members.maintain();
+		assert.equal(await staleClosed, 4401);
 		assert.equal(a.core.members.byName("beta")!.prev_secret, null, "the replaced secret is dropped after its grace");
 		await assert.rejects(b.core.members.call(old, "/federation/ping", undefined, "GET"), /no longer accepts this machine/);
 		assert.deepEqual(await b.core.members.call(b.core.members.byName("alpha")!, "/federation/ping", undefined, "GET"), { name: "alpha", from: "beta" });

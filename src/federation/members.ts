@@ -136,6 +136,7 @@ export class Members {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private flushing: Promise<void> | undefined;
 	private changed: () => void = () => {};
+	private readonly revokeListeners: (() => void)[] = [];
 
 	constructor(db: AppDb, config: Config, opts: MembersOptions = {}) {
 		this.db = db;
@@ -151,6 +152,15 @@ export class Members {
 	/** Called after the member list changes (the roster refreshes). */
 	onChange(fn: () => void): void {
 		this.changed = fn;
+	}
+
+	/** Called when a member was forgotten or a pair secret was replaced or dropped: open links check they are still allowed. */
+	onRevoke(fn: () => void): void {
+		this.revokeListeners.push(fn);
+	}
+
+	private revoke(): void {
+		for (const fn of this.revokeListeners) fn();
 	}
 
 	/** The port the gateway listens on (known once the server is up). */
@@ -348,6 +358,7 @@ export class Members {
 			this.db.run("DELETE FROM members");
 		});
 		log.info("left the network");
+		this.revoke();
 		this.changed();
 	}
 
@@ -367,6 +378,7 @@ export class Members {
 			this.db.run("DELETE FROM members");
 		});
 		log.warn("this gateway was removed from the network", { by: from.name });
+		this.revoke();
 		this.changed();
 	}
 
@@ -459,6 +471,7 @@ export class Members {
 	async maintain(): Promise<void> {
 		this.announce();
 		this.db.run("UPDATE members SET prev_secret = NULL, prev_until = NULL WHERE prev_until IS NOT NULL AND prev_until < ?", this.now() / 1000);
+		this.revoke();
 		await this.flush();
 	}
 
@@ -540,6 +553,7 @@ export class Members {
 	private forgetRow(nodeId: string): void {
 		this.db.run("DELETE FROM member_outbox WHERE node_id = ?", nodeId);
 		this.db.run("DELETE FROM members WHERE node_id = ?", nodeId);
+		this.revoke();
 	}
 
 	private seen(nodeId: string): void {
