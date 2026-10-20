@@ -29,7 +29,8 @@ import { modelChoices, promptView, skillsView } from "./views.ts";
 
 const log = logger("panel");
 const STATIC_DIR = join(import.meta.dirname, "static");
-const FILES: Record<string, string> = { "": "index.html", "index.html": "index.html", "panel.css": "panel.css", "panel.js": "panel.js" };
+const SCRIPTS = ["panel.js", "core.js", "bots.js", "network.js", "sessions.js", "memory.js", "keys.js", "status.js", "gateway.js"];
+const FILES: Record<string, string> = { "": "index.html", "index.html": "index.html", "panel.css": "panel.css", ...Object.fromEntries(SCRIPTS.map((n) => [n, n])) };
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 const OPEN = new Set(["/panel/api/session", "/panel/api/login"]);
 
