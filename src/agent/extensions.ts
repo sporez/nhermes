@@ -192,10 +192,11 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const controller = new AbortController();
 					context.abortSignal?.addEventListener("abort", () => controller.abort(), { once: true });
 					// Jev answers what it may: the owner still gets the destructive group, their own rules, manual
-					// mode, scheduled jobs set to ask, and work another machine started (its human is not here).
+					// mode, scheduled jobs set to ask, and work another machine's bot started (its human is not
+					// here). The owner's own chat relayed from a member is reviewed like a local one.
 					let reviewId: number | undefined;
 					let note = "";
-					if (reviewer && decision.reviewable && !fromMember && sessions.get(attention)?.kind !== "job") {
+					if (reviewer && decision.reviewable && (!fromMember || relayed) && sessions.get(attention)?.kind !== "job") {
 						const ctx = await reviewContext(sessions, row.id, attention, deps.roomOwnerMessages);
 						const outcome = await reviewer.review(
 							{

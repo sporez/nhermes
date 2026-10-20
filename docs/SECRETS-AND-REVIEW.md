@@ -91,8 +91,10 @@ Status: implemented (S1–S6); decisions recorded at the end.
   no answer within 3 s gives the normal card, with Jev's recommendation in its description.
 - Never sent to Jev (always a card): deny rules; the destructive group (`rm -rf /` or `~`, `mkfs`,
   disk wipes and checks, power, credentials, firewall flush, fork bomb); writes to sensitive paths;
-  work started by another machine (its human is not here; the card goes back to the caller's chat as
-  today); scheduled jobs set to "ask".
+  work another machine's bot started (its human is not here; the card goes back to the caller's chat as
+  today); scheduled jobs set to "ask". The owner's own chat relayed from their client on a member
+  (source `member:<id>:owner`, set by the PSK-authenticated member) is reviewed like a local chat: the
+  owner is present and the human messages Jev reads are theirs.
 - The reviewer's instructions start from the plugin's decision rules and add this gateway's: never
   approve reading or using the gateway's own config, secrets or databases; never approve reaching
   other machines or bots outside `delegate`; heavy maintenance only when the human asked for that

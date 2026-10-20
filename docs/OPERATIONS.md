@@ -155,7 +155,8 @@ a confident allow (default 80%) runs without a card; otherwise the card shows Je
 the guard also asks about more everyday commands (deleting files, git writes, ssh/rsync, inline scripts,
 containers, services), which Jev mostly answers. Never left to Jev: the destructive group (disk wipes and
 checks, power, credentials…), your own `approvals.ask` rules, manual mode, scheduled jobs set to ask,
-and work started by another machine. Commands and your recent messages in that chat go to
+and work another machine's bot started (your own chat relayed from Vory on another member is reviewed
+like a local one). Commands and your recent messages in that chat go to
 OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
 allowThreshold, timeoutMs, keyEnv } }` in config.yaml. Every review is listed in the panel's Status tab.
 

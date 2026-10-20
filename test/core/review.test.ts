@@ -25,8 +25,8 @@ function fakeJev(decide: (b: Body) => number | null) {
 	return { fetch: fake, calls };
 }
 
-async function run(core: Awaited<ReturnType<typeof testCore>>, faux: ReturnType<typeof fauxModels>["faux"], bot: string, prompt: string, command: string) {
-	const s = await core.sessions.create(bot);
+async function run(core: Awaited<ReturnType<typeof testCore>>, faux: ReturnType<typeof fauxModels>["faux"], bot: string, prompt: string, command: string, source?: string) {
+	const s = await core.sessions.create(bot, source ? { source } : {});
 	const ev = collect(core.hub, s.id);
 	faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command })], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("done")])]);
 	await core.sessions.submit(s.id, prompt);
@@ -108,6 +108,31 @@ test("never reviewed: no key, the destructive group, owner ask rules; a slow Jev
 		core.approvals.answer(asked.request.requestId, "once");
 		await slow.ev.until((e) => e.type === "run.finished", 10000);
 		assert.equal(core.reviewLog.list()[0]!.outcome, "unavailable");
+	} finally {
+		delete process.env.TEST_JEV_KEY;
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("the owner's chat relayed from a member is reviewed; work a member's bot started still asks the owner", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const jev = fakeJev(() => 0.97);
+	const core = await testCore(dir, { models, reviewFetch: jev.fetch });
+	process.env.TEST_JEV_KEY = "sk-or-test-key-0123456789";
+	try {
+		const relayed = await run(core, faux, "main", "is plex up to date?", "python3 -c 'print(1)'", "member:abc:owner");
+		await relayed.ev.until((e) => e.type === "run.finished", 10000);
+		assert.equal(relayed.ev.events.some((e) => e.type === "approval.requested"), false);
+		assert.equal(jev.calls.length, 1);
+		assert.deepEqual(jev.calls[0]!.state.context.humanMessages, ["is plex up to date?"]);
+
+		const delegated = await run(core, faux, "main", "check plex", "python3 -c 'print(1)'", "member:abc");
+		const asked = await delegated.ev.until((e) => e.type === "approval.requested", 10000);
+		if (asked.type === "approval.requested") core.approvals.answer(asked.request.requestId, "deny");
+		await delegated.ev.until((e) => e.type === "run.finished", 10000);
+		assert.equal(jev.calls.length, 1, "a member's own work never reaches the reviewer");
 	} finally {
 		delete process.env.TEST_JEV_KEY;
 		await core.close();
