@@ -5,6 +5,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
 import { redact, registerSecret } from "../log.ts";
+import { isOwnPanel, PANEL_REFUSED } from "./own-gateway.ts";
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
@@ -50,6 +51,60 @@ async function readLimited(res: Response, signal: AbortSignal): Promise<{ text: 
 	return { text: Buffer.concat(chunks).toString("utf8"), truncated };
 }
 
+type Outgoing = {
+	url: string;
+	method: string;
+	headers: Record<string, string>;
+	body?: string;
+	/** Lower-case names of headers whose value carried a substituted secret. */
+	secretHeaders: Set<string>;
+	secretInUrl: boolean;
+	secretInBody: boolean;
+	signal: AbortSignal;
+	ownPorts: () => number[];
+};
+
+const MAX_REDIRECTS = 20;
+const BODY_HEADERS = ["content-type", "content-length", "content-encoding", "content-language", "content-location"];
+const originOf = (url: string) => new URL(url).origin;
+
+/**
+ * fetch with redirects followed here, so each hop is checked against the gateway's own panel and a
+ * redirect to another origin never takes a key along: headers that carried a secret (and Authorization,
+ * Cookie, Proxy-Authorization, as fetch does) are dropped, and a 307/308 that would resend a key in the
+ * body or URL is not followed.
+ */
+export async function fetchChecked(req: Outgoing): Promise<{ res: Response; note?: string }> {
+	let { url, method, body } = req;
+	let headers = { ...req.headers };
+	let secretInUrl = req.secretInUrl;
+	for (let hop = 0; ; hop++) {
+		if (await isOwnPanel(url, req.ownPorts())) throw new Error(PANEL_REFUSED);
+		const res = await fetch(url, { method, headers, body, signal: req.signal, redirect: "manual" });
+		const location = res.headers.get("location");
+		if (![301, 302, 303, 307, 308].includes(res.status) || !location) return { res };
+		if (hop >= MAX_REDIRECTS) throw new Error("too many redirects");
+		const next = new URL(location, url).toString();
+		const keep = res.status === 307 || res.status === 308;
+		const crossOrigin = originOf(next) !== originOf(url);
+		if (crossOrigin && keep && (secretInUrl || (body !== undefined && req.secretInBody))) {
+			return { res, note: `not following a redirect to ${originOf(next)} with a key in the request` };
+		}
+		await res.body?.cancel().catch(() => undefined);
+		const toGet = res.status === 303 ? method !== "HEAD" : (res.status === 301 || res.status === 302) && method === "POST";
+		if (toGet) {
+			method = "GET";
+			body = undefined;
+			headers = Object.fromEntries(Object.entries(headers).filter(([k]) => !BODY_HEADERS.includes(k.toLowerCase())));
+		}
+		if (crossOrigin) {
+			headers = Object.fromEntries(Object.entries(headers).filter(([k]) => !req.secretHeaders.has(k.toLowerCase()) && !["authorization", "cookie", "proxy-authorization"].includes(k.toLowerCase())));
+		}
+		secretInUrl = false;
+		url = next;
+	}
+}
+
 export function webFeature(late: LateServices): Feature {
 	const allowedSecrets = (conversationId: number): Set<string> => {
 		const bot = late.sessions().botOf(conversationId);
@@ -57,6 +112,7 @@ export function webFeature(late: LateServices): Feature {
 		for (const n of names) registerSecret(process.env[n]);
 		return new Set(names);
 	};
+	const hasSecret = (value: string): boolean => /\{\{secret:[A-Z0-9_]+\}\}/.test(value);
 	const substitute = (value: string, allowed: Set<string>): string =>
 		value.replace(/\{\{secret:([A-Z0-9_]+)\}\}/g, (_m, name: string) => {
 			if (!allowed.has(name)) throw new Error(`secret ${name} is not available to this bot (add it to the bot's secrets list)`);
@@ -76,7 +132,16 @@ export function webFeature(late: LateServices): Feature {
 		replay: "safe",
 		execute: async (args, _api, ctx) => {
 			const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(ctx.abortSignal ? [ctx.abortSignal] : [])]);
-			const res = await fetch(args.url, { signal, redirect: "follow", headers: { "user-agent": "nHermes/0.1 (+personal assistant)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" } });
+			const { res } = await fetchChecked({
+				url: args.url,
+				method: "GET",
+				headers: { "user-agent": "nHermes/0.1 (+personal assistant)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" },
+				secretHeaders: new Set(),
+				secretInUrl: false,
+				secretInBody: false,
+				signal,
+				ownPorts: late.ownPorts,
+			});
 			const { text, truncated } = await readLimited(res, signal);
 			const type = res.headers.get("content-type") ?? "";
 			const body = !args.raw && type.includes("html") ? htmlToText(text) : text;
@@ -104,15 +169,29 @@ export function webFeature(late: LateServices): Feature {
 		execute: async (args, api, ctx) => {
 			const allowed = allowedSecrets(api.conversationId as number);
 			const headers: Record<string, string> = {};
-			for (const [k, v] of Object.entries(args.headers ?? {})) headers[k] = substitute(v, allowed);
+			const secretHeaders = new Set<string>();
+			for (const [k, v] of Object.entries(args.headers ?? {})) {
+				headers[k] = substitute(v, allowed);
+				if (hasSecret(v)) secretHeaders.add(k.toLowerCase());
+			}
 			const url = substitute(args.url, allowed);
 			const timeout = Math.min(Math.max(args.timeout_s ?? 30, 1), 300) * 1000;
 			const signal = AbortSignal.any([AbortSignal.timeout(timeout), ...(ctx.abortSignal ? [ctx.abortSignal] : [])]);
-			const res = await fetch(url, { method: args.method.toUpperCase(), headers, body: args.body === undefined ? undefined : substitute(args.body, allowed), signal });
+			const { res, note } = await fetchChecked({
+				url,
+				method: args.method.toUpperCase(),
+				headers,
+				body: args.body === undefined ? undefined : substitute(args.body, allowed),
+				secretHeaders,
+				secretInUrl: hasSecret(args.url),
+				secretInBody: args.body !== undefined && hasSecret(args.body),
+				signal,
+				ownPorts: late.ownPorts,
+			});
 			const { text, truncated } = await readLimited(res, signal);
 			const out = text.length > 50_000 ? `${text.slice(0, 50_000)}\n… [${text.length - 50_000} more characters]` : text;
 			return {
-				output: [{ type: "text", text: redact(`${res.status} ${res.statusText}\ncontent-type: ${res.headers.get("content-type") ?? ""}\n\n${out}${truncated ? "\n[body over 5 MB, cut]" : ""}`) }],
+				output: [{ type: "text", text: redact(`${res.status} ${res.statusText}\ncontent-type: ${res.headers.get("content-type") ?? ""}\n\n${out}${truncated ? "\n[body over 5 MB, cut]" : ""}${note ? `\n[${note}]` : ""}`) }],
 				isError: res.status >= 400,
 			};
 		},

@@ -84,3 +84,120 @@ test("shells never see the gateway's secrets, and tool output never carries a kn
 		delete process.env.TEST_GATEWAY_API_KEY;
 	}
 });
+
+type Hit = { url: string; method: string; headers: Record<string, string | string[] | undefined>; body: string };
+
+async function listening(handler: (req: Hit, res: import("node:http").ServerResponse, hits: Hit[]) => void) {
+	const hits: Hit[] = [];
+	const server = createServer((req, res) => {
+		const chunks: Buffer[] = [];
+		req.on("data", (c: Buffer) => chunks.push(c));
+		req.on("end", () => {
+			const hit = { url: req.url ?? "", method: req.method ?? "", headers: req.headers, body: Buffer.concat(chunks).toString() };
+			hits.push(hit);
+			handler(hit, res, hits);
+		});
+	});
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+	return { hits, port: (server.address() as AddressInfo).port, close: () => server.close() };
+}
+
+async function runTools(calls: { name: string; args: Record<string, string | Record<string, string>> }[], setup: (core: Awaited<ReturnType<typeof testCore>>) => void = () => {}) {
+	const { dir, cleanup } = await tempDir();
+	process.env.TEST_KEY = "key-0123456789abcdefghij";
+	const { models, faux } = fauxModels();
+	const config = testConfig(dir, [{ name: "ha", default: true, instructions: "home", secrets: ["TEST_KEY"] }]);
+	const core = await testCore(dir, { models, config });
+	try {
+		setup(core);
+		const s = await core.sessions.create("ha");
+		const c = collect(core.hub, s.id);
+		faux.setResponses([...calls.map((x) => fauxAssistantMessage([fauxToolCall(x.name, x.args)], { stopReason: "toolUse" })), fauxAssistantMessage([fauxText("done")])]);
+		await core.sessions.submit(s.id, "go");
+		await c.until((e) => e.type === "run.finished");
+		return (c.events.filter((e) => e.type === "tool.finished") as { resultText: string; isError: boolean }[]).map((r) => ({ text: r.resultText, isError: r.isError }));
+	} finally {
+		await core.close();
+		await cleanup();
+		delete process.env.TEST_KEY;
+	}
+}
+
+test("a bot's web tools cannot reach this gateway's own panel, directly or by redirect", async () => {
+	const own = await listening((_h, res) => {
+		res.writeHead(200);
+		res.end("panel");
+	});
+	const other = await listening((h, res) => {
+		if (h.url === "/to-panel") {
+			res.writeHead(302, { location: `http://localhost:${own.port}/PANEL/api/connect/token` });
+			res.end();
+			return;
+		}
+		res.writeHead(200);
+		res.end("fine");
+	});
+	try {
+		const r = await runTools(
+			[
+				{ name: "http_request", args: { method: "POST", url: `http://127.0.0.1:${own.port}/panel/api/connect/token`, headers: { "x-nhermes-panel": "1" } } },
+				{ name: "web_fetch", args: { url: `http://localhost:${own.port}/panel` } },
+				{ name: "http_request", args: { method: "GET", url: `http://127.0.0.1:${other.port}/panel/x` } },
+				{ name: "http_request", args: { method: "GET", url: `http://127.0.0.1:${own.port}/api/ping` } },
+				{ name: "http_request", args: { method: "GET", url: `http://127.0.0.1:${other.port}/to-panel` } },
+			],
+			(core) => core.members.setListenPort(own.port),
+		);
+		assert.equal(r[0]!.isError, true);
+		assert.match(r[0]!.text, /control panel can't be used from a bot's tools/);
+		assert.match(r[1]!.text, /control panel can't be used/);
+		assert.match(r[2]!.text, /^200/, "another port is not the panel");
+		assert.match(r[3]!.text, /^200/, "/api on the own port still works");
+		assert.match(r[4]!.text, /control panel can't be used/);
+		assert.deepEqual(own.hits.map((h) => h.url), ["/api/ping"], "nothing else reached the own server");
+	} finally {
+		own.close();
+		other.close();
+	}
+});
+
+test("http_request keeps keys on the host they were meant for when a redirect leaves it", async () => {
+	const target = await listening((_h, res) => {
+		res.writeHead(200);
+		res.end("target");
+	});
+	const origin = await listening((h, res) => {
+		const send = (status: number, location: string) => {
+			res.writeHead(status, { location });
+			res.end();
+		};
+		if (h.url === "/cross") return send(302, `http://localhost:${target.port}/landing`);
+		if (h.url === "/cross307") return send(307, `http://localhost:${target.port}/landing`);
+		if (h.url === "/same") return send(302, "/landing");
+		res.writeHead(200);
+		res.end("origin landing");
+	});
+	try {
+		const key = "key-0123456789abcdefghij";
+		const o = `http://127.0.0.1:${origin.port}`;
+		const r = await runTools([
+			{ name: "http_request", args: { method: "GET", url: `${o}/cross`, headers: { "x-api-key": "{{secret:TEST_KEY}}", "x-plain": "yes" } } },
+			{ name: "http_request", args: { method: "GET", url: `${o}/same`, headers: { "x-api-key": "{{secret:TEST_KEY}}" } } },
+			{ name: "http_request", args: { method: "POST", url: `${o}/cross307`, body: "token={{secret:TEST_KEY}}" } },
+			{ name: "http_request", args: { method: "POST", url: `${o}/cross307`, body: "plain" } },
+		]);
+		assert.match(r[0]!.text, /^200[\s\S]*target/, "an ordinary redirect is followed");
+		assert.equal(target.hits[0]!.headers["x-api-key"], undefined);
+		assert.equal(target.hits[0]!.headers["x-plain"], "yes");
+		const same = origin.hits.find((h) => h.url === "/landing")!;
+		assert.equal(same.headers["x-api-key"], key, "same-origin redirects behave as before");
+		assert.match(r[1]!.text, /origin landing/);
+		assert.match(r[2]!.text, /^307[\s\S]*not following a redirect to http:\/\/localhost:\d+ with a key in the request/);
+		assert.match(r[3]!.text, /^200[\s\S]*target/);
+		assert.equal(target.hits.length, 2, "the keyed 307 never reached the second host");
+		assert.equal(target.hits[1]!.body, "plain", "a keyless 307 resends its body");
+	} finally {
+		origin.close();
+		target.close();
+	}
+});

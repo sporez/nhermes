@@ -9,6 +9,8 @@ import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Locator, Page } from "playwright-core";
 import type { Feature, LateServices } from "../app.ts";
 import type { BrowserSession, Browsers } from "../computer/browser.ts";
+import { gatewayFilesPattern } from "../core/policy.ts";
+import { FILE_REFUSED, isGatewayFileUrl, isOwnPanel, maybePanelUrl, PANEL_REFUSED } from "./own-gateway.ts";
 
 const SNAPSHOT_LIMIT = 15_000;
 
@@ -35,10 +37,32 @@ const Target = {
 };
 
 export function browserFeature(late: LateServices, browsers: () => Browsers): Feature {
+	const gatewayFiles = gatewayFilesPattern(late.config.configDir, late.config.dataDir);
+	/** Why a bot may not open this URL, if it may not: the gateway's own panel, or the gateway's own files. */
+	const refusal = async (url: string): Promise<string | undefined> => {
+		if (isGatewayFileUrl(url, gatewayFiles)) return FILE_REFUSED;
+		if (await isOwnPanel(url, late.ownPorts())) return PANEL_REFUSED;
+		return undefined;
+	};
+	const guarded = new WeakSet<BrowserSession>();
+	/** Aborts every request (redirects, sub-requests, clicks) to the panel or the gateway's files. */
+	const guard = async (session: BrowserSession) => {
+		if (guarded.has(session)) return;
+		guarded.add(session);
+		await session.context.route(
+			(u) => u.protocol === "file:" || maybePanelUrl(u.toString()),
+			async (route) => ((await refusal(route.request().url())) ? route.abort("blockedbyclient") : route.fallback()),
+		);
+	};
+	const check = async (url: string | undefined) => {
+		const why = url ? await refusal(url) : undefined;
+		if (why) throw new Error(why);
+	};
 	const withPage = async (conversationId: number, ctx: Context, fn: (s: BrowserSession, page: Page) => Promise<Output | string>): Promise<Output> => {
 		const bot = late.sessions().botOf(conversationId);
 		if (!bot) throw new Error("this conversation has no bot");
 		const session = await browsers().session(bot);
+		await guard(session);
 		return session.lock.run(async () => {
 			if (ctx.abortSignal?.aborted) throw new Error("cancelled");
 			const page = await session.page();
@@ -48,6 +72,12 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 	};
 	const after = async (page: Page, note: string) => {
 		await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => undefined);
+		// A redirect (or a click) can still land on the panel; Playwright does not route redirect hops.
+		const why = await refusal(page.url());
+		if (why) {
+			await page.goto("about:blank").catch(() => undefined);
+			throw new Error(why);
+		}
 		return `${note}\n\n${await describePage(page)}`;
 	};
 
@@ -56,8 +86,9 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 			name: "browser_open",
 			description: "Open a URL in your browser (new_tab to keep the current page). Returns the page's accessibility snapshot with element refs.",
 			parameters: Type.Object({ url: Type.String(), new_tab: Type.Optional(Type.Boolean()) }),
-			execute: async (args, api, ctx) =>
-				withPage(api.conversationId as number, ctx, async (s, current) => {
+			execute: async (args, api, ctx) => {
+				await check(args.url);
+				return withPage(api.conversationId as number, ctx, async (s, current) => {
 					let page = current;
 					if (args.new_tab) {
 						page = await s.context.newPage();
@@ -65,7 +96,8 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 					}
 					const res = await page.goto(args.url, { waitUntil: "domcontentloaded" });
 					return after(page, `Opened (HTTP ${res?.status() ?? "?"}).`);
-				}),
+				});
+			},
 		}),
 		defineTool({
 			name: "browser_snapshot",
@@ -188,8 +220,9 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 			name: "browser_tabs",
 			description: "List, switch to, open or close tabs.",
 			parameters: Type.Object({ action: Type.Union([Type.Literal("list"), Type.Literal("switch"), Type.Literal("new"), Type.Literal("close")]), index: Type.Optional(Type.Number()), url: Type.Optional(Type.String()) }),
-			execute: async (args, api, ctx) =>
-				withPage(api.conversationId as number, ctx, async (s, page) => {
+			execute: async (args, api, ctx) => {
+				if (args.action === "new") await check(args.url);
+				return withPage(api.conversationId as number, ctx, async (s, page) => {
 					if (args.action === "new") {
 						const p = await s.context.newPage();
 						s.current = s.pages().indexOf(p);
@@ -213,7 +246,8 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 					void page;
 					const lines = await Promise.all(s.pages().map(async (p, i) => `${i === s.current ? "*" : " "} ${i}: ${await p.title().catch(() => "")} — ${p.url()}`));
 					return lines.join("\n") || "No tabs.";
-				}),
+				});
+			},
 		}),
 	];
 	return { groups: new Map([["browser", tools as ToolRegistration[]]]) };

@@ -118,7 +118,7 @@ export type CoreOptions = {
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
-export type LateServices = { sessions: () => Sessions; bots: () => Bots; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub };
+export type LateServices = { sessions: () => Sessions; bots: () => Bots; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub; /** Ports this gateway's web server answers on (its panel is on them). */ ownPorts: () => number[] };
 
 export async function loadModels(config: Config): Promise<Models> {
 	const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
@@ -165,7 +165,17 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		// Gateway-wide tools are not offered to bots that are not trusted.
 		tools: toolsFor(toolGroups, bot.toolGroups).filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name)),
 	});
-	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub };
+	const ownPorts = (): number[] => {
+		const ports = new Set<number>([config.server.port]);
+		try {
+			const p = Number(new URL(members.self().url).port);
+			if (p) ports.add(p);
+		} catch {
+			// an unparsable node url adds no port
+		}
+		return [...ports];
+	};
+	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub, ownPorts };
 
 	const delegation = delegateExtension({
 		sessions: late.sessions,
