@@ -8,3 +8,5 @@ secrets.env
 coverage/
 /tmp/
 .openchamber/
+CLAUDE.local.md
+AGENTS.local.md
