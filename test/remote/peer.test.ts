@@ -17,6 +17,9 @@ test("delegating to a peer gateway: answer, relayed approval, reconnect without 
 	const peerCore = await testCore(join(dir, "peer"), { models: pm, config: testConfig(join(dir, "peer"), [{ name: "nasbot", default: true, instructions: "You run on the NAS." }]) });
 	const peer = await startHermesServer(peerCore, { host: "127.0.0.1", port: 0 });
 	process.env.TEST_PEER_TOKEN = TOKEN;
+	// What the central gateway sends in its WebSocket upgrade: the token is in a header, not in the URL.
+	const upgrades: { url: string | undefined; authorization: string | undefined }[] = [];
+	peer.server.on("upgrade", (req) => upgrades.push({ url: req.url, authorization: req.headers.authorization }));
 	const c = fauxModels();
 	const central = await testCore(join(dir, "central"), {
 		models: c.models,
@@ -53,6 +56,11 @@ test("delegating to a peer gateway: answer, relayed approval, reconnect without 
 		assert.equal(done.text, "The NAS reports the pool is healthy.");
 		const tool = ev.events.find((e) => e.type === "tool.finished" && e.name === "delegate");
 		assert.ok(tool?.type === "tool.finished" && /nas answered .*Pool tank is ONLINE/s.test(tool.resultText), JSON.stringify(tool));
+		assert.ok(upgrades.length >= 2, "connected, and reconnected after the drop");
+		for (const u of upgrades) {
+			assert.doesNotMatch(u.url ?? "", /token=/);
+			assert.equal(u.authorization, `Bearer ${TOKEN}`);
+		}
 		// On the peer: one session, the task submitted once, the dangerous command never ran.
 		const remote = peerCore.sessions.list("nasbot", { limit: 10, offset: 0, archived: "include", order: "recent" });
 		assert.equal(remote.total, 1);

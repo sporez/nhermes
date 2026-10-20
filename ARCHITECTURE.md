@@ -214,7 +214,8 @@ run is not submitted twice.
   Durable database and bots. No second protocol: the central gateway talks to it over the same Hermes
   WebSocket Vory uses (`session.create`, `prompt.submit` with `idempotency_key` → the peer's Durable
   request id, `session.resume` after a dropped connection). A peer is configured as a bot with
-  `peer: { url, tokenEnv, profile }`; local bots reach it with `delegate`, and its approval requests are
+  `peer: { url, tokenEnv, profile }` (the token goes in an `Authorization: Bearer` header, never the URL; a
+  plain `http://` URL to another machine logs a warning at load); local bots reach it with `delegate`, and its approval requests are
   relayed to the owner's chat on the central gateway. `wait: false` works for bots on other machines
   too: a background task (`nh.delegate-remote`) starts the chat there, records its id, submits under a
   fixed key and waits (reconnecting, for up to a day), then posts the answer into the caller's chat; a

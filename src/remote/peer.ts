@@ -32,8 +32,10 @@ class Socket {
 
 	static async open(t: PeerTarget, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): Promise<Socket> {
 		const s = new Socket();
-		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws${t.token ? `?token=${encodeURIComponent(t.token)}` : ""}`;
-		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers: t.headers, ...t.tls });
+		// The token goes in a header, never in the URL (URLs end up in logs and proxies).
+		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws`;
+		const headers = { ...t.headers, ...(t.token ? { authorization: `Bearer ${t.token}` } : {}) };
+		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers, ...t.tls });
 		s.ws = ws;
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error(`peer ${t.url}: no gateway.ready`)), 20_000);

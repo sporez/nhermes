@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { registerSecret } from "./log.ts";
+import { logger, registerSecret } from "./log.ts";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -241,6 +241,16 @@ function parseBot(raw: unknown, i: number): BotConfig {
 	};
 }
 
+/** Whether a peer URL is http:// to a host other than this machine. */
+function cleartextRemote(url: string): boolean {
+	try {
+		const u = new URL(url);
+		return u.protocol === "http:" && !/^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/.test(u.hostname);
+	} catch {
+		return false;
+	}
+}
+
 export function loadConfig(configPath: string): Config {
 	const path = resolve(configPath);
 	if (!existsSync(path)) throw new ConfigError(`config file not found: ${path}`);
@@ -260,6 +270,7 @@ export function loadConfig(configPath: string): Config {
 	const bots = (Array.isArray(doc.bots) ? doc.bots : []).map(parseBot);
 	for (const b of bots) for (const name of b.secrets ?? []) registerSecret(process.env[name]);
 	for (const b of bots) if (b.peer) registerSecret(process.env[b.peer.tokenEnv]);
+	for (const b of bots) if (b.peer && cleartextRemote(b.peer.url)) logger("config").warn(`peer ${b.name} sends its token over plain http:// to another machine; use https:// or a private network`, { bot: b.name });
 	if (bots.length === 0) throw new ConfigError("config needs at least one bot under `bots:`");
 	const names = new Set<string>();
 	for (const b of bots) {
