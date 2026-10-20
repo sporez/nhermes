@@ -223,8 +223,10 @@ Every machine runs the same gateway; together they form one network of equals (`
 
 ## Backup, restore, upgrade
 
-- Backup: `nhermes backup` (cron it, e.g. a systemd timer, and copy the file off the machine). Secrets are
-  excluded unless `--secrets`.
+- Backup: `nhermes backup` (cron it, e.g. a systemd timer, and copy the file off the machine). A backup holds
+  chat transcripts and the bots' browser logins, so it is written owner-only (mode 0600); keep it that way
+  when you copy it. Secrets (`secrets.env`, and the keys you share with other members) are excluded unless
+  `--secrets`; without it, members must join again after a restore. The panel password is kept either way.
 - Restore: `systemctl --user stop nhermes && nhermes restore file && systemctl --user start nhermes`.
 - Upgrade: the panel's Gateway tab → Software → "Update now", or `nhermes update` (`--check` lists what
   is new; `nhermes update rollback` goes back to the version before). It fast-forwards the git checkout,

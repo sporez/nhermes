@@ -1,7 +1,7 @@
 // Admin API for the CLI (same token as Vory). The CLI never opens the databases itself: the running
 // gateway is their only owner, so backups are made here with consistent online copies.
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -35,10 +35,11 @@ export function makeBackup(core: Core, out: string, includeSecrets: boolean): { 
 		snapshotSqlite(join(core.config.dataDir, "durable.sqlite"), join(data, "durable.sqlite"));
 		core.db.vacuumInto(join(data, "app.sqlite"));
 		if (!includeSecrets) {
-			// Member pair secrets are credentials: without --secrets a restored machine joins again.
+			// Member pair secrets are credentials (also queued introductions and the key that signs panel
+			// cookies): without --secrets a restored machine joins again. The panel password hash stays.
 			const copy = new DatabaseSync(join(data, "app.sqlite"));
 			try {
-				copy.exec("UPDATE members SET secret = ''; DELETE FROM invites;");
+				copy.exec("UPDATE members SET secret = '', prev_secret = NULL, prev_until = NULL; DELETE FROM invites; DELETE FROM member_outbox; DELETE FROM settings WHERE key = 'panel.cookieKey';");
 			} finally {
 				copy.close();
 			}
@@ -57,7 +58,10 @@ export function makeBackup(core: Core, out: string, includeSecrets: boolean): { 
 		const secrets = join(core.config.configDir, "secrets.env");
 		if (includeSecrets && existsSync(secrets)) cpSync(secrets, join(conf, "secrets.env"));
 		mkdirSync(dirname(out), { recursive: true });
+		// Owner-only from the first byte: the file exists with mode 0600 before tar writes to it.
+		closeSync(openSync(out, "w", 0o600));
 		execFileSync("tar", ["-czf", out, "-C", stage, "data", "config"]);
+		chmodSync(out, 0o600);
 		const bytes = Number(execFileSync("wc", ["-c", out]).toString().trim().split(/\s+/)[0]);
 		log.info("backup written", { path: out, bytes, includeSecrets });
 		return { path: out, bytes };
