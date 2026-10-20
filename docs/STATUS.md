@@ -78,6 +78,30 @@ Found in a security audit (2026-10-20), fixed with regression tests:
   - `secrets.env` is created `0600`.
   - Approval cards from another machine start with "from \<machine\>:".
 
+## Provider logins
+
+Signing in to model providers from the panel (Logins tab) or `nhermes auth`, on this machine or a
+member, through Pi's own login flows (`docs/LOGINS.md`):
+
+- Automated:
+  - Login sessions are tested with fake `Models` flows: device code, `secret` and `manual_code` prompts,
+    failure, cancel, timeout, the 409/429 limits, redaction of answers and Pi errors, logout, and the
+    `/admin/logins` API (`test/core/logins.test.ts`).
+  - Remote sign-ins between two in-process gateways: TLS-PSK only, their own switch (off by default),
+    refused on a replaced key, a member going offline mid-login. No credential or answer reaches the
+    calling machine's responses or logs (`test/federation/logins.test.ts`).
+  - OAuth refresh failures are recorded per provider, with one notification per episode (not repeated
+    after a restart). Bots are marked in the panel state, and the mark clears on a working call or a new
+    sign-in (`test/core/signin-failure.test.ts`).
+- In panel-dev: the Logins tab, with fake providers on this machine and on a member, walked headless in
+  light and dark. That covered device code to done, the paste step, cancel, sign out, resume after
+  reload, and the switch-off message.
+- Not yet verified:
+  - a real provider sign-in (an xAI device code on a member)
+  - a callback provider's paste step
+  - `nhermes auth` in a terminal
+  - a real expired token
+
 ## Models
 
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own

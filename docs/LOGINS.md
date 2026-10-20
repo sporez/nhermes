@@ -1,6 +1,6 @@
 # Provider logins from the panel, on any machine (plan)
 
-Status: accepted, in progress.
+Status: implemented (L0–L4); live acceptance not run yet.
 
 ## Goal
 
@@ -221,8 +221,9 @@ L4 notes:
 
 ## Progress
 
-- [ ] L0 room in the panel script
+- [x] L0 room in the panel script (`7ceb04c`: one module per screen, `core.js` explains how to add a tab)
 - [x] L1 login sessions and CLI (`core/logins.ts`, `/admin/logins`, `nhermes auth`; tests in `test/core/logins.test.ts`)
 - [x] L2 panel (this machine): Logins tab (`src/panel/static/logins.js`) with a machine picker, so it also drives members; walked in `scripts/panel-dev.ts` (fake providers), light and dark
-- [ ] L3 remote logins (backend done: `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker is L2's)
+- [x] L3 remote logins ( `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker drives it)
 - [x] L4 status and failures (`Logins.modelOutcome` from the live projection; `signIn` on the panel state's bots; tests in `test/core/signin-failure.test.ts`)
+- [ ] Acceptance: a live xAI device-code sign-in on a member from another machine's panel, and a callback provider's paste step
