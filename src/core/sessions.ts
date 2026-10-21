@@ -9,7 +9,7 @@ import type { Approvals } from "./approvals.ts";
 import type { Bot, Bots } from "./bots.ts";
 import type { Hub, UsageSummary } from "./events.ts";
 import { type LiveHooks, LiveSession } from "./live.ts";
-import { projectTranscript, type TranscriptRow } from "./transcript.ts";
+import { projectTranscript, type TranscriptRow, userPlain } from "./transcript.ts";
 
 const log = logger("sessions");
 
@@ -462,9 +462,10 @@ export class Sessions {
 		};
 	}
 
-	private onUserPlaced(id: string, text: string, announceTitle = true): void {
+	private onUserPlaced(id: string, shown: string, announceTitle = true): void {
 		const row = this.get(id);
 		if (!row) return;
+		const text = userPlain(shown);
 		const now = Date.now() / 1000;
 		this.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", now, id);
 		if (!row.title && row.title_source === "auto" && text.trim()) {

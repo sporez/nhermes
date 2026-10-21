@@ -5,7 +5,7 @@
 import type { AgentEvent, ConvId, Engine, EngineWatch, EntryRecord } from "../engine/engine.ts";
 import { logger } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
-import { textOf, toolPreview } from "./transcript.ts";
+import { textOf, toolPreview, userDisplay } from "./transcript.ts";
 
 const log = logger("live");
 
@@ -99,7 +99,7 @@ export class LiveSession {
 				case "message_start": {
 					const m = e.message as Msg;
 					if (m.role === "user") {
-						this.prompt = textOf(m.content);
+						this.prompt = userDisplay(m.content);
 					} else if (m.role === "assistant") {
 						this.beginMessage();
 						this.applyWholeMessage(m);
@@ -163,7 +163,7 @@ export class LiveSession {
 			const m = entries[i]!.model?.[0] as Msg | undefined;
 			if (m?.role === "user") {
 				lastUser = i;
-				this.prompt = textOf(m.content);
+				this.prompt = userDisplay(m.content);
 				break;
 			}
 		}
@@ -247,7 +247,7 @@ export class LiveSession {
 		const m = entry.model?.[0] as Msg | undefined;
 		if (!m) return;
 		if (m.role === "user") {
-			this.prompt = textOf(m.content);
+			this.prompt = userDisplay(m.content);
 			this.hooks.onUserPlaced(this.sessionId, this.prompt);
 			return;
 		}

@@ -128,6 +128,40 @@ test("a PDF's pages go with the next message", async () => {
 	}
 });
 
+test("a reopened chat shows pictures as Vory's marks and files as typed, never the files' text", async () => {
+	const { c, sid } = await chat();
+	try {
+		faux.setResponses([fauxAssistantMessage("Two things."), fauxAssistantMessage("And a PDF.")]);
+		const img = await c.call<{ name: string }>("image.attach_bytes", { session_id: sid, content_base64: b64(pngBytes(3, 3)), filename: "cat.png" });
+		const file = await c.call<{ ref_text: string }>("file.attach", { session_id: sid, data_url: `data:text/plain;base64,${b64("secret recipe")}`, name: "notes.txt" });
+		await c.call("prompt.submit", { session_id: sid, text: `Look ${file.ref_text}` });
+		await c.waitEvent("message.complete", sid);
+		await c.call("pdf.attach", { session_id: sid, content_base64: b64("%PDF-1.4\n"), filename: "plan.pdf" });
+		await c.call("prompt.submit", { session_id: sid, text: "" });
+		await c.waitFor((f) => f.method === "event" && JSON.stringify(f.params).includes("And a PDF."));
+		const snap = await c.call<{ messages: { role: string; text: string }[] }>("session.resume", { session_id: sid });
+		const users = snap.messages.filter((m) => m.role === "user").map((m) => m.text);
+		assert.deepEqual(users, [`Look @file:uploads/notes.txt\n\n[User attached image: ${img.name}]`, "📎 plan.pdf"]);
+		assert.equal(core.sessions.require(sid).title, "Look @file:uploads/notes.txt");
+	} finally {
+		c.ws.close();
+	}
+});
+
+test("a chat that starts with only a picture is titled Picture", async () => {
+	const { c, sid } = await chat();
+	try {
+		faux.setResponses([fauxAssistantMessage("A dot.")]);
+		await c.call("image.attach_bytes", { session_id: sid, content_base64: b64(pngBytes(3, 3)) });
+		await c.call("prompt.submit", { session_id: sid, text: "" });
+		const title = await c.waitEvent("session.title", sid);
+		assert.equal(title.payload.title, "Picture");
+		assert.equal(core.sessions.require(sid).preview, "Picture");
+	} finally {
+		c.ws.close();
+	}
+});
+
 test("bad uploads are refused in plain words, and a path on the gateway is never read", async () => {
 	const { c, sid } = await chat();
 	const fail = (method: string, params: Record<string, unknown>) => c.call(method, { session_id: sid, ...params }).catch((e: { code: number; message: string }) => e) as Promise<{ code: number; message: string }>;

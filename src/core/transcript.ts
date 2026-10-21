@@ -1,5 +1,6 @@
 // Projects Durable transcript entries into the row shape Hermes clients render
 // (`session_history._project_history`: role, text, timestamp, row_id, name, context, reasoning).
+import { basename } from "node:path";
 import type { EntryRecord } from "../engine/engine.ts";
 import { redact } from "../log.ts";
 
@@ -41,12 +42,27 @@ function thinkingOf(content: string | Block[]): string {
 	return content.filter((b) => b.type === "thinking").map((b) => b.thinking ?? "").join("\n");
 }
 
-/** The user's words for a pi.user entry (or an app-kind input entry with a model user message). */
-export function userText(entry: EntryRecord): string | undefined {
-	const msg = entry.model?.[0] as Msg | undefined;
-	if (!msg || msg.role !== "user") return undefined;
-	return textOf(msg.content);
+/**
+ * A user message as clients show it. A prompt with attachments (src/core/attachments.ts) is the words with
+ * a line per picture or PDF, then the attached files' text for the model only: shown are the first block,
+ * with each picture as Vory's `[User attached image: <name>]` and each PDF as `📎 <name>`.
+ */
+export function userDisplay(content: string | Block[] | undefined): string {
+	if (content === undefined || typeof content === "string") return content ?? "";
+	const first = content.find((b) => b.type === "text")?.text ?? "";
+	if (!content.some((b) => b.type === "image") && content.filter((b) => b.type === "text").length < 2) return first;
+	return first
+		.replace(/^\[Image attached at: (.+)\]$/gm, (_, path: string) => `[User attached image: ${basename(path)}]`)
+		.replace(/^\[PDF attached at: (.+?) \(.*\)\]$/gm, (_, path: string) => `📎 ${basename(path)}`);
 }
+
+/** The words of a shown user message without its picture marks, for titles and previews ("Picture" when that is all). */
+export function userPlain(display: string): string {
+	const words = display.replace(/\s*\[User attached image: [^\]]+\]/g, "").trim();
+	if (words || !display.includes("[User attached image:")) return words;
+	return (display.match(/\[User attached image:/g)?.length ?? 0) > 1 ? "Pictures" : "Picture";
+}
+
 
 export function projectTranscript(entries: readonly EntryRecord[]): TranscriptRow[] {
 	return projectRaw(entries).map((r) => ({
@@ -76,7 +92,7 @@ function projectRaw(entries: readonly EntryRecord[]): TranscriptRow[] {
 		if (!msg) continue;
 		const ts = (msg.timestamp ?? Date.now()) / 1000;
 		if (msg.role === "user") {
-			const text = textOf(msg.content);
+			const text = userDisplay(msg.content);
 			if (text) rows.push({ role: "user", text, timestamp: ts, row_id: ordinal });
 		} else if (msg.role === "assistant") {
 			const blocks = typeof msg.content === "string" ? [] : msg.content;
