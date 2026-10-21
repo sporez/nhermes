@@ -49,9 +49,7 @@ function thinkingOf(content: string | Block[]): string {
  */
 export function userDisplay(content: string | Block[] | undefined): string {
 	if (content === undefined || typeof content === "string") return content ?? "";
-	const first = content.find((b) => b.type === "text")?.text ?? "";
-	if (!content.some((b) => b.type === "image") && content.filter((b) => b.type === "text").length < 2) return first;
-	return first
+	return (content.find((b) => b.type === "text")?.text ?? "")
 		.replace(/^\[Image attached at: (.+)\]$/gm, (_, path: string) => `[User attached image: ${basename(path)}]`)
 		.replace(/^\[PDF attached at: (.+?) \(.*\)\]$/gm, (_, path: string) => `📎 ${basename(path)}`);
 }

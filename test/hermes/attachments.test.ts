@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
+import { userDisplay } from "../../src/core/transcript.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { pngBytes, TOKEN, tempDir, testCore } from "../helpers.ts";
 import { HermesClient } from "./client.ts";
@@ -142,6 +143,9 @@ test("a reopened chat shows pictures as Vory's marks and files as typed, never t
 		const snap = await c.call<{ messages: { role: string; text: string }[] }>("session.resume", { session_id: sid });
 		const users = snap.messages.filter((m) => m.role === "user").map((m) => m.text);
 		assert.deepEqual(users, [`Look @file:uploads/notes.txt\n\n[User attached image: ${img.name}]`, "📎 plan.pdf"]);
+		// A PDF whose pages could not be rendered is sent as text alone, and shows the same way.
+		const row = { role: "user", content: [{ type: "text", text: "read it\n\n[PDF attached at: /w/uploads/scan.pdf (its pages could not be shown as images here; use your tools to read it)]" }] };
+		assert.equal(userDisplay(row.content), "read it\n\n📎 scan.pdf");
 		assert.equal(core.sessions.require(sid).title, "Look @file:uploads/notes.txt");
 	} finally {
 		c.ws.close();
