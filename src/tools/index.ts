@@ -2,12 +2,13 @@
 // registrations; the agent's enabled tools are the union of its bot's groups.
 import type { ToolRegistration } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import { images } from "../engine/images.ts";
 
 export type ToolGroups = Map<string, ToolRegistration[]>;
 
 export function coreToolGroups(): ToolGroups {
 	const groups: ToolGroups = new Map();
-	groups.set("files", [createReadTool() as ToolRegistration, createWriteTool() as ToolRegistration, createEditTool() as ToolRegistration]);
+	groups.set("files", [createReadTool({ images }) as ToolRegistration, createWriteTool() as ToolRegistration, createEditTool() as ToolRegistration]);
 	groups.set("shell", [createBashTool() as ToolRegistration]);
 	return groups;
 }

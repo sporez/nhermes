@@ -2,7 +2,7 @@
 // Durable conversation id; the catalogue row (title, preview, counts, flags) is ours. Deleting a
 // session never touches its bot.
 import { randomBytes } from "node:crypto";
-import type { AgentChange, ConvId, Engine, SubmitOptions } from "../engine/engine.ts";
+import type { AgentChange, ConvId, Engine, SubmitOptions, UserInput } from "../engine/engine.ts";
 import { logger } from "../log.ts";
 import type { AppDb } from "../store/db.ts";
 import type { Approvals } from "./approvals.ts";
@@ -348,7 +348,7 @@ export class Sessions {
 		this.db.run(`UPDATE sessions SET ${what === "model" ? "model_override" : "thinking_override"} = 1 WHERE id = ?`, id);
 	}
 
-	async submit(id: string, text: string, opts: SubmitOptions = {}): Promise<{ status: "streaming" | "queued" | "steered"; submission: string }> {
+	async submit(id: string, text: UserInput, opts: SubmitOptions = {}): Promise<{ status: "streaming" | "queued" | "steered"; submission: string }> {
 		const row = this.require(id);
 		const busyNow = this.lives.get(id)?.running ?? false;
 		if (!busyNow) await this.followBot(id);

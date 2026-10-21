@@ -22,6 +22,7 @@ import {
 	type SubmissionRecord,
 	UsageDoc,
 	type UsageState,
+	type UserInput,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
@@ -34,7 +35,7 @@ const ctx = BACKGROUND_CONTEXT;
 
 export type ConvId = number;
 export type ModelRef = { provider: string; modelId: string };
-export type { AgentChange, AgentEvent, EntryRecord, UsageState };
+export type { AgentChange, AgentEvent, EntryRecord, UsageState, UserInput };
 
 export type EngineOptions = {
 	/** Path of the Durable SQLite file; ":memory:" uses MemoryStorage (tests). */
@@ -129,9 +130,10 @@ export class Engine {
 		};
 	}
 
-	async submit(id: ConvId, text: string, options: SubmitOptions = {}): Promise<SubmitResult> {
+	/** Text, or text and image blocks (a prompt with attached pictures). */
+	async submit(id: ConvId, content: UserInput, options: SubmitOptions = {}): Promise<SubmitResult> {
 		const conv = await this.conv(id);
-		const sub = await conv.submit({ type: "input", content: text, requestId: options.requestId, whenBusy: options.whenBusy ?? "followUp" }, ctx);
+		const sub = await conv.submit({ type: "input", content, requestId: options.requestId, whenBusy: options.whenBusy ?? "followUp" }, ctx);
 		const record = await sub.status(ctx);
 		return { submissionId: sub.id as number, status: record.status };
 	}
