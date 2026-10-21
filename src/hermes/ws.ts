@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
+import { AttachmentError } from "../core/attachments.ts";
 import type { SessionEvent } from "../core/events.ts";
 import { RoomError } from "../core/rooms.ts";
 import { UnknownSession } from "../core/sessions.ts";
@@ -33,6 +34,12 @@ function str(p: Params, key: string, required = true): string {
 	if (typeof v === "string" && v.length > 0) return v;
 	if (required) throw new RpcError(-32602, `${key} is required`);
 	return "";
+}
+
+/** An upload's data: the first of `keys` given, as base64 or a data URL. */
+function bytesParam(p: Params, ...keys: string[]): string {
+	for (const k of keys) if (typeof p[k] === "string" && p[k]) return p[k];
+	throw new RpcError(4015, `${keys[0]} is required`);
 }
 
 function num(v: unknown): number | undefined {
@@ -160,7 +167,7 @@ export class Connection {
 			const result = await this.dispatch(msg.method, params);
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, result });
 		} catch (error) {
-			const code = error instanceof RpcError || error instanceof LinkError || error instanceof RoomError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
+			const code = error instanceof RpcError || error instanceof LinkError || error instanceof RoomError || error instanceof AttachmentError ? error.code : error instanceof UnknownSession ? 4006 : -32000;
 			const message = error instanceof Error ? error.message : String(error);
 			if (code === -32000) log.warn("rpc failed", { method: msg.method, error: message });
 			if (id !== undefined && id !== null) this.send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -427,13 +434,35 @@ export class Connection {
 			case "prompt.submit": {
 				const id = str(p, "session_id");
 				const text = typeof p.text === "string" ? p.text : "";
-				if (!text.trim()) throw new RpcError(-32602, "text is required");
+				// A message of only pictures comes with no text.
+				if (!text.trim() && this.core.attachments.pending(id) === 0) throw new RpcError(-32602, "text is required");
 				this.attach(id);
 				const requestId = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
-				const r = await sessions.submit(id, text, { requestId, whenBusy: "followUp" });
+				const r = await this.core.attachments.submit(id, text, (content) => sessions.submit(id, content, { requestId, whenBusy: "followUp" }));
 				// submission_status: our extension, so a client retrying with an idempotency key learns that the
 				// earlier submission already finished (Vory ignores it).
 				return { status: r.status, submission_status: r.submission };
+			}
+			// Uploads for the next prompt (Hermes' methods_prompt.py replies; src/core/attachments.ts).
+			case "image.attach_bytes": {
+				const id = str(p, "session_id");
+				sessions.require(id);
+				const r = await this.core.attachments.image(id, bytesParam(p, "content_base64", "data"), typeof p.filename === "string" ? p.filename : undefined);
+				return { attached: true, path: r.path, name: r.name, count: r.count, remainder: "", text: `[User attached image: ${r.name}]`, bytes: r.bytes };
+			}
+			case "pdf.attach": {
+				const id = str(p, "session_id");
+				sessions.require(id);
+				if (typeof p.path === "string" && p.path) throw new RpcError(4016, "Send the PDF's contents; this gateway does not read files by path.");
+				const r = await this.core.attachments.pdf(id, bytesParam(p, "content_base64", "data"), typeof p.filename === "string" ? p.filename : undefined);
+				return { attached: true, filename: r.name, path: r.path, pages_attached: r.pages, pages: [], count: r.count, text: `[User attached PDF: ${r.name} (${r.pages} page(s))]` };
+			}
+			case "file.attach": {
+				const id = str(p, "session_id");
+				sessions.require(id);
+				if (typeof p.path === "string" && p.path) throw new RpcError(4016, "Send the file's contents; this gateway does not read files by path.");
+				const r = this.core.attachments.file(id, bytesParam(p, "data_url"), typeof p.name === "string" ? p.name : undefined);
+				return { attached: true, name: r.name, path: r.path, ref_path: r.refPath, ref_text: r.ref, uploaded: true };
 			}
 			case "session.steer": {
 				const id = str(p, "session_id");

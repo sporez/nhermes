@@ -30,6 +30,7 @@ git clone https://github.com/sporez/nhermes ~/nhermes && cd ~/nhermes && npm ci 
 # Optional features
 sudo apt-get install -y google-chrome-stable      # or: npx playwright-core install --with-deps chromium
 sudo apt-get install -y xdotool imagemagick wmctrl python3-pyatspi at-spi2-core   # desktop control
+sudo apt-get install -y poppler-utils             # PDFs sent from Vory reach the model as page pictures
 
 # Config
 mkdir -p ~/.config/nhermes && ~/nhermes/bin/nhermes init ~/.config/nhermes
@@ -259,7 +260,7 @@ Every machine runs the same gateway; together they form one network of equals (`
 |---|---|
 | `durable.sqlite` | Pi Durable: conversations, runs, tool tasks (owned by Pi Durable) |
 | `app.sqlite` | sessions catalogue, memory (FTS5), jobs and run history, approval rules, audit log |
-| `workspaces/<bot>/` | each local bot's working directory |
+| `workspaces/<bot>/` | each local bot's working directory; `uploads/` in it holds what was sent from Vory (kept until removed by hand) |
 | `browser/<bot>/` | browser profile (cookies, logins) and screenshots — treat as sensitive |
 | `ssh/known_hosts` | pinned host keys for remote bots |
 | `vory/` | Vory push device registrations and the Companion's stored files |

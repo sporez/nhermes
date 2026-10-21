@@ -78,7 +78,7 @@ Run with `scripts/vory-e2e.sh` (stock Vory at the pinned commit, a dedicated sim
 | Title | `session.title` event | Tested | | First prompt, shortened |
 | Multi-device fan-out | events to every attached socket | Tested | E2E `aTurnSentFromOneDeviceShowsOnTheOther` | |
 | Reconnect during a run | `session.resume` mid-run | Tested | | Snapshot, then live events |
-| Attachments | `image.attach_bytes`, `pdf.attach`, `file.attach` | Deferred | | |
+| Attachments | `image.attach_bytes`, `pdf.attach`, `file.attach`, then `prompt.submit` | Tested (protocol) | | Saved to the bot's workspace `uploads/` (`src/core/attachments.ts`). Pictures (PNG, JPEG, GIF, WebP, BMP; 25 MB) are shrunk to the model limits and go with the next prompt, which may have no text, after Hermes' `[Image attached at: <path>]` line. PDFs (40 MB): the first 25 pages as pictures when `pdftoppm` is installed, else a line telling the model where the file is. Other files (40 MB) return `ref_text: @file:uploads/<name>`; a prompt naming it gets the file's text under "--- Attached Context ---", or for binary and oversized files Hermes' note with the path. Only references the session was given are expanded; `path` params are refused. Models without image input see pi-ai's "(image omitted)" placeholder |
 
 ## Tools and approvals
 
