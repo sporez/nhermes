@@ -11,7 +11,7 @@ import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
 import { startHermesServer } from "../../src/hermes/server.ts";
 import { logger, setLogLevel } from "../../src/log.ts";
-import { collect, fauxModels, TOKEN, tempDir } from "../helpers.ts";
+import { collect, fauxModels, pngBytes, TOKEN, tempDir } from "../helpers.ts";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, encoding: "utf8" }).trim();
 
@@ -229,6 +229,38 @@ test("files: the bots' workspaces, read-only, nothing outside them", async () =>
 		assert.equal((await api("GET", `/api/files?path=${encodeURIComponent(dir)}`)).status, 403);
 		assert.equal((await api("GET", `/api/files/download?path=${encodeURIComponent(join(ws, "..", "..", "..", "outside.txt"))}`)).status, 403);
 		assert.equal((await api("POST", "/api/files/upload-stream", {})).status, 403);
+	} finally {
+		await close();
+	}
+});
+
+test("media: a sent picture loads by the path Vory guesses for it; only pictures inside the workspaces", async () => {
+	const { dir, core, api, close } = await setup();
+	try {
+		const png = pngBytes(5, 5);
+		const main = core.bots.require("main").workspace;
+		const ops = core.bots.require("ops").workspace;
+		mkdirSync(join(main, "uploads"));
+		mkdirSync(join(ops, "uploads"));
+		writeFileSync(join(main, "uploads", "cat.png"), png);
+		writeFileSync(join(ops, "uploads", "graph.png"), png);
+		writeFileSync(join(main, "chart.jpg"), png);
+		writeFileSync(join(main, "notes.txt"), "text");
+		writeFileSync(join(dir, "outside.png"), png);
+		symlinkSync(join(dir, "outside.png"), join(main, "uploads", "escape.png"));
+		const media = (path: string, profile?: string) => api("GET", `/api/media?path=${encodeURIComponent(path)}${profile ? `&profile=${profile}` : ""}`);
+
+		const r = await media("~/.hermes/images/cat.png");
+		assert.equal(r.status, 200);
+		assert.deepEqual(r.json, { path: "~/.hermes/images/cat.png", size: png.length, mime_type: "image/png", data_url: `data:image/png;base64,${png.toString("base64")}` });
+		assert.equal((await media("~/.hermes/profiles/ops/images/graph.png")).status, 200);
+		assert.equal((await media("~/.hermes/images/graph.png", "ops")).status, 200);
+		assert.equal((await media("~/.hermes/images/graph.png")).status, 404, "another bot's upload");
+		assert.equal((await media(join(main, "chart.jpg"))).json.mime_type, "image/jpeg");
+		assert.equal((await media(join(main, "notes.txt"))).status, 415);
+		assert.equal((await media("~/.hermes/images/escape.png")).status, 403, "a link out of the workspace");
+		assert.equal((await media(join(dir, "outside.png"))).status, 403);
+		assert.equal((await media("~/.hermes/images/..")).status, 415);
 	} finally {
 		await close();
 	}

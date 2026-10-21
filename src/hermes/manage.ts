@@ -2,9 +2,9 @@
 // restart and doctor (with the action status Vory polls), recent logs, per-bot config, tool groups,
 // the default model, keys, creating and removing bots, usage analytics and a read-only Files browser
 // over the bots' workspaces. Hermes-only settings answer 400 with the reason rather than pretending.
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, extname, join, sep } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError, THINKING_LEVELS, type ThinkingLevel } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
@@ -14,7 +14,7 @@ import type { UsageEvent } from "../core/sessions.ts";
 import { UpdateError } from "../core/updates.ts";
 import { recentLogs } from "../log.ts";
 import { HttpError, obj, RawBody, type Router } from "./http.ts";
-import { botFor, localOnly } from "./lookup.ts";
+import { botFor, insideWorkspace, localOnly, workspaceRoots } from "./lookup.ts";
 import { VERSION } from "./shapes.ts";
 
 /** This process; an action started by an earlier one finished when that process exited for it. */
@@ -28,6 +28,9 @@ const MIME: Record<string, string> = {
 	".html": "text/html", ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
 	".webp": "image/webp", ".svg": "image/svg+xml", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".zip": "application/zip",
 };
+/** Pictures GET /api/media serves (Hermes' list, without SVG and icons). */
+const MEDIA: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp" };
+const MEDIA_MAX = 25 * 1024 * 1024;
 
 /** Turns the services' own errors into HTTP answers. */
 export function call<T>(fn: () => T): T {
@@ -306,22 +309,8 @@ export function manageRoutes(core: Core, r: Router): void {
 	});
 
 	// ---- Files: read-only browsing of each bot's workspace ----
-	const roots = () =>
-		bots
-			.list()
-			.filter((b) => !b.isPeer && b.workspace)
-			.map((b) => ({ bot: b, real: realpathSync(b.workspace) }));
-	const inside = (path: string) => {
-		let real: string;
-		try {
-			real = realpathSync(path);
-		} catch {
-			throw new HttpError(404, `${path} does not exist`);
-		}
-		const root = roots().find((x) => real === x.real || real.startsWith(x.real + sep));
-		if (!root) throw new HttpError(403, "only the bots' workspace folders can be browsed");
-		return { real, root };
-	};
+	const roots = () => workspaceRoots(core);
+	const inside = (path: string) => insideWorkspace(core, path);
 	r.on("GET", "/api/files", (q) => {
 		const path = q.query.get("path");
 		if (!path || path === "/") {
@@ -358,5 +347,28 @@ export function manageRoutes(core: Core, r: Router): void {
 	});
 	r.on("POST", "/api/files/upload-stream", () => {
 		throw new HttpError(403, "the Files tab is read-only on this gateway");
+	});
+
+	// ---- Pictures in a chat (hermes_cli/web_routers/files.py GET /api/media) ----
+	// Vory finds a sent picture by the "[User attached image: <name>]" mark and asks for it under Hermes'
+	// images folder (`~/.hermes/images/<name>`, `~/.hermes/profiles/<bot>/images/<name>`): here it is that
+	// bot's uploads/. Any other path is served when it is a picture in a bot's workspace.
+	r.on("GET", "/api/media", (q) => {
+		const path = q.query.get("path");
+		if (!path) throw new HttpError(400, "path is required");
+		let file = path;
+		const guessed = /^~\/\.hermes\/(?:profiles\/([^/]+)\/)?images\/([^/]+)$/.exec(path);
+		if (guessed) {
+			const bot = botFor(core, guessed[1] ?? q.query.get("profile"));
+			if (!bot.workspace) throw new HttpError(404, `${path} does not exist`);
+			file = join(bot.workspace, "uploads", guessed[2]!);
+		}
+		const mime = MEDIA[extname(file).toLowerCase()];
+		if (!mime) throw new HttpError(415, "only pictures are served here");
+		const { real } = inside(file);
+		const st = statSync(real);
+		if (!st.isFile()) throw new HttpError(404, `${path} does not exist`);
+		if (st.size > MEDIA_MAX) throw new HttpError(413, `${basename(path)} is larger than ${MEDIA_MAX / 1024 / 1024} MB`);
+		return { path, size: st.size, mime_type: mime, data_url: `data:${mime};base64,${readFileSync(real).toString("base64")}` };
 	});
 }
