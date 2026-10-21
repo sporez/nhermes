@@ -30,7 +30,7 @@ git clone https://github.com/sporez/nhermes ~/nhermes && cd ~/nhermes && npm ci 
 # Optional features
 sudo apt-get install -y google-chrome-stable      # or: npx playwright-core install --with-deps chromium
 sudo apt-get install -y xdotool imagemagick wmctrl python3-pyatspi at-spi2-core   # desktop control
-sudo apt-get install -y poppler-utils             # PDFs sent from Vory reach the model as page pictures
+sudo apt-get install -y poppler-utils             # PDFs sent from Vory reach the model as page pictures (doctor warns without it)
 
 # Config
 mkdir -p ~/.config/nhermes && ~/nhermes/bin/nhermes init ~/.config/nhermes

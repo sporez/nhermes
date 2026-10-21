@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { UserInput } from "../../src/engine/engine.ts";
-import { AttachmentError, cleanName, decode } from "../../src/core/attachments.ts";
+import { AttachmentError, cleanName, decode, pdftoppmInstalled } from "../../src/core/attachments.ts";
 import { fauxModels, pngBytes, tempDir, testCore } from "../helpers.ts";
 
 type Block = Exclude<UserInput, string>[number];
@@ -146,6 +146,16 @@ test("a PDF's pages go to the model as pictures; without a renderer the model is
 		assert.equal(content[0]!.type === "text" && content[0]!.text, `summarise\n\n[PDF attached at: ${r.path} (its pages could not be shown as images here; use your tools to read it)]`);
 	} finally {
 		await n.done();
+	}
+});
+
+test("a missing pdftoppm is noticed; an injected renderer counts as present", async () => {
+	assert.equal(await pdftoppmInstalled("nh-no-such-pdftoppm"), false);
+	const t = await setup(async () => []);
+	try {
+		assert.equal(await t.core.attachments.pdfPages(), true);
+	} finally {
+		await t.done();
 	}
 });
 

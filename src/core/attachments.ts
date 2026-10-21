@@ -113,6 +113,11 @@ export class Attachments {
 		return { path, name: basename(path), ref, refPath };
 	}
 
+	/** Whether a PDF's pages can be shown to the model as pictures (the doctor's check). */
+	pdfPages(): Promise<boolean> {
+		return this.d.renderPdf ? Promise.resolve(true) : pdftoppmInstalled();
+	}
+
 	/** Pictures and PDFs waiting for this session's next prompt. */
 	pending(sessionId: string): number {
 		const s = this.bySession.get(sessionId);
@@ -350,6 +355,11 @@ function longestRun(text: string, ch: string): number {
 		if (run > best) best = run;
 	}
 	return best;
+}
+
+/** Whether `command` (pdftoppm) runs on this gateway's PATH, as the renderer would find it. */
+export function pdftoppmInstalled(command = "pdftoppm"): Promise<boolean> {
+	return new Promise((resolve) => execFile(command, ["-v"], { timeout: 10_000 }, (error) => resolve(!error)));
 }
 
 /** pdftoppm (poppler-utils), as Hermes renders PDF pages: PNG at 150 dpi. */
