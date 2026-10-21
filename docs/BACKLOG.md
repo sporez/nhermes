@@ -66,6 +66,12 @@ Status per phase: see `docs/STATUS.md`.
 
 ## Deferred
 
+- **Uploaded binary files for bots on an SSH host.** Files sent from Vory are saved on the gateway
+  (`src/core/attachments.ts`). Pictures, PDF pages and text files reach any bot inside the prompt, but a
+  zip or spreadsheet sent to a bot with `host: ssh:` stays where that bot's tools cannot reach it; the model
+  is told so. Next step if needed: copy the upload to the host's working directory through its
+  `ExecutionEnv` when it is attached.
+
 - **Chat summaries for Recent chats.** Today a new chat sees each recent chat's title, last question and
   the start of the last answer (`src/tools/memory.ts`). Next step, if previews prove too thin: once a chat
   has been idle about 10 minutes, a cheap model writes 3-5 lines on it (what it was about, what was

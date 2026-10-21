@@ -104,6 +104,24 @@ member, through Pi's own login flows (`docs/LOGINS.md`):
   - `nhermes auth` in a terminal
   - a real expired token
 
+## Attachments from Vory
+
+Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.ts`, `docs/COMPATIBILITY.md`):
+
+- Automated (2026-10-21):
+  - Uploads checked by their bytes, saved to `uploads/` without overwriting, names cleaned, size limits,
+    pictures shrunk by Pi's Photon processor (`test/core/attachments.test.ts`, `test/core/images.test.ts`).
+  - Over the wire: a message of only a picture, pictures queued behind a running turn, a CSV inlined and a zip
+    noted, PDF pages through an injected renderer, `path` params refused, reopened chats showing Vory's marks,
+    the "Picture" title (`test/hermes/attachments.test.ts`).
+  - `GET /api/media` by Vory's guessed path, confined to the workspaces (`test/hermes/manage.test.ts`).
+  - A member chat: the picture is staged on the member and reaches its model, alpha loads it back through the
+    member; a member cannot upload into chats it did not start (`test/federation/proxy.test.ts`,
+    `network.test.ts`).
+  - pdftoppm itself was checked by hand on a Mac (two pages rendered); the suite does not need poppler.
+- Not yet verified live: a photo, screenshot, PDF and CSV from the Vory app to a gateway on a vision model and
+  a text-only one, and the thumbnails after reopening the chat.
+
 ## Models
 
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own
