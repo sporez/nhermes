@@ -26,6 +26,8 @@ const FORWARDED: { method: string; re: RegExp; write: boolean; nameInPath?: bool
 	{ method: "PUT", re: /^\/api\/profiles\/[^/]+\/(soul|description|model)$/, write: true, nameInPath: true },
 	{ method: "POST", re: /^\/api\/model\/set$/, write: true },
 	{ method: "GET", re: /^\/api\/analytics\/usage$/, write: false },
+	// Pictures in a chat with the bot: Vory asks for them under the bot's profile.
+	{ method: "GET", re: /^\/api\/media$/, write: false },
 ];
 
 const rule = (method: string, path: string) => FORWARDED.find((f) => f.method === method && f.re.test(path));

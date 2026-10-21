@@ -9,7 +9,7 @@ import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { HermesClient } from "../hermes/client.ts";
-import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
+import { pngBytes, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
@@ -103,6 +103,27 @@ test("a client on alpha chats with beta's bot through alpha", async () => {
 		await vory.call("prompt.submit", { session_id: sid, text: "still there?" });
 		const again = await vory.waitFor((f) => f.method === "event" && (f.params as { type: string; payload: { text?: string } }).type === "message.complete" && (f.params as { payload: { text?: string } }).payload.text === "Still here.", 20000);
 		assert.ok(again);
+
+		// A picture sent in the chat is kept on beta and reaches beta's model; alpha loads it from beta.
+		const png = pngBytes(6, 6);
+		let seen: unknown[] = [];
+		b.faux.setResponses([
+			(context) => {
+				const last = context.messages.at(-1);
+				seen = last && last.role === "user" && Array.isArray(last.content) ? last.content : [];
+				return fauxAssistantMessage([fauxText("A small square.")]);
+			},
+		]);
+		const att = await vory.call<{ name: string; count: number }>("image.attach_bytes", { session_id: sid, content_base64: png.toString("base64"), filename: "pic.png" });
+		assert.equal(att.count, 1);
+		assert.equal(b.core.attachments.pending(sid), 1, "staged on beta");
+		assert.equal(a.core.attachments.pending(sid), 0);
+		await vory.call("prompt.submit", { session_id: sid, text: "" });
+		await vory.waitFor((f) => f.method === "event" && (f.params as { payload: { text?: string } }).payload.text === "A small square.", 20000);
+		assert.deepEqual((seen as { type: string }[]).map((p) => p.type), ["text", "image"]);
+		const media = await rest(`/api/media?path=${encodeURIComponent(`~/.hermes/profiles/nasbot-beta/images/${att.name}`)}&profile=nasbot-beta`);
+		assert.equal(media.status, 200);
+		assert.equal(((await media.json()) as { data_url: string }).data_url, `data:image/png;base64,${png.toString("base64")}`);
 
 		// Resume from alpha's side shows beta's transcript.
 		const resumed = await vory.call<{ messages: unknown[]; info: { profile_name: string } }>("session.resume", { session_id: sid });

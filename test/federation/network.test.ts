@@ -13,7 +13,7 @@ import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { setPeerHeartbeat } from "../../src/remote/peer.ts";
 import { HermesClient } from "../hermes/client.ts";
-import { collect, tempDir, testConfig, testCore } from "../helpers.ts";
+import { collect, pngBytes, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
@@ -119,6 +119,12 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		await assert.rejects(ws.call("session.list", {}), /unknown method/);
 		const mine = await ws.call<{ session_id: string }>("session.create", { profile: "nasbot" });
 		await assert.rejects(ws.call("config.set", { session_id: mine.session_id, key: "yolo", value: "on" }), /cannot switch approvals off/);
+		// Uploads only into its own chats.
+		const png = pngBytes(2, 2).toString("base64");
+		await assert.rejects(ws.call("image.attach_bytes", { session_id: ownerChat.id, content_base64: png }), /session not found/);
+		await assert.rejects(ws.call("file.attach", { session_id: ownerChat.id, data_url: `data:text/plain;base64,${png}` }), /session not found/);
+		assert.equal(b.core.attachments.pending(ownerChat.id), 0);
+		assert.equal((await ws.call<{ count: number }>("image.attach_bytes", { session_id: mine.session_id, content_base64: png })).count, 1);
 		const resumed = await ws.call<{ session_id: string }>("session.resume", { session_id: mine.session_id });
 		assert.equal(resumed.session_id, mine.session_id);
 		await ws.close();

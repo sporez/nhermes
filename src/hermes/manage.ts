@@ -359,7 +359,9 @@ export function manageRoutes(core: Core, r: Router): void {
 		let file = path;
 		const guessed = /^~\/\.hermes\/(?:profiles\/([^/]+)\/)?images\/([^/]+)$/.exec(path);
 		if (guessed) {
-			const bot = botFor(core, guessed[1] ?? q.query.get("profile"));
+			// The profile asked for first: on a member answering for its bot it is that bot's own name, where the
+			// path still carries the name the bot has on the asking machine.
+			const bot = botFor(core, q.query.get("profile") ?? guessed[1]);
 			if (!bot.workspace) throw new HttpError(404, `${path} does not exist`);
 			file = join(bot.workspace, "uploads", guessed[2]!);
 		}
