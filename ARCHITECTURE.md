@@ -70,7 +70,8 @@ Durable's extension API, `defineTool`/`hook`/`section`, since that is how tools 
 `hermes/` never import it.) It exposes a narrow interface:
 
 - `open()` / `close()`; `resume()` on start so interrupted runs continue.
-- `createConversation(botId, agentConfig)`, `configure(id, change)`, `submit(id, text, requestId, mode)`,
+- `createConversation(botId, agentConfig)`, `configure(id, change)`, `submit(id, content, requestId, mode)`
+  (text, or text and image blocks; pictures are shrunk by Pi Durable's Photon processor, `engine/images.ts`),
   `abort(id)`, `entries(id)`, `watch(id, listener)` (wraps `watchEvents`), `usage(id)`.
 - Extensions installed in the registry: core tools (`read/write/edit/bash`), our tool groups, the
   `persona` section (bot instructions + pinned memory + recent chats + skill index), and the `guard` extension whose
@@ -290,7 +291,10 @@ bot messages bound it.
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and
 forward-only migrations), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
 `vory/` (Vory push registrations); logs go to stderr (journal / launchd log), with the last 500 lines
-kept in memory for `/api/logs`. Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
+kept in memory for `/api/logs`. Files and pictures sent from a client are written to the bot's workspace
+`uploads/` folder, never over another file; `src/core/attachments.ts` holds what waits for a session's next
+prompt (in memory, as Hermes does) and the `@file:` references it handed out, the only ones it expands.
+Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
 they are never in prompts, transcripts or logs (the logger redacts known secret values).
 Provider sign-ins (`src/core/logins.ts`) run Pi's own login flows inside the gateway, which is the only writer of
 `auth.json`; the sessions are in memory, the CLI and panel only relay a flow's prompts and answers, and tokens never leave

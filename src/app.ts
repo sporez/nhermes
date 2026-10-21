@@ -6,6 +6,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { type AgentDeps, groundRules, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
 import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
+import { Attachments, type PdfRenderer } from "./core/attachments.ts";
 import { type Bot, Bots } from "./core/bots.ts";
 import { Hub } from "./core/events.ts";
 import { Logins } from "./core/logins.ts";
@@ -51,6 +52,8 @@ export type Core = {
 	engine: Engine;
 	bots: Bots;
 	sessions: Sessions;
+	/** Pictures and files uploaded for a session's next prompt. */
+	attachments: Attachments;
 	hub: Hub;
 	approvals: Approvals;
 	models: Models;
@@ -118,6 +121,8 @@ export type CoreOptions = {
 	/** Provider catalogs and their HTTP call (tests). */
 	catalogs?: ProviderCatalog[];
 	catalogFetch?: typeof fetch;
+	/** Replaces pdftoppm for PDF pages (tests). */
+	renderPdf?: PdfRenderer;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -305,6 +310,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		extensions,
 	);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
+	const attachments = new Attachments({ bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
 	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
 	members.onRevoke(() => proxy.dropGone());
 	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });
@@ -352,6 +358,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		engine,
 		bots,
 		sessions,
+		attachments,
 		hub,
 		approvals,
 		models,
