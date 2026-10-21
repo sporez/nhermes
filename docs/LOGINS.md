@@ -1,6 +1,6 @@
 # Provider logins from the panel, on any machine (plan)
 
-Status: implemented (L0–L4); live acceptance not run yet.
+Status: implemented (L0–L4); xAI device-code sign-in verified live on two members from a third machine's panel.
 
 ## Goal
 
@@ -226,4 +226,5 @@ L4 notes:
 - [x] L2 panel (this machine): Logins tab (`src/panel/static/logins.js`) with a machine picker, so it also drives members; walked in `scripts/panel-dev.ts` (fake providers), light and dark
 - [x] L3 remote logins ( `/federation/logins`, `/panel/api/remote/<node>/logins`, `/admin/remote/<node>/logins`, `nhermes auth --machine`, the switch; tests in `test/federation/logins.test.ts`; the tab's machine picker drives it)
 - [x] L4 status and failures (`Logins.modelOutcome` from the live projection; `signIn` on the panel state's bots; tests in `test/core/signin-failure.test.ts`)
-- [ ] Acceptance: a live xAI device-code sign-in on a member from another machine's panel, and a callback provider's paste step
+- [x] Acceptance, device code: two members signed in to xAI from a third machine's panel (2026-10-21). Each saved its own login, and the logs show `by: member:<name>`.
+- [ ] Acceptance, paste step: a callback provider (Anthropic, OpenRouter) signed in on a member

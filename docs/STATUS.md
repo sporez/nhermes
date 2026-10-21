@@ -96,8 +96,10 @@ member, through Pi's own login flows (`docs/LOGINS.md`):
 - In panel-dev: the Logins tab, with fake providers on this machine and on a member, walked headless in
   light and dark. That covered device code to done, the paste step, cancel, sign out, resume after
   reload, and the switch-off message.
+- Live (2026-10-21): two members were each signed in to xAI from a third machine's Logins tab, approving
+  the device codes on a phone. Each machine saved its own login (their stored credentials differ), and the
+  members logged the sign-in as started by the third machine.
 - Not yet verified:
-  - a real provider sign-in (an xAI device code on a member)
   - a callback provider's paste step
   - `nhermes auth` in a terminal
   - a real expired token
