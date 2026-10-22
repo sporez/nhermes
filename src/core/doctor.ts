@@ -1,6 +1,6 @@
 // A health check of the gateway (Vory's "Run doctor"): config, models and their keys, keys in use but
-// not set, network members, SSH hosts, disk space, PDF page rendering, scheduled jobs, the reviewer and the
-// software.
+// not set, network members, MCP servers, SSH hosts, disk space, PDF page rendering, scheduled jobs, the
+// reviewer and the software. An MCP server that is away is only a warning: the gateway works without it.
 // Each finding is one line: "ok", "warn" or "fail"; any "fail" makes the exit code 1.
 import { statfsSync } from "node:fs";
 import { connect } from "node:net";
@@ -51,6 +51,15 @@ export async function runDoctor(c: Core): Promise<DoctorReport> {
 	for (const m of c.members.list()) {
 		if (m.reachable) add("ok", `network member ${m.name} reachable`);
 		else add("warn", `network member ${m.name} not reachable${m.last_error ? `: ${m.last_error}` : ""}`);
+	}
+
+	for (const s of c.mcp.status()) {
+		const tools = `${s.toolCount} tool${s.toolCount === 1 ? "" : "s"}${s.fresh ? "" : " known from an earlier connection"}`;
+		if (s.state === "online") add("ok", `MCP server ${s.name} connected (${tools})`);
+		else if (s.state === "disabled") add("ok", `MCP server ${s.name} is turned off`);
+		else if (s.state === "needs_key") add("warn", `MCP server ${s.name} refused the gateway's key: ${s.lastError ?? ""}`);
+		else if (s.state === "failed") add("warn", `MCP server ${s.name} cannot be used: ${s.lastError ?? ""}`);
+		else add("warn", `MCP server ${s.name} is ${s.state === "connecting" ? "still connecting" : "offline"}${s.lastError ? ` (${s.lastError})` : ""}; ${tools}`);
 	}
 
 	const hosts = c.bots.list().filter((b) => !b.isPeer && b.config.host?.ssh);

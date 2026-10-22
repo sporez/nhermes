@@ -105,3 +105,6 @@ dialog.ask p { margin: 0 0 1rem; white-space: pre-line; }
 /* Logins tab: links styled as buttons. */
 a.btn { display: inline-block; text-decoration: none; }
 a.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+/* MCP tab */
+.warn-text { color: var(--warn); }

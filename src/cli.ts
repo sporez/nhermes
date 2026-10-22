@@ -45,6 +45,15 @@ Commands:
   memory <bot> [search text]  List or search a bot's memories
   memory <bot> add <text>     Save a memory for a bot (source: owner)
   memory <bot> rm <id>        Forget a memory
+  mcp [list]                  MCP servers: state, tools, which bots have them
+  mcp show <name>             One server: status, warnings, its tools and what changed
+  mcp add <name> --url u [--header 'Authorization=Bearer {{secret:NAME}}'] [--description d]
+                [--read-only 'list_*'] [--include p] [--exclude p] [--exposure direct|deferred]
+                              Add a server (keys go in secrets.env: nhermes secret set NAME). A bot gets it
+                              by adding mcp:<name> to its tools (panel, Bots)
+  mcp edit <name> [same options]  Change a server's settings (only the options given)
+  mcp test|refresh|enable|disable|rm <name>
+                              Check it now, list its tools again, turn it on or off, remove it
 
 Options:
   -c, --config <path>   Config file (default: $NHERMES_CONFIG or ./config.yaml)
@@ -272,6 +281,104 @@ async function authLogin(configPath: string, provider: string, base: string): Pr
 
 const print = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
 
+type McpView = {
+	name: string;
+	url: string;
+	description: string;
+	enabled: boolean;
+	exposure: string;
+	bots: string[];
+	warnings: string[];
+	toolCount: number;
+	exposedCount: number;
+	readOnlyCount: number;
+	status: { state: string; since: number | null; lastError: string | null; lastConnectedAt: number | null; nextAttemptAt: number | null; fresh: boolean; protocolVersion: string | null };
+};
+type McpOptions = { url?: string; header?: string[]; description?: string; "read-only"?: string[]; include?: string[]; exclude?: string[]; exposure?: string };
+
+const STATE_WORDS: Record<string, string> = { online: "online", offline: "offline", connecting: "connecting", needs_key: "needs a key", failed: "set up wrong", disabled: "turned off", closed: "closed" };
+
+function mcpFields(o: McpOptions): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	if (o.url !== undefined) out.url = o.url;
+	if (o.description !== undefined) out.description = o.description;
+	if (o.exposure !== undefined) out.exposure = o.exposure;
+	if (o.header) {
+		out.headers = Object.fromEntries(
+			o.header.map((h) => {
+				const i = h.indexOf("=");
+				if (i < 1) throw new ConfigError(`--header needs Name=value, got "${h}"`);
+				return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
+			}),
+		);
+	}
+	const tools: Record<string, string[]> = {};
+	if (o["read-only"]) tools.readOnly = o["read-only"];
+	if (o.include) tools.include = o.include;
+	if (o.exclude) tools.exclude = o.exclude;
+	if (Object.keys(tools).length > 0) out.tools = tools;
+	return out;
+}
+
+function mcpLine(s: McpView): string {
+	const st = s.status;
+	const state = STATE_WORDS[st.state] ?? st.state;
+	const when = st.state === "offline" && st.nextAttemptAt ? `, next try ${new Date(st.nextAttemptAt * 1000).toLocaleTimeString()}` : "";
+	const tools = s.toolCount === 0 && st.state !== "online" ? "no tools known yet" : `${s.exposedCount} tool${s.exposedCount === 1 ? "" : "s"}${s.readOnlyCount ? ` (${s.readOnlyCount} read-only)` : ""}${st.fresh || s.toolCount === 0 ? "" : ", known from an earlier connection"}`;
+	return `${s.name}  ${state}${when}  ${tools}  ${s.url}${s.bots.length ? `  · bots: ${s.bots.join(", ")}` : "  · no bot has it yet"}`;
+}
+
+async function mcpCommand(configPath: string, rest: string[], values: McpOptions): Promise<void> {
+	const [sub, name] = rest;
+	if (!sub || sub === "list") {
+		const r = (await admin(configPath, "GET", "/admin/mcp")) as { servers: McpView[] };
+		if (r.servers.length === 0) return void process.stdout.write("No MCP servers. Add one with: nhermes mcp add <name> --url <url>\n");
+		for (const s of r.servers) process.stdout.write(`${mcpLine(s)}\n`);
+		return;
+	}
+	if (!name) throw new ConfigError(`usage: nhermes mcp ${sub} <name>`);
+	const path = `/admin/mcp/${encodeURIComponent(name)}`;
+	switch (sub) {
+		case "show": {
+			const d = (await admin(configPath, "GET", path)) as McpView & { toolList: { name: string; modelName: string | null; readOnly: string | false; description: string }[]; changes: { at: number; added: string[]; removed: string[]; changed: string[] }[] };
+			process.stdout.write(`${mcpLine(d)}\n`);
+			if (d.description) process.stdout.write(`  ${d.description}\n`);
+			if (d.status.lastError) process.stdout.write(`  last error: ${d.status.lastError}\n`);
+			if (d.status.protocolVersion) process.stdout.write(`  protocol ${d.status.protocolVersion}\n`);
+			for (const w of d.warnings) process.stdout.write(`  ! ${w}\n`);
+			for (const t of d.toolList) process.stdout.write(`  ${t.modelName ?? `(${t.name}, not exposed)`}${t.readOnly ? `  read-only${t.readOnly === "hint" ? " (server's hint)" : ""}` : ""}  ${t.description.split("\n")[0]?.slice(0, 100) ?? ""}\n`);
+			for (const c of d.changes.slice(0, 5)) {
+				const parts = [c.added.length && `added ${c.added.join(", ")}`, c.removed.length && `removed ${c.removed.join(", ")}`, c.changed.length && `changed ${c.changed.join(", ")}`].filter(Boolean);
+				process.stdout.write(`  ${new Date(c.at * 1000).toLocaleString()}: ${parts.join("; ")}\n`);
+			}
+			return;
+		}
+		case "add":
+			if (!values.url) throw new ConfigError("usage: nhermes mcp add <name> --url <url> [--header Name=value] …");
+			await admin(configPath, "POST", "/admin/mcp", { name, ...mcpFields(values) });
+			return void process.stdout.write(`Added ${name}. Give a bot its tools by adding mcp:${name} to the bot's tools (panel, Bots).\n`);
+		case "edit":
+			await admin(configPath, "PATCH", path, mcpFields(values));
+			return void process.stdout.write(`Saved ${name}.\n`);
+		case "enable":
+		case "disable":
+			await admin(configPath, "PATCH", path, { enabled: sub === "enable" });
+			return void process.stdout.write(`${name} is ${sub === "enable" ? "on" : "off"}.\n`);
+		case "rm":
+			await admin(configPath, "DELETE", path);
+			return void process.stdout.write(`Removed ${name} (and mcp:${name} from every bot that had it).\n`);
+		case "test": {
+			const r = (await admin(configPath, "POST", `${path}/test`)) as { ok: boolean; error?: string; state: string; toolCount: number };
+			return void process.stdout.write(r.ok ? `${name} answers: ${r.toolCount} tools.\n` : `${name} does not answer (${STATE_WORDS[r.state] ?? r.state}): ${r.error ?? ""}\n`);
+		}
+		case "refresh":
+			process.stdout.write(`${mcpLine((await admin(configPath, "POST", `${path}/refresh`)) as McpView)}\n`);
+			return;
+		default:
+			throw new ConfigError("usage: nhermes mcp [list] | show | add | edit | test | refresh | enable | disable | rm <name>");
+	}
+}
+
 async function main(): Promise<void> {
 	const { values, positionals } = parseArgs({
 		allowPositionals: true,
@@ -289,6 +396,12 @@ async function main(): Promise<void> {
 			port: { type: "string" },
 			"data-dir": { type: "string" },
 			machine: { type: "string" },
+			header: { type: "string", multiple: true },
+			description: { type: "string" },
+			"read-only": { type: "string", multiple: true },
+			include: { type: "string", multiple: true },
+			exclude: { type: "string", multiple: true },
+			exposure: { type: "string" },
 		},
 	});
 	const [command, ...rest] = positionals;
@@ -434,6 +547,8 @@ async function main(): Promise<void> {
 			for (const m of r.items) process.stdout.write(`#${m.id} ${m.owner}${m.pinned ? " pinned" : ""}: ${m.body}\n`);
 			return;
 		}
+		case "mcp":
+			return mcpCommand(configPath, rest, values);
 		default:
 			process.stderr.write(`unknown command: ${command}\n\n${USAGE}`);
 			process.exit(2);

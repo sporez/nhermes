@@ -4,7 +4,7 @@
 //
 // Adding a tab:
 //   1. Create <name>.js. Import what it needs from "./core.js", define an async screen function that
-//      renders with show(...), and end the file with registerTab("<name>", screenFn).
+//      renders with show(...), and end the file with registerTab("<name>", screenFn[, "Label"]).
 //   2. Add `import "./<name>.js";` to panel.js. Tabs appear in the order of those imports.
 //   3. Add "<name>.js" to the FILES allowlist in src/panel/panel.ts.
 // A screen that refreshes itself calls pollWhile("<name>", screenFn, ms) from inside the screen.
@@ -12,17 +12,19 @@
 
 const TABS = [];
 const SCREENS = {};
+const LABELS = {};
 export const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 export const view = document.getElementById("view");
 export let state = null;
 let timer = null;
 export let tab = "bots";
-export const ui = { bot: null, owner: null, sessionBot: "", archived: "exclude", memoryQ: "", reviewFilter: "" };
+export const ui = { bot: null, owner: null, sessionBot: "", archived: "exclude", memoryQ: "", reviewFilter: "", mcpOpen: null, mcpEditing: null };
 
-/** Adds a tab; call it once from the screen's module. */
-export function registerTab(name, screen) {
+/** Adds a tab; call it once from the screen's module. `label` replaces the capitalized name in the tab bar. */
+export function registerTab(name, screen, label) {
 	TABS.push(name);
 	SCREENS[name] = screen;
+	if (label) LABELS[name] = label;
 }
 
 /** Re-runs a screen every `ms` while its tab is open and the page is visible (one timer; route() clears it). */
@@ -209,7 +211,7 @@ export function showLogin() {
 
 export function renderTabs() {
 	const nav = document.getElementById("tabs");
-	nav.replaceChildren(...TABS.map((t) => h("a", { href: `#${t}`, class: t === tab ? "active" : "" }, t[0].toUpperCase() + t.slice(1))));
+	nav.replaceChildren(...TABS.map((t) => h("a", { href: `#${t}`, class: t === tab ? "active" : "" }, LABELS[t] ?? t[0].toUpperCase() + t.slice(1))));
 }
 
 export async function route() {

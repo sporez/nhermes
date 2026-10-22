@@ -7,6 +7,7 @@ import "./sessions.js";
 import "./memory.js";
 import "./keys.js";
 import "./logins.js";
+import "./mcp.js";
 import "./status.js";
 import "./gateway.js";
 

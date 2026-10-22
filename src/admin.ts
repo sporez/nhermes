@@ -11,6 +11,7 @@ import { SecretError } from "./core/secrets.ts";
 import { UpdateError } from "./core/updates.ts";
 import type { BotPatch, GatewayPatch } from "./core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "./federation/logins.ts";
+import { mcpAction, mcpDetail, mcpEdit, mcpList, mcpPatch, UnknownMcpServer } from "./mcp/manage.ts";
 import { PanelAuth } from "./panel/auth.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
 import { logger } from "./log.ts";
@@ -175,6 +176,17 @@ export function adminRoutes(core: Core): Router {
 	r.on("DELETE", "/admin/logins/providers/:provider", (q) => loginCall(() => core.logins.logout(q.params.provider!, "cli")));
 	r.on("DELETE", "/admin/logins/:id", (q) => loginCall(() => core.logins.cancel(q.params.id!, "cli")));
 	remoteLoginRoutes(core, r, "/admin/remote");
+	// MCP servers (`nhermes mcp`), the same calls the panel makes (src/mcp/manage.ts).
+	r.on("GET", "/admin/mcp", () => mcpList(core));
+	r.on("GET", "/admin/mcp/:name", (q) => mcpCall(() => mcpDetail(core, q.params.name!)));
+	r.on("POST", "/admin/mcp", (q) => {
+		const b = obj(q.body);
+		if (typeof b.name !== "string" || !b.name) throw new HttpError(400, "name is required");
+		return mcpCall(() => core.settings.addMcpServer(b.name as string, mcpPatch(b)));
+	});
+	r.on("PATCH", "/admin/mcp/:name", (q) => mcpCall(() => mcpEdit(core, q.params.name!, () => core.settings.editMcpServer(q.params.name!, mcpPatch(obj(q.body))))));
+	r.on("DELETE", "/admin/mcp/:name", (q) => mcpCall(() => mcpEdit(core, q.params.name!, () => core.settings.removeMcpServer(q.params.name!))));
+	r.on("POST", "/admin/mcp/:name/:action", (q) => mcpCall(() => mcpAction(core, q.params.name!, q.params.action!)));
 	r.on("POST", "/admin/panel/password", (q) => {
 		const p = obj(q.body).password;
 		try {
@@ -237,6 +249,21 @@ function secretCall<T>(fn: () => T): T {
 	} catch (error) {
 		if (error instanceof SecretError) throw new HttpError(error.status, error.message);
 		throw error;
+	}
+}
+
+/** Settings errors are bad input (400), an unknown server is 404; works for sync and async calls. */
+function mcpCall<T>(fn: () => T): T {
+	const fail = (error: unknown): never => {
+		if (error instanceof UnknownMcpServer) throw new HttpError(404, error.message);
+		if (error instanceof ConfigError) throw new HttpError(400, error.message);
+		throw error;
+	};
+	try {
+		const out = fn();
+		return (out instanceof Promise ? out.catch(fail) : out) as T;
+	} catch (error) {
+		return fail(error);
 	}
 }
 

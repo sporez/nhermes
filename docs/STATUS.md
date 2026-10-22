@@ -143,6 +143,12 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
     disabled server, deferred tools found with `tool_search`, a key echoed by the server redacted, a
     restart mid-call (a write is interrupted, a read-only call runs again), and a hung call holding up only
     its own chat.
+  - Management (`test/mcp/manage.test.ts`): the panel's and the admin API's add, view, edit, test and remove,
+    404 for an unknown server, a credential header refused unless it references a key, a hand-written one
+    hidden, key values never returned, and the doctor's lines.
+- Panel (panel-dev, 2026-10-21): the MCP tab in dark and light and at phone width, with servers online,
+  offline and missing a key; the tool list, an edit saved, a credential header refused. `nhermes mcp` list,
+  show, add, test, disable and rm run against the same gateways.
 - Not yet verified live against a real MCP server.
 
 ## Models

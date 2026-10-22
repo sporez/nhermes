@@ -86,6 +86,9 @@ export type McpServerConfig = {
 
 export const MCP_SERVER_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
+/** Header names that carry a credential: their value belongs in secrets.env, referenced as {{secret:NAME}}. */
+export const CREDENTIAL_HEADER = /^(authorization|proxy-authorization|cookie)$|key|token|secret|password|auth/i;
+
 /** `{{secret:NAME}}` references in a value. */
 export function secretRefs(value: string): string[] {
 	return [...value.matchAll(/\{\{secret:([A-Za-z_][A-Za-z0-9_]*)\}\}/g)].map((m) => m[1]!);
@@ -375,6 +378,7 @@ export function loadConfig(configPath: string): Config {
 	const mcp = parseMcp(doc.mcp);
 	for (const s of mcp.servers) {
 		for (const v of Object.values(s.headers)) for (const n of secretRefs(v)) registerSecret(process.env[n]);
+		for (const [k, v] of Object.entries(s.headers)) if (CREDENTIAL_HEADER.test(k) && secretRefs(v).length === 0) logger("config").warn(`MCP server ${s.name}: header ${k} holds its value in config.yaml; put it in secrets.env and write {{secret:NAME}}`, { server: s.name });
 		if (cleartextRemote(s.url)) logger("config").warn(`MCP server ${s.name} is reached over plain http:// on another machine; its headers travel unencrypted unless the network encrypts them (use https:// or a private network)`, { server: s.name });
 	}
 	const mcpGroups = new Set(mcp.servers.map((s) => `mcp:${s.name}`));

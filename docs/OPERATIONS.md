@@ -267,6 +267,15 @@ bots:
   speaks only the newer stateless 2026-07-28 is shown as set up wrong; most SDKs serve both.
 - Plain `http://` to another machine works, with a warning: the headers travel unencrypted unless the
   network encrypts them (Tailscale, WireGuard). Changes to `mcp.servers` apply at once, no restart.
+- **Panel, MCP tab:** each server's state (online, offline since…, needs a key, set up wrong, turned off),
+  its tools with their approval (read-only or asks first) and the server's own descriptions, what changed in
+  its tool list and when, and Add / Edit / Test / Refresh tools / Turn off / Remove. Give a bot a server in the
+  Bots tab (tool group `mcp:<name>`). Header values are typed as `{{secret:NAME}}`; a credential typed
+  directly is refused, and one written into config.yaml by hand is never shown.
+- **CLI:** `nhermes mcp` lists the servers; `nhermes mcp show <name>` shows one with its tools and changes;
+  `nhermes mcp add <name> --url … [--header 'Authorization=Bearer {{secret:NAME}}'] [--read-only 'list_*']
+  [--description …] [--exposure deferred]`, `edit`, `test`, `refresh`, `enable`, `disable` and `rm` do the rest.
+  The doctor (Vory's Run doctor) lists each server; one that is away is a warning, never a failure.
 
 ## Network of gateways
 

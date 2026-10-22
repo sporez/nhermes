@@ -490,7 +490,7 @@ export class McpConnection {
 		if (next === "online") this.reported = undefined;
 		else if ((next === "offline" || next === "needs_key" || next === "failed") && this.reported !== next) {
 			this.reported = next;
-			const msg = next === "offline" ? "mcp server offline; retrying with backoff" : next === "needs_key" ? "mcp server refused the gateway's key" : "mcp server cannot be used";
+			const msg = next === "offline" ? "mcp server offline; retrying with backoff" : next === "needs_key" ? "mcp server needs a key (missing or refused)" : "mcp server cannot be used";
 			log.warn(msg, { server: this.name, error: this.lastError });
 		}
 		this.d.onState(this);

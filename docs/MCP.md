@@ -6,8 +6,8 @@ Status: in progress.
 
 - [x] M0. Upstream checks: `pi-mcp` as a direct dependency, contract tests for what we rely on (2216433)
 - [x] M1. Connections: config, per-server lifecycle, health checks, backoff, tool snapshots (18b0ec6)
-- [x] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure
-- [ ] M3. Management: MCP tab in the panel, `nhermes mcp`, admin API, keys, doctor
+- [x] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure (ca9fda1)
+- [x] M3. Management: MCP tab in the panel, `nhermes mcp`, admin API, keys, doctor
 - [ ] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove)
 - [ ] M5. Network: manage a member's MCP servers from any panel and from Vory
 - [ ] Later: OAuth sign-in, stdio servers, the stateless 2026-07-28 protocol, resources

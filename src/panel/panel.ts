@@ -25,12 +25,13 @@ import { FederationError } from "../federation/members.ts";
 import { HttpError, obj, readJson, Router, sendJson } from "../hermes/http.ts";
 import { logger } from "../log.ts";
 import { MemoryAccessError } from "../memory/memory.ts";
+import { mcpAction, mcpDetail, mcpEdit, mcpList, mcpPatch } from "../mcp/manage.ts";
 import { PanelAuth } from "./auth.ts";
 import { modelChoices, promptView, skillsView } from "./views.ts";
 
 const log = logger("panel");
 const STATIC_DIR = join(import.meta.dirname, "static");
-const SCRIPTS = ["panel.js", "core.js", "bots.js", "network.js", "sessions.js", "memory.js", "keys.js", "status.js", "gateway.js", "logins.js"];
+const SCRIPTS = ["panel.js", "core.js", "bots.js", "network.js", "sessions.js", "memory.js", "keys.js", "status.js", "gateway.js", "logins.js", "mcp.js"];
 const FILES: Record<string, string> = { "": "index.html", "index.html": "index.html", "panel.css": "panel.css", ...Object.fromEntries(SCRIPTS.map((n) => [n, n])) };
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 const OPEN = new Set(["/panel/api/session", "/panel/api/login"]);
@@ -237,6 +238,17 @@ export class Panel {
 			return { ok: true, enabled };
 		});
 		r.on("PATCH", "/panel/api/gateway", (q) => c.settings.setGateway(obj(q.body) as GatewayPatch));
+
+		// MCP servers (src/mcp/manage.ts); bots get one through its tool group in the bot editor.
+		r.on("GET", "/panel/api/mcp", () => mcpList(c));
+		r.on("GET", "/panel/api/mcp/:name", (q) => mcpDetail(c, q.params.name!));
+		r.on("POST", "/panel/api/mcp", (q) => {
+			const b = obj(q.body);
+			return c.settings.addMcpServer(str(b.name, "name"), mcpPatch(b));
+		});
+		r.on("PATCH", "/panel/api/mcp/:name", (q) => mcpEdit(c, q.params.name!, () => c.settings.editMcpServer(q.params.name!, mcpPatch(obj(q.body)))));
+		r.on("DELETE", "/panel/api/mcp/:name", (q) => mcpEdit(c, q.params.name!, () => c.settings.removeMcpServer(q.params.name!)));
+		r.on("POST", "/panel/api/mcp/:name/:action", (q) => mcpAction(c, q.params.name!, q.params.action!));
 
 		// Members' bots, edited on their own machines (src/federation/manage.ts) when those allow it.
 		r.on("GET", "/panel/api/remote", async () => ({
@@ -535,6 +547,7 @@ function translate(error: unknown): { status: number; message: string } {
 	if (error instanceof UpdateError) return { status: error.status, message: error.message };
 	if (error instanceof Error && error.name === "UnknownSession") return { status: 404, message: "Session not found" };
 	if (error instanceof Error && error.name === "UnknownSkill") return { status: 404, message: error.message };
+	if (error instanceof Error && error.name === "UnknownMcpServer") return { status: 404, message: error.message };
 	if (error instanceof Error && error.name === "JobError") return { status: (error as Error & { status: number }).status ?? 400, message: error.message };
 	if (error instanceof Error && /panel password/.test(error.message)) return { status: 400, message: error.message };
 	return { status: 500, message: error instanceof Error ? error.message : String(error) };

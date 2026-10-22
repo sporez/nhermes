@@ -1,5 +1,6 @@
 // A throwaway two-machine network on this computer, for working on the web panel: "alpha" (port 9191)
-// and "beta" (port 9192) with a fake model, a few bots, memories, a job and a pending approval.
+// and "beta" (port 9192) with a fake model, a few bots, memories, a job, a pending approval, and MCP
+// servers in each state (a fake one online, one offline, one missing its key).
 // usage: node scripts/panel-dev.ts   → open http://127.0.0.1:9191/panel/   (Ctrl-C stops and deletes it)
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import { loadConfig } from "../src/config.ts";
 import { federationAdminRoutes } from "../src/federation/routes.ts";
 import { startHermesServer } from "../src/hermes/server.ts";
 import { setLogLevel } from "../src/log.ts";
+import { closedPort, FakeMcpServer } from "../test/mcp/server.ts";
 
 setLogLevel("warn");
 process.env.NHERMES_TOKEN ??= "panel-dev-token-0123456789";
@@ -67,12 +69,34 @@ function withFakeLogins<T extends { getProviders(): unknown[] }>(models: T): T {
 	});
 }
 
-async function gateway(name: string, port: number, bots: string) {
+const fakeMcp = await FakeMcpServer.start([
+	{ name: "list_events", title: "List events", description: "Lists calendar events for a day or a range.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } } }, annotations: { readOnlyHint: true } },
+	{ name: "add_event", description: "Adds an event to a calendar.", inputSchema: { type: "object", properties: { title: { type: "string" }, start: { type: "string" } }, required: ["title", "start"] } },
+	{ name: "list_reminders", description: "Lists open reminders.", annotations: { readOnlyHint: true } },
+	{ name: "complete_reminder", description: "Marks a reminder done." },
+]);
+const MCP = `mcp:
+  servers:
+    calendar:
+      url: ${fakeMcp.url}
+      description: Calendar and reminders on my laptop
+      tools:
+        readOnly: ["list_*"]
+    laptop:
+      url: http://127.0.0.1:${await closedPort()}/mcp
+      description: A server that is asleep
+    contacts:
+      url: https://contacts.example.com/mcp
+      headers:
+        Authorization: "Bearer {{secret:CONTACTS_MCP_TOKEN}}"
+`;
+
+async function gateway(name: string, port: number, bots: string, extra = "") {
 	const dir = join(root, name);
 	const path = join(dir, "config.yaml");
 	const { mkdirSync } = await import("node:fs");
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(path, `# ${name} (panel dev)\nserver:\n  host: 127.0.0.1\n  port: ${port}\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\nbots:\n${bots}`);
+	writeFileSync(path, `# ${name} (panel dev)\nserver:\n  host: 127.0.0.1\n  port: ${port}\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\n${extra}bots:\n${bots}`);
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 200 });
 	const models = withFakeLogins(createModels());
 	models.setProvider(faux.provider);
@@ -91,6 +115,7 @@ const a = await gateway(
     default: true
     description: Personal assistant
     sharedMemory: [household]
+    tools: [memory, web, mcp:calendar, mcp:laptop]
     instructions: |
       You are the household assistant.
   - name: ops
@@ -103,6 +128,7 @@ const a = await gateway(
     description: Keeps private notes
     private: true
 `,
+	MCP,
 );
 const b = await gateway(
 	"beta",
@@ -146,6 +172,7 @@ const stop = async () => {
 		await g.server.close();
 		await g.core.close();
 	}
+	await fakeMcp.stop();
 	rmSync(root, { recursive: true, force: true });
 	process.exit(0);
 };
