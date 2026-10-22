@@ -110,7 +110,7 @@ changes to these areas as security-relevant:
 - `strict` and `noUncheckedIndexedAccess` are on. Narrow properly; use `!` only where the invariant is
   local and obvious.
 - Dependencies are exact versions, no ranges. Prefer Node built-ins (`node:sqlite`, `node:test`,
-  `fetch`) before adding a package. The five `@earendil-works/*` packages come from one Pi release and
+  `fetch`) before adding a package. The six `@earendil-works/*` packages come from one Pi release and
   are upgraded together; update `UPSTREAM.md` and run `npm run test:upstream` first after a bump.
 - A file opens with a short comment saying what it owns and any invariant that is not obvious. Other
   comments explain a real invariant, compatibility fact or upstream behavior, briefly. Do not present an

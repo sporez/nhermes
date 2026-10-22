@@ -26,8 +26,9 @@ tag because it is what npm publishes; reading `main` would describe code we do n
 | `@earendil-works/chord` | 1.2.0 | `Context` / cancellation that every Durable call takes |
 | `@earendil-works/pi-coding-agent` | 1.2.0 | `ModelRuntime` (reads Pi's `auth.json` + `models.json`, OAuth refresh under a file lock) and the SKILL.md loader |
 | `@earendil-works/pi-env` | 1.2.0 | `RemoteExecutionEnv` over SSH (Mode A remote execution) |
+| `@earendil-works/pi-mcp` | 1.2.0 | MCP client (`McpClient`, `StreamableHttpTransport`, `toLlmContent`) for MCP servers (`src/mcp/`) |
 
-All five come from the same Pi release and must be upgraded together. `test/upstream/` holds the
+All six come from the same Pi release and must be upgraded together. `test/upstream/` holds the
 regression tests that pin the parts of their API we rely on; run them first after a bump.
 
 ## Contracts we implement or consume, by file (at the pinned commits)
@@ -40,6 +41,12 @@ regression tests that pin the parts of their API we rely on; run them first afte
 - `src/storage/sqlite/node.ts`: `openNodeSqliteStorage()` on `node:sqlite` (WAL, `synchronous=NORMAL`).
 - `src/tools/`: `read`, `write`, `edit`, `bash` and `CodingTools`.
 - `test/examples/22-subagent-foreground.ts`, `23-subagent-background.ts`: the delegation pattern we follow.
+
+### Pi MCP (`packages/mcp/`)
+- `README.md` §Supported protocol surface: MCP `2025-11-25` with an `initialize` handshake (accepting 2025-06-18, 2025-03-26, 2024-11-05). Not the stateless `2026-07-28`; a server that speaks only that revision rejects this client.
+- `src/client.ts`: `McpClient` (request timeouts renewed by progress, `notifications/cancelled` on timeout or abort, `connectionState` stays `connected` after a failed request).
+- `src/transports/streamable-http.ts`: a failed POST rejects only that request and never resends it; 401 → `McpAuthRequiredError`, 404 with a session → `McpSessionExpiredError`, other statuses → `McpHttpError`; a broken response stream becomes JSON-RPC `-32603` "MCP response stream failed: …".
+- `test/upstream/mcp-contract.test.ts` pins these shapes, Durable re-installing an extension at runtime (`tool_unavailable` for a removed tool), and pi-ai validating plain JSON Schema arguments.
 
 ### Pi AI / coding agent / env
 - `packages/ai/README.md` §Auth, §Custom Providers, §OpenAI Compatibility: credential store contract, `createProvider`, `compat` flags.

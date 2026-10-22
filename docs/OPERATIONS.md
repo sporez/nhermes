@@ -278,7 +278,7 @@ Every machine runs the same gateway; together they form one network of equals (`
   changes or a version that needs a newer Node (then rerun the install script). By hand:
   `git pull && npm ci --omit=dev && systemctl --user restart nhermes`. `app.sqlite` migrations run
   forward automatically at start (`schema_version`); Pi Durable migrates its own store. Take a backup
-  first; the five Pi packages are pinned together (see `UPSTREAM.md`) and `npm run test:upstream` checks
+  first; the six Pi packages are pinned together (see `UPSTREAM.md`) and `npm run test:upstream` checks
   the API we rely on after a bump.
 - Interrupted work: runs and scheduled jobs in progress continue after a restart. A tool call that was
   executing is not repeated unless it is read-only; the model is told it was interrupted.
