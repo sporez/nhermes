@@ -113,7 +113,8 @@ Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.
     pictures shrunk by Pi's Photon processor (`test/core/attachments.test.ts`, `test/core/images.test.ts`).
   - Over the wire: a message of only a picture, pictures queued behind a running turn, a CSV inlined and a zip
     noted, PDF pages through an injected renderer, `path` params refused, reopened chats showing Vory's marks,
-    the "Picture" title (`test/hermes/attachments.test.ts`).
+    the "Picture" title, titles and previews without PDF lines or `@file:uploads/…` references
+    (`test/hermes/attachments.test.ts`).
   - `GET /api/media` by Vory's guessed path, confined to the workspaces (`test/hermes/manage.test.ts`).
   - A member chat: the picture is staged on the member and reaches its model, alpha loads it back through the
     member; a member cannot upload into chats it did not start (`test/federation/proxy.test.ts`,

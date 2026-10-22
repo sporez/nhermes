@@ -54,11 +54,22 @@ export function userDisplay(content: string | Block[] | undefined): string {
 		.replace(/^\[PDF attached at: (.+?) \(.*\)\]$/gm, (_, path: string) => `📎 ${basename(path)}`);
 }
 
-/** The words of a shown user message without its picture marks, for titles and previews ("Picture" when that is all). */
+/**
+ * The words of a shown user message without its attachments, for titles and previews: no picture marks, no
+ * `📎 <name>` PDF lines, no `@file:uploads/…` references. A message of only attachments is "Picture",
+ * "Pictures", or the names of its files.
+ */
 export function userPlain(display: string): string {
-	const words = display.replace(/\s*\[User attached image: [^\]]+\]/g, "").trim();
-	if (words || !display.includes("[User attached image:")) return words;
-	return (display.match(/\[User attached image:/g)?.length ?? 0) > 1 ? "Pictures" : "Picture";
+	const files: string[] = [];
+	const words = display
+		.replace(/^📎 (.+)$/gm, (_, name: string) => (files.push(name.trim()), ""))
+		.replace(/@file:(`uploads\/[^`]+`|"uploads\/[^"]+"|'uploads\/[^']+'|uploads\/\S+)/g, (_, ref: string) => (files.push(basename(ref.replace(/^[`"']|[`"']$/g, ""))), ""))
+		.replace(/\s*\[User attached image: [^\]]+\]/g, "")
+		.trim();
+	if (words) return words;
+	const pictures = display.match(/\[User attached image:/g)?.length ?? 0;
+	if (pictures > 0) return pictures > 1 ? "Pictures" : "Picture";
+	return files.join(", ");
 }
 
 

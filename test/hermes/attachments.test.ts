@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
-import { userDisplay } from "../../src/core/transcript.ts";
+import { userDisplay, userPlain } from "../../src/core/transcript.ts";
 import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
 import { pngBytes, TOKEN, tempDir, testCore } from "../helpers.ts";
 import { HermesClient } from "./client.ts";
@@ -146,10 +146,21 @@ test("a reopened chat shows pictures as Vory's marks and files as typed, never t
 		// A PDF whose pages could not be rendered is sent as text alone, and shows the same way.
 		const row = { role: "user", content: [{ type: "text", text: "read it\n\n[PDF attached at: /w/uploads/scan.pdf (its pages could not be shown as images here; use your tools to read it)]" }] };
 		assert.equal(userDisplay(row.content), "read it\n\n📎 scan.pdf");
-		assert.equal(core.sessions.require(sid).title, "Look @file:uploads/notes.txt");
+		// The title is the words alone.
+		assert.equal(core.sessions.require(sid).title, "Look");
 	} finally {
 		c.ws.close();
 	}
+});
+
+test("titles and previews leave out PDF lines and file references", () => {
+	assert.equal(userPlain("What are these?\n@file:uploads/data.csv\n\n[User attached image: dot.png]\n📎 one page.pdf"), "What are these?");
+	assert.equal(userPlain("Check @file:`uploads/budget data.csv` please"), "Check  please");
+	// Typed references to other files stay: only uploads are attachments.
+	assert.equal(userPlain("Read @file:src/app.ts"), "Read @file:src/app.ts");
+	assert.equal(userPlain("📎 plan.pdf"), "plan.pdf");
+	assert.equal(userPlain("@file:uploads/a.csv\n📎 b.pdf"), "b.pdf, a.csv");
+	assert.equal(userPlain("@file:uploads/a.csv\n\n[User attached image: x.jpg]"), "Picture");
 });
 
 test("a chat that starts with only a picture is titled Picture", async () => {
