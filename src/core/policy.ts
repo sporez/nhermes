@@ -107,14 +107,16 @@ export function describeCall(name: string, args: Record<string, unknown>): strin
 	return `${name} ${JSON.stringify(args).slice(0, 200)}`;
 }
 
+/** A name against a pattern where `*` matches any characters (tool rules, MCP tool lists). */
+export function matchesGlob(pattern: string, name: string): boolean {
+	if (!pattern.includes("*")) return pattern === name;
+	return new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
+}
+
 function ruleMatches(rule: string, name: string, command: string): boolean {
 	// "tool:<name>" matches a tool (`*` matching any characters, e.g. tool:mcp__calendar__*); anything else is a
 	// regex (or literal) on the command text.
-	if (rule.startsWith("tool:")) {
-		const pattern = rule.slice(5);
-		if (!pattern.includes("*")) return pattern === name;
-		return new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
-	}
+	if (rule.startsWith("tool:")) return matchesGlob(rule.slice(5), name);
 	try {
 		return new RegExp(rule).test(command);
 	} catch {

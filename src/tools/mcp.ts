@@ -12,6 +12,7 @@ import { createToolSearchTool } from "@earendil-works/pi-durable/tool-search";
 import { type CallToolResult, type Tool as McpTool, toLlmContent } from "@earendil-works/pi-mcp";
 import type { PromptPart } from "../agent/extensions.ts";
 import type { McpServerConfig } from "../config.ts";
+import { matchesGlob } from "../core/policy.ts";
 import type { McpServers } from "../mcp/servers.ts";
 import { modelText } from "../mcp/outcome.ts";
 import { logger, redact } from "../log.ts";
@@ -29,9 +30,9 @@ export const MANY_TOOLS = 100;
 
 export type McpToolInfo = { server: string; tool: string; readOnly: boolean; deferred: boolean };
 
-/** `*` matches any characters. */
+/** Whether a tool name matches any of the patterns (`*` matches any characters). */
 export function matchesPattern(name: string, patterns: readonly string[]): boolean {
-	return patterns.some((p) => (p.includes("*") ? new RegExp(`^${p.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name) : p === name));
+	return patterns.some((p) => matchesGlob(p, name));
 }
 
 /** `mcp__<server>__<tool>` sanitized; an 8-hex hash suffix when too long or already taken (Pi's rule). */
