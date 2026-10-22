@@ -63,6 +63,34 @@ export type BotConfig = {
 	};
 };
 
+/** An MCP server (`mcp.servers.<name>`), reached over Streamable HTTP. Bots get it as tool group `mcp:<name>`. */
+export type McpServerConfig = {
+	name: string;
+	url: string;
+	/** What it offers, written by the owner: shown to bots and in the panel. */
+	description?: string;
+	enabled: boolean;
+	/** Values may contain {{secret:NAME}} for a variable in secrets.env. */
+	headers: Record<string, string>;
+	/** direct: declared to the model; deferred: found with tool_search. */
+	exposure: "direct" | "deferred";
+	timeoutS: number;
+	maxTimeoutS: number;
+	/** Idle health check interval while connected; 0 turns it off. */
+	healthCheckS: number;
+	/** Tool name patterns (`*` = any characters). */
+	tools: { include: string[]; exclude: string[]; readOnly: string[] };
+	/** Also count the server's own readOnlyHint (the spec says hints are untrusted unless the server is). */
+	trustReadOnlyHint: boolean;
+};
+
+export const MCP_SERVER_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
+
+/** `{{secret:NAME}}` references in a value. */
+export function secretRefs(value: string): string[] {
+	return [...value.matchAll(/\{\{secret:([A-Za-z_][A-Za-z0-9_]*)\}\}/g)].map((m) => m[1]!);
+}
+
 export type Config = {
 	configPath: string;
 	configDir: string;
@@ -93,6 +121,8 @@ export type Config = {
 	groundRules?: string;
 	/** The web control panel at /panel (on by default; its password, if any, is set with `nhermes panel password`). */
 	panel: { enabled: boolean };
+	/** MCP servers this gateway connects to (docs/MCP.md). */
+	mcp: { servers: McpServerConfig[] };
 };
 
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
@@ -241,6 +271,63 @@ function parseBot(raw: unknown, i: number): BotConfig {
 	};
 }
 
+function seconds(v: unknown, where: string, fallback: number, min: number, max: number): number {
+	if (v === undefined || v === null) return fallback;
+	if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) throw new ConfigError(`${where} must be a number from ${min} to ${max}`);
+	return v;
+}
+
+function parseMcpServer(name: string, raw: unknown): McpServerConfig {
+	const where = `mcp server "${name}"`;
+	if (!MCP_SERVER_NAME.test(name)) throw new ConfigError(`${where}: the name must match ${MCP_SERVER_NAME}`);
+	const r = asRecord(raw, where);
+	const url = str(r.url, `${where}.url`);
+	if (!url) throw new ConfigError(`${where}.url is required`);
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new ConfigError(`${where}.url is not a URL`);
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new ConfigError(`${where}.url must be http:// or https://`);
+	if (parsed.username || parsed.password) throw new ConfigError(`${where}.url must not carry a user or password; use headers with {{secret:NAME}}`);
+	const headersRaw = asRecord(r.headers, `${where}.headers`);
+	const headers: Record<string, string> = {};
+	for (const [k, v] of Object.entries(headersRaw)) {
+		if (typeof v !== "string") throw new ConfigError(`${where}.headers.${k} must be a string`);
+		if (!/^[A-Za-z0-9-]+$/.test(k)) throw new ConfigError(`${where}.headers: "${k}" is not a header name`);
+		headers[k] = v;
+	}
+	const exposure = str(r.exposure, `${where}.exposure`) ?? "direct";
+	if (exposure !== "direct" && exposure !== "deferred") throw new ConfigError(`${where}.exposure must be direct or deferred`);
+	const tools = asRecord(r.tools, `${where}.tools`);
+	const timeoutS = seconds(r.timeoutS, `${where}.timeoutS`, 60, 1, 3600);
+	const maxTimeoutS = seconds(r.maxTimeoutS, `${where}.maxTimeoutS`, Math.max(300, timeoutS), 1, 86_400);
+	if (maxTimeoutS < timeoutS) throw new ConfigError(`${where}.maxTimeoutS must be at least timeoutS`);
+	return {
+		name,
+		url,
+		description: str(r.description, `${where}.description`)?.trim() || undefined,
+		enabled: r.enabled !== false,
+		headers,
+		exposure,
+		timeoutS,
+		maxTimeoutS,
+		healthCheckS: seconds(r.healthCheckS, `${where}.healthCheckS`, 60, 0, 86_400),
+		tools: {
+			include: strList(tools.include, `${where}.tools.include`) ?? ["*"],
+			exclude: strList(tools.exclude, `${where}.tools.exclude`) ?? [],
+			readOnly: strList(tools.readOnly, `${where}.tools.readOnly`) ?? [],
+		},
+		trustReadOnlyHint: r.trustReadOnlyHint === true,
+	};
+}
+
+function parseMcp(raw: unknown): Config["mcp"] {
+	const servers = asRecord(asRecord(raw, "mcp").servers, "mcp.servers");
+	return { servers: Object.entries(servers).map(([name, v]) => parseMcpServer(name, v)) };
+}
+
 /** Whether a peer URL is http:// to a host other than this machine. */
 export function cleartextRemote(url: string): boolean {
 	try {
@@ -284,6 +371,16 @@ export function loadConfig(configPath: string): Config {
 		first.default = true;
 	}
 	if (bots.filter((b) => b.default).length > 1) throw new ConfigError("only one bot may be `default: true`");
+
+	const mcp = parseMcp(doc.mcp);
+	for (const s of mcp.servers) {
+		for (const v of Object.values(s.headers)) for (const n of secretRefs(v)) registerSecret(process.env[n]);
+		if (cleartextRemote(s.url)) logger("config").warn(`MCP server ${s.name} is reached over plain http:// on another machine; its headers travel unencrypted unless the network encrypts them (use https:// or a private network)`, { server: s.name });
+	}
+	const mcpGroups = new Set(mcp.servers.map((s) => `mcp:${s.name}`));
+	for (const b of bots) {
+		for (const g of b.tools ?? []) if (g.startsWith("mcp:") && !mcpGroups.has(g)) logger("config").warn(`bot ${b.name} lists ${g}, but no such MCP server is configured; ignored`, { bot: b.name });
+	}
 
 	const defaultModel = str(defaults.model, "defaults.model");
 	if (!defaultModel) throw new ConfigError("defaults.model is required (provider/modelId)");
@@ -335,5 +432,6 @@ export function loadConfig(configPath: string): Config {
 		node: { name: nodeName, url: str(node.url, "node.url") },
 		panel: { enabled: asRecord(doc.panel, "panel").enabled !== false },
 		groundRules: str(doc.groundRules, "groundRules")?.trim() || undefined,
+		mcp,
 	};
 }

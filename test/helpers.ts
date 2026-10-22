@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { createModels, type FauxProviderHandle, fauxProvider, type Models } from "@earendil-works/pi-ai";
 import { type CoreOptions, createCore } from "../src/app.ts";
-import type { BotConfig, Config } from "../src/config.ts";
+import type { BotConfig, Config, McpServerConfig } from "../src/config.ts";
 import type { SessionEvent } from "../src/core/events.ts";
 import { setLogLevel } from "../src/log.ts";
 
@@ -36,12 +36,18 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		timezone: "America/New_York",
 		node: {},
 		panel: { enabled: true },
+		mcp: { servers: [] },
 		bots: bots ?? [
 			{ name: "main", displayName: "Main", default: true, instructions: "You are the main test bot." },
 			{ name: "ops", displayName: "Ops", instructions: "You are the ops test bot.", trusted: true },
 		],
 		...extra,
 	};
+}
+
+/** An MCP server entry with the parsed defaults (timeouts in seconds may be fractions here). */
+export function mcpServerConfig(name: string, url: string, extra: Partial<McpServerConfig> = {}): McpServerConfig {
+	return { name, url, enabled: true, headers: {}, exposure: "direct", timeoutS: 60, maxTimeoutS: 300, healthCheckS: 0, tools: { include: ["*"], exclude: [], readOnly: [] }, trustReadOnlyHint: false, ...extra };
 }
 
 export function fauxModels(): { models: Models; faux: FauxProviderHandle } {

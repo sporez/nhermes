@@ -264,6 +264,29 @@ const MIGRATIONS: readonly string[] = [
 	`
 	ALTER TABLE room_turns ADD COLUMN prompt TEXT;
 	`,
+	// 15: MCP servers (src/mcp/servers.ts): the last tool list each server gave, so its tools are known while
+	// it is offline and after a restart, and a short log of what changed between lists
+	`
+	CREATE TABLE mcp_snapshots (
+		server TEXT PRIMARY KEY,
+		url TEXT NOT NULL,
+		discovered_at REAL NOT NULL,
+		connected_at REAL,
+		server_info TEXT NOT NULL DEFAULT '{}',
+		protocol_version TEXT NOT NULL DEFAULT '',
+		instructions TEXT NOT NULL DEFAULT '',
+		tools TEXT NOT NULL DEFAULT '[]'
+	);
+	CREATE TABLE mcp_changes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		server TEXT NOT NULL,
+		at REAL NOT NULL,
+		added TEXT NOT NULL DEFAULT '[]',
+		removed TEXT NOT NULL DEFAULT '[]',
+		changed TEXT NOT NULL DEFAULT '[]'
+	);
+	CREATE INDEX mcp_changes_server ON mcp_changes(server, id DESC);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

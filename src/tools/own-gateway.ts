@@ -1,6 +1,6 @@
 // What a bot's tools may not reach: this gateway's own control panel (it has no password by design, so
 // a request from the gateway machine itself would act as the owner) and the gateway's own files via
-// file:// URLs. Shared by the web and browser tools.
+// file:// URLs. Shared by the web and browser tools, and by MCP servers (which may not be the gateway).
 import { lookup } from "node:dns/promises";
 import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
@@ -33,7 +33,19 @@ export async function isOwnPanel(url: string, ports: readonly number[]): Promise
 	} catch {
 		return false;
 	}
-	if (!/^https?:$/.test(u.protocol) || !isPanelPath(u.pathname)) return false;
+	if (!isPanelPath(u.pathname)) return false;
+	return isOwnGateway(url, ports);
+}
+
+/** True when `url` addresses any path on one of this gateway's own ports, on this machine (an MCP server must not be the gateway itself). */
+export async function isOwnGateway(url: string, ports: readonly number[]): Promise<boolean> {
+	let u: URL;
+	try {
+		u = new URL(url);
+	} catch {
+		return false;
+	}
+	if (!/^https?:$/.test(u.protocol)) return false;
 	const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
 	if (!ports.includes(port)) return false;
 	const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();

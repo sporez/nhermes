@@ -122,6 +122,22 @@ Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.
 - Not yet verified live: a photo, screenshot, PDF and CSV from the Vory app to a gateway on a vision model and
   a text-only one, and the thumbnails after reopening the chat.
 
+## MCP servers
+
+MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
+
+- Automated (2026-10-21), against a controllable Streamable HTTP MCP server (`test/mcp/server.ts`):
+  - pi-mcp's error shapes for refused, dropped, timed-out, expired-session and failed requests, no resent
+    POST, Durable swapping a re-installed extension's tools (`test/upstream/mcp-contract.test.ts`).
+  - Connections (`test/mcp/connection.test.ts`): discovery and the snapshot kept across a restart, down at
+    startup and used once back (the call's quick reconnect), noticed by the health check and logged once,
+    backoff recovery, a server that never answers not holding up another, missing and refused keys,
+    `tools/list_changed` and the change log, a changed URL, a 400 handshake (newer protocol) and the gateway's
+    own URL refused, and call outcomes (expired session resent once; dropped, failed, rejected, timed-out and
+    interrupted calls sent exactly once).
+  - Config and Settings edits (`test/mcp/config.test.ts`), outcome classification (`test/mcp/outcome.test.ts`).
+- Not yet verified live against a real MCP server.
+
 ## Models
 
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own

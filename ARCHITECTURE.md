@@ -19,6 +19,7 @@ drive it as if it were a Hermes gateway.
  │  core/          bots · sessions · runs/events hub · approvals · scheduler · notifier     │
  │  memory/        per-bot memory + explicit shared notes (SQLite FTS5)                    │
  │  tools/         memory, skills, web/http, schedule, delegate, notify, browser, desktop  │
+│  mcp/           MCP server connections: availability, tool snapshots (pi-mcp client)    │
  │──────────────────────────────────────────────────────────────────────────────────────── │
  │  engine/        owns the Harness: conversations, runs, events (tools/agent use Durable's │
  │                 extension API: defineTool, hooks, sections)                             │
@@ -145,6 +146,34 @@ with only the high-impact patterns asking.
 Long-running tools stream output through Pi Durable's `api.output()`, honour cancellation through the
 call's context, declare timeouts, and are `replay: "unsafe"` unless they are read-only
 (`web_fetch`, `recall`, `skill`, `browser_snapshot`, `desktop_screenshot` are `safe`).
+
+## MCP servers (`src/mcp/`, `docs/MCP.md`)
+
+An MCP server is an optional capability whose availability can change at any moment; the gateway stays fully
+usable whatever the servers do. Config: `mcp.servers.<name>` in config.yaml (Streamable HTTP, headers whose
+values may name `{{secret:NAME}}` from secrets.env). The client is Pi's `pi-mcp` (protocol 2025-11-25 and
+earlier, so a server must answer `initialize`; one that speaks only the stateless 2026-07-28 is reported as
+set up wrong).
+
+- **One connection per server** (`McpConnection`): states `connecting`, `online`, `offline`, `needs_key`,
+  `failed`, `disabled`. Only `online` is available. pi-mcp keeps a client "connected" after any failed
+  request, so availability is ours: a successful initialize, request or idle health check (`ping`, every
+  `healthCheckS`) makes it online; two missed checks, or a call that shows the server unreachable, take it
+  offline. Offline retries back off (5 s doubling to 5 min, jittered); a refused key or a broken setup retries
+  every 30 min, or at once when the key or config changes. A state change is logged once, not per attempt.
+  Starting never waits for a server, and no server waits on another.
+- **Calls** are sent at most once: no queue, no replay after a reconnect. The one exception is a 404 on an
+  expired session, which the spec defines as not processed. A call that finds its server offline makes one
+  short reconnect attempt (3 s) and otherwise fails at once. Every failure is classified
+  (`src/mcp/outcome.ts`) by whether the tool may have run: never sent, refused, or unknown (dropped after
+  sending, timed out, server error).
+- **Tool snapshots**: the last tool list per server is kept in `app.sqlite` (`mcp_snapshots`), so its tools
+  are known while it is offline and after a restart, with a log of what changed between lists
+  (`mcp_changes`). A list is taken at every (re)connect and on `notifications/tools/list_changed`. A changed
+  URL is a different server: its snapshot is dropped.
+- A server URL comes only from the owner's config, never from a model, and may not be this gateway itself;
+  redirects are refused so headers never follow one; the client declares no capabilities (no sampling,
+  elicitation or roots).
 
 ## Skills
 
@@ -289,7 +318,7 @@ bot messages bound it.
 ## Persistence and operations
 
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and
-forward-only migrations), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
+forward-only migrations; it also keeps MCP servers' last tool lists), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
 `vory/` (Vory push registrations); logs go to stderr (journal / launchd log), with the last 500 lines
 kept in memory for `/api/logs`. Files and pictures sent from a client are written to the bot's workspace
 `uploads/` folder, never over another file; `src/core/attachments.ts` holds what waits for a session's next

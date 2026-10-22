@@ -1,11 +1,11 @@
 // Runtime configuration: re-reading config.yaml while the gateway runs, and the edits the admin API
 // and the panel make to it. Edits go through the YAML document, so comments and order survive; the
-// result is loaded and checked before it replaces the file, then applied like a reload. Bots and
+// result is loaded and checked before it replaces the file, then applied like a reload. Bots, MCP servers and
 // `defaults` apply at once (each prompt reads them); the rest is reported as needing a restart.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Document, isMap, isSeq, parseDocument, type YAMLMap } from "yaml";
-import { type ApprovalMode, type BotConfig, type Config, ConfigError, loadConfig, type ThinkingLevel } from "../config.ts";
+import { type ApprovalMode, type BotConfig, type Config, ConfigError, loadConfig, MCP_SERVER_NAME, type McpServerConfig, type ThinkingLevel } from "../config.ts";
 import { logger } from "../log.ts";
 import type { Bots, BotOverrides } from "./bots.ts";
 
@@ -27,6 +27,14 @@ export type GatewayPatch = {
 	/** Jev permission review settings. */
 	review?: { enabled?: boolean; allowThreshold?: number; timeoutMs?: number; keyEnv?: string };
 };
+
+/**
+ * A change to one MCP server's entry (`mcp.servers.<name>`), in config.yaml's own shape: a value sets the
+ * key, `null` removes it (back to the default), `undefined` leaves it. `tools` replaces its sub-keys the same way.
+ */
+export type McpServerPatch = {
+	[K in Exclude<keyof McpServerConfig, "name" | "tools">]?: McpServerConfig[K] | null;
+} & { tools?: { [K in keyof McpServerConfig["tools"]]?: string[] | null } | null };
 
 /** Runtime overrides that shadow a config key; editing the key clears them so the edit shows. */
 const SHADOWED: Partial<Record<keyof BotConfig, keyof BotOverrides>> = {
@@ -62,7 +70,17 @@ export type SettingsDeps = {
 	botChanged: (name: string) => void;
 	/** Called after every applied change (services that follow bot settings, e.g. the OpenChamber watcher). */
 	applied?: () => void;
+	/** Called when `mcp.servers` changed (connections follow it). */
+	mcpChanged?: () => void;
 };
+
+function setFields(doc: Document, item: YAMLMap, patch: Record<string, unknown>): void {
+	for (const [k, v] of Object.entries(patch)) {
+		if (v === undefined) continue;
+		if (v === null) item.delete(k);
+		else item.set(k, doc.createNode(v));
+	}
+}
 
 export class Settings {
 	private readonly d: SettingsDeps;
@@ -167,6 +185,52 @@ export class Settings {
 		return result;
 	}
 
+	addMcpServer(name: string, fields: McpServerPatch): ReloadResult {
+		if (!MCP_SERVER_NAME.test(name)) throw new ConfigError(`an MCP server name must match ${MCP_SERVER_NAME} (lower-case letters, digits and -)`);
+		if (this.d.config.mcp.servers.some((s) => s.name === name)) throw new ConfigError(`an MCP server named "${name}" already exists`);
+		const entry = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined && v !== null));
+		return this.write((doc) => doc.setIn(["mcp", "servers", name], doc.createNode(entry)));
+	}
+
+	editMcpServer(name: string, patch: McpServerPatch): ReloadResult {
+		if (!this.d.config.mcp.servers.some((s) => s.name === name)) throw new ConfigError(`unknown MCP server "${name}"`);
+		return this.write((doc) => {
+			const item = doc.getIn(["mcp", "servers", name]);
+			if (!isMap(item)) throw new ConfigError(`MCP server "${name}" is not in config.yaml`);
+			const { tools, ...rest } = patch;
+			setFields(doc, item, rest);
+			if (tools === null) item.delete("tools");
+			else if (tools !== undefined) {
+				let t = item.get("tools");
+				if (!isMap(t)) {
+					item.set("tools", doc.createNode({}));
+					t = item.get("tools");
+				}
+				setFields(doc, t as YAMLMap, tools);
+				if ((t as YAMLMap).items.length === 0) item.delete("tools");
+			}
+		});
+	}
+
+	/** Removes an MCP server, and its tool group from every bot that had it (so config.yaml still loads). */
+	removeMcpServer(name: string): ReloadResult {
+		if (!this.d.config.mcp.servers.some((s) => s.name === name)) throw new ConfigError(`unknown MCP server "${name}"`);
+		const group = `mcp:${name}`;
+		return this.write((doc) => {
+			doc.deleteIn(["mcp", "servers", name]);
+			const servers = doc.getIn(["mcp", "servers"]);
+			if (isMap(servers) && servers.items.length === 0) doc.deleteIn(["mcp", "servers"]);
+			const mcp = doc.get("mcp");
+			if (isMap(mcp) && mcp.items.length === 0) doc.delete("mcp");
+			for (const item of seqItems(doc)) {
+				const tools = item.get("tools");
+				if (!isSeq(tools)) continue;
+				const keep = tools.items.filter((t) => String((t as { value?: unknown }).value ?? t) !== group);
+				if (keep.length !== tools.items.length) tools.items = keep;
+			}
+		});
+	}
+
 	setGateway(patch: GatewayPatch): ReloadResult {
 		return this.write((doc) => {
 			for (const [k, v] of Object.entries(patch.server ?? {})) if (v !== undefined) doc.setIn(["server", k], v);
@@ -204,7 +268,8 @@ export class Settings {
 	}
 
 	private check(next: Config): void {
-		const known = new Set(this.d.toolGroups());
+		// MCP groups follow the configuration being checked: a server added in the same edit is known, a removed one is not.
+		const known = new Set([...this.d.toolGroups().filter((g) => !g.startsWith("mcp:")), ...next.mcp.servers.map((s) => `mcp:${s.name}`)]);
 		for (const b of next.bots) {
 			const unknown = (b.tools ?? []).filter((t) => !known.has(t));
 			if (unknown.length > 0) throw new ConfigError(`bot "${b.name}": unknown tool group ${unknown.join(", ")} (known: ${[...known].join(", ")})`);
@@ -224,6 +289,9 @@ export class Settings {
 		config.review = next.review;
 		config.modelLists = next.modelLists;
 		config.defaults = { ...next.defaults, approvalTimeoutS: config.defaults.approvalTimeoutS };
+		const mcpChanged = JSON.stringify(config.mcp) !== JSON.stringify(next.mcp);
+		config.mcp = next.mcp;
+		if (mcpChanged) this.d.mcpChanged?.();
 		for (const n of [...changed, ...removed]) this.d.botChanged(n);
 		this.d.applied?.();
 		log.info("configuration applied", { added, removed, changed, restartNeeded });

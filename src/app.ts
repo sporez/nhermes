@@ -27,6 +27,10 @@ import { type ProviderCatalog, ProviderCatalogs } from "./models/catalogs.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
+import type { Tuning } from "./mcp/connection.ts";
+import { McpServers } from "./mcp/servers.ts";
+import { VERSION } from "./hermes/shapes.ts";
+import { isOwnGateway } from "./tools/own-gateway.ts";
 import { NetworkNotifier } from "./federation/notify.ts";
 import { FanoutNotifier, type Notification, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
 import { VoryPush } from "./notify/vory.ts";
@@ -83,6 +87,8 @@ export type Core = {
 	reviewer: JevReviewer;
 	reviewLog: ReviewLog;
 	updates: Updates;
+	/** MCP servers: connections, availability, tool snapshots. */
+	mcp: McpServers;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -123,6 +129,9 @@ export type CoreOptions = {
 	catalogFetch?: typeof fetch;
 	/** Replaces pdftoppm for PDF pages (tests). */
 	renderPdf?: PdfRenderer;
+	/** MCP connection timings and HTTP call (tests). */
+	mcpTuning?: Partial<Tuning>;
+	mcpFetch?: typeof fetch;
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
@@ -193,6 +202,15 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		}
 		return [...ports];
 	};
+	const mcp = new McpServers({
+		db,
+		servers: () => config.mcp.servers,
+		version: VERSION,
+		refuse: async (url) => ((await isOwnGateway(url, ownPorts())) ? "the URL points at this gateway itself" : undefined),
+		fetch: options.mcpFetch,
+		tuning: options.mcpTuning,
+	});
+	secrets.onChange((name) => mcp.keyChanged(name));
 	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub, ownPorts };
 
 	const delegation = delegateExtension({
@@ -340,6 +358,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		botChanged: (name) => hosts.reset(name),
 		// The openchamber_alerts group turned on or off (Vory's Tools page, the panel) takes effect without a restart.
 		applied: () => void chamberWatcher.sync(),
+		mcpChanged: () => mcp.apply(),
 	});
 	const folded = settings.withBackup(() => settings.foldOverrides());
 	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
@@ -351,6 +370,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
 	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier, approvals, members, proxy });
 	rooms.start();
+	// In the background: a server that is down or slow never holds up the gateway.
+	mcp.start();
 
 	return {
 		config,
@@ -383,8 +404,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		reviewer,
 		reviewLog,
 		updates,
+		mcp,
 		agentFor,
 		close: async () => {
+			await mcp.close();
 			members.stop();
 			logins.close();
 			updates.stop();
