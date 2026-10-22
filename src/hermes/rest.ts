@@ -6,6 +6,7 @@ import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "./http.ts";
 import { botFor, localOnly } from "./lookup.ts";
 import { call, manageRoutes } from "./manage.ts";
+import { mcpVoryRoutes } from "./mcp.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
 import type { SessionKind } from "../core/sessions.ts";
 import { VoryPushError } from "../notify/vory.ts";
@@ -324,8 +325,8 @@ export function restRoutes(core: Core): Router {
 		if (bot.remote) return [];
 		return [...core.toolGroups.entries()].map(([name, tools]) => ({
 			name,
-			label: GROUP_LABELS[name]?.label ?? name,
-			description: GROUP_LABELS[name]?.description ?? "",
+			label: GROUP_LABELS[name]?.label ?? (name.startsWith("mcp:") ? `MCP: ${name.slice(4)}` : name),
+			description: GROUP_LABELS[name]?.description ?? (name.startsWith("mcp:") ? (core.config.mcp.servers.find((s) => `mcp:${s.name}` === name)?.description ?? "Tools of an MCP server") : ""),
 			platform: "gateway",
 			enabled: bot.toolGroups.includes(name),
 			configured: true,
@@ -374,5 +375,6 @@ export function restRoutes(core: Core): Router {
 	});
 
 	manageRoutes(core, r);
+	mcpVoryRoutes(core, r);
 	return r;
 }

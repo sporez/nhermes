@@ -146,10 +146,12 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
   - Management (`test/mcp/manage.test.ts`): the panel's and the admin API's add, view, edit, test and remove,
     404 for an unknown server, a credential header refused unless it references a key, a hand-written one
     hidden, key values never returned, and the doctor's lines.
+  - Vory's MCP Servers routes (`test/mcp/vory.test.ts`): the list per profile in Vory's shape, the toggle as
+    that bot's access, Test while up and down, Remove, 404s, and MCP groups on the Tools page.
 - Panel (panel-dev, 2026-10-21): the MCP tab in dark and light and at phone width, with servers online,
   offline and missing a key; the tool list, an edit saved, a credential header refused. `nhermes mcp` list,
   show, add, test, disable and rm run against the same gateways.
-- Not yet verified live against a real MCP server.
+- Not yet verified live against a real MCP server, nor on Vory's MCP Servers screen in the app.
 
 ## Models
 
@@ -166,8 +168,8 @@ that entry (or the file, and `pi.modelsPath` with it) to switch a machine to the
 - Pushover keys for a live notification test.
 - Drive an approval card and the cron screens in the Vory UI by hand once.
 - Vory's settings and maintenance screens (Tools, Config, Env, Files, Analytics, update/restart/doctor, logs)
-  are implemented, also for members' bots (`docs/REMOTE-BOT-EDITS.md`); Projects, MCP servers and bot rooms
-  still answer 404 / -32601. See `docs/COMPATIBILITY.md`.
+  are implemented, also for members' bots (`docs/REMOTE-BOT-EDITS.md`), and so are MCP servers
+  (`docs/MCP.md`); Projects and bot rooms still answer 404 / -32601. See `docs/COMPATIBILITY.md`.
 - Federation F5: Vory's E2E suite and a UI pass with a remote profile selected are not run yet
   (`docs/FEDERATION.md`).
 - Hermes on the VM still runs on 9119. Stopping it is a later step (owner allowed it if needed).

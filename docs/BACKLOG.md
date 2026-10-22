@@ -61,8 +61,9 @@ Status per phase: see `docs/STATUS.md`.
   CLI. Do it for any member from one panel: the login runs on that machine and its tokens never leave it.
   Plan: `docs/LOGINS.md`.
 
-- **MCP servers.** Vory has an MCP Servers screen (`/api/mcp/servers`: list, enable, test, remove). nHermes
-  has no MCP client yet; the screen gets 404 until it does.
+- **MCP servers, later steps** (`docs/MCP.md`): OAuth sign-in for servers that need it (pi-mcp's OAuth module,
+  a panel flow like Logins), stdio servers the gateway starts, the stateless MCP 2026-07-28 once Pi's client
+  speaks it, and MCP resources.
 
 ## Deferred
 
