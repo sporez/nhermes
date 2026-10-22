@@ -1,7 +1,9 @@
-// The MCP tab: this machine's MCP servers (docs/MCP.md), their state and tools, and their settings. A bot
-// gets a server through its tool group mcp:<name> in the bot editor (Bots). Key values are never shown or
-// typed here: headers reference keys from the Keys tab as {{secret:NAME}}. Registers itself in core.js.
-import { ago, api, ask, badge, field, h, pollWhile, registerTab, restartNote, run, select, show, toast, ui, when } from "./core.js";
+// The MCP tab: this machine's MCP servers (docs/MCP.md), their state and tools, and their settings, then the
+// servers of members that allow edits from other machines (managed on their own machine through
+// /panel/api/remote/<node>/mcp). A bot gets a server through its tool group mcp:<name> in the bot editor
+// (Bots). Key values are never shown or typed here: headers reference keys from the Keys tab as
+// {{secret:NAME}}. Only this machine's servers refresh while the tab is open. Registers itself in core.js.
+import { ago, api, ask, badge, field, fill, h, pollWhile, registerTab, restartNote, run, select, show, toast, ui, when } from "./core.js";
 
 const STATE = {
 	online: ["online", "ok"],
@@ -36,8 +38,8 @@ function toolsLine(s) {
 	return h("span", { class: "small" }, `${s.exposedCount} tool${s.exposedCount === 1 ? "" : "s"}${ro}${hidden}${cached}${s.exposure === "deferred" ? ", found with tool_search" : ""}`);
 }
 
-/** The settings form, for a new server (s undefined) or an existing one. */
-function form(s, done) {
+/** The settings form, for a new server (s undefined) or an existing one; `base` is "" or "/remote/<node>". */
+function form(s, done, base = "") {
 	const name = h("input", { type: "text", value: s?.name ?? "", placeholder: "calendar", autocapitalize: "off", autocomplete: "off", disabled: Boolean(s) });
 	const url = h("input", { type: "text", value: s?.url ?? "", placeholder: "https://mac.example.com:8443/mcp", autocapitalize: "off", autocomplete: "off" });
 	const description = h("input", { type: "text", value: s?.description ?? "", placeholder: "What it offers, for the bots and for you" });
@@ -88,7 +90,7 @@ function form(s, done) {
 			}
 			body.headers = Object.keys(headers).length ? headers : null;
 		}
-		const r = s ? await api("PATCH", `/mcp/${encodeURIComponent(s.name)}`, body) : await api("POST", "/mcp", { name: name.value.trim(), ...body });
+		const r = s ? await api("PATCH", `${base}/mcp/${encodeURIComponent(s.name)}`, body) : await api("POST", `${base}/mcp`, { name: name.value.trim(), ...body });
 		restartNote(r);
 		ui.mcpEditing = null;
 		await done();
@@ -101,7 +103,7 @@ function form(s, done) {
 		field("Description", description),
 		h("div", { class: "field" }, h("div", { class: "small muted" }, "Headers"), rows,
 			h("button", { class: "link", on: { click: () => { addRow(); headersChanged = true; } } }, "+ Add a header"),
-			h("div", { class: "hint" }, "Put the token in the ", h("a", { href: "#keys" }, "Keys"), " tab and write {{secret:NAME}} here. A header that carries a credential is refused otherwise.")),
+			h("div", { class: "hint" }, "Put the token in the ", h("a", { href: "#keys" }, "Keys"), " tab", base ? " of that machine (or send it there from this one)" : "", " and write {{secret:NAME}} here. A header that carries a credential is refused otherwise.")),
 		field("Read-only tools", readOnly, "Names or patterns (* = anything). These change nothing, so they never ask for approval. Every other tool asks first."),
 		h("div", { class: "field checks" }, h("label", {}, hint, "Also trust the server's own read-only hints (the spec treats them as untrusted)")),
 		h("div", { class: "grid2" }, field("Expose tools", include, "Patterns; * for all."), field("Leave out", exclude)),
@@ -112,8 +114,8 @@ function form(s, done) {
 		h("div", { class: "row" }, h("button", { class: "primary", on: { click: save } }, s ? "Save" : "Add server"), h("button", { on: { click: cancel } }, "Cancel")));
 }
 
-async function toolsPanel(name) {
-	const d = await api("GET", `/mcp/${encodeURIComponent(name)}`);
+async function toolsPanel(name, base) {
+	const d = await api("GET", `${base}/mcp/${encodeURIComponent(name)}`);
 	const tools = d.toolList.map((t) => h("tr", {},
 		h("td", {}, h("div", { class: "mono" }, t.name), t.modelName ? h("div", { class: "muted small mono" }, t.modelName) : h("div", { class: "muted small" }, "not exposed")),
 		h("td", {}, t.readOnly === "owner" ? badge("read-only", "ok") : t.readOnly === "hint" ? badge("read-only (server's hint)", "ok") : badge("asks first", "warn")),
@@ -130,24 +132,26 @@ async function toolsPanel(name) {
 		d.changes.length > 0 && [h("h2", {}, "Tool list changes"), h("ul", { class: "list" }, d.changes.map(change))]);
 }
 
-function card(s, redo) {
-	const open = ui.mcpOpen === s.name;
+function card(s, redo, base = "") {
+	const key = `${base}|${s.name}`;
+	const open = ui.mcpOpen === key;
+	const path = `${base}/mcp/${encodeURIComponent(s.name)}`;
 	const body = h("div");
 	const act = (action, label) => () => run(async () => {
-		const r = await api("POST", `/mcp/${encodeURIComponent(s.name)}/${action}`);
+		const r = await api("POST", `${path}/${action}`);
 		if (action === "test") toast(r.ok ? `${s.name} answers: ${r.toolCount} tools` : `${s.name} does not answer: ${r.error ?? r.state}`, !r.ok);
 		else toast(`${label}: ${s.name}`);
 		await redo();
 	});
-	const toggle = () => run(async () => { restartNote(await api("PATCH", `/mcp/${encodeURIComponent(s.name)}`, { enabled: !s.enabled })); await redo(); });
+	const toggle = () => run(async () => { restartNote(await api("PATCH", path, { enabled: !s.enabled })); await redo(); });
 	const remove = () => run(async () => {
 		const who = s.bots.length ? `\nIt is taken off ${s.bots.join(", ")}.` : "";
 		if (!await ask(`Remove the MCP server ${s.name}?${who}`, "Remove")) return;
-		restartNote(await api("DELETE", `/mcp/${encodeURIComponent(s.name)}`));
+		restartNote(await api("DELETE", path));
 		await redo();
 	});
-	const edit = () => run(async () => { ui.mcpEditing = s.name; await redo(); });
-	const showTools = () => run(async () => { ui.mcpOpen = open ? null : s.name; await redo(); });
+	const edit = () => run(async () => { ui.mcpEditing = key; await redo(); });
+	const showTools = () => run(async () => { ui.mcpOpen = open ? null : key; await redo(); });
 	const wrap = h("div", { class: "card" },
 		h("div", { class: "row between" },
 			h("div", { class: "grow" },
@@ -157,7 +161,7 @@ function card(s, redo) {
 				stateLine(s),
 				s.status.lastError && s.status.state !== "online" && h("div", { class: "muted small" }, s.status.lastError),
 				h("div", {}, toolsLine(s)),
-				h("div", { class: "muted small" }, s.bots.length ? `Bots: ${s.bots.join(", ")}` : "No bot has it yet: add ", !s.bots.length && h("span", { class: "mono" }, s.group), !s.bots.length && " to a bot's tools on the ", !s.bots.length && h("a", { href: "#bots" }, "Bots"), !s.bots.length && " tab."),
+				h("div", { class: "muted small" }, s.bots.length ? `Bots: ${s.bots.join(", ")}` : "No bot has it yet: add ", !s.bots.length && h("span", { class: "mono" }, s.group), !s.bots.length && ` to a bot's tools${base ? " on that machine" : ""} on the `, !s.bots.length && h("a", { href: "#bots" }, "Bots"), !s.bots.length && " tab."),
 				s.warnings.map((w) => h("div", { class: "small warn-text" }, w))),
 			h("div", { class: "row" },
 				s.enabled && h("button", { on: { click: act("test", "Tested") } }, "Test"),
@@ -167,23 +171,53 @@ function card(s, redo) {
 				h("button", { on: { click: toggle } }, s.enabled ? "Turn off" : "Turn on"),
 				h("button", { class: "link danger", on: { click: remove } }, "Remove"))),
 		body);
-	if (ui.mcpEditing === s.name) body.append(h("div", { class: "field" }), form(s, redo));
-	else if (open) run(async () => body.replaceChildren(h("div", { class: "field" }), await toolsPanel(s.name)));
+	if (ui.mcpEditing === key) body.append(h("div", { class: "field" }), form(s, redo, base));
+	else if (open) run(async () => body.replaceChildren(h("div", { class: "field" }), await toolsPanel(s.name, base)));
 	return wrap;
 }
 
-async function mcpScreen() {
+/** One machine's servers and its "Add" form, into `box`. */
+function serverList(box, servers, redo, base, label) {
+	const addKey = `${base}|`;
+	const add = h("details", { class: "card", open: ui.mcpEditing === addKey }, h("summary", {}, label), h("div", { class: "field" }), form(undefined, redo, base));
+	add.addEventListener("toggle", () => { ui.mcpEditing = add.open ? addKey : ui.mcpEditing === addKey ? null : ui.mcpEditing; });
+	fill(box, servers.length ? servers.map((s) => card(s, redo, base)) : h("div", { class: "notice" }, "No MCP servers yet."), add);
+}
+
+async function drawLocal(box) {
 	const data = await api("GET", "/mcp");
-	const redo = () => run(mcpScreen);
-	const adding = ui.mcpEditing === "";
-	const add = h("details", { class: "card", open: adding }, h("summary", {}, "Add an MCP server"), h("div", { class: "field" }), form(undefined, redo));
-	add.addEventListener("toggle", () => { ui.mcpEditing = add.open ? "" : null; });
+	serverList(box, data.servers, () => run(() => drawLocal(box)), "", "Add an MCP server");
+}
+
+/** Members' servers, from each member that allows edits from other machines. Loaded on open and after a change. */
+async function drawMembers(box) {
+	const net = await api("GET", "/network");
+	if (!net.members.length) return fill(box);
+	const parts = [h("h2", {}, "Other machines")];
+	for (const m of net.members) {
+		const base = `/remote/${encodeURIComponent(m.name)}`;
+		const section = h("div");
+		parts.push(h("h3", {}, m.name), section);
+		try {
+			const r = await api("GET", `${base}/mcp`);
+			serverList(section, r.servers, () => run(() => drawMembers(box)), base, `Add an MCP server on ${m.name}`);
+		} catch (e) {
+			fill(section, h("div", { class: "muted small" }, e.message));
+		}
+	}
+	fill(box, parts);
+}
+
+async function mcpScreen() {
+	const local = h("div");
+	const members = h("div");
 	show(h("h1", {}, "MCP servers"),
 		h("p", { class: "muted" }, "Tools from MCP servers this machine connects to. A server may be offline at times (a laptop asleep): its last known tools stay, calls to it fail at once and the bot is told nothing was sent. Calls that change something ask for approval unless the tool is marked read-only."),
-		data.servers.length ? data.servers.map((s) => card(s, redo)) : h("div", { class: "notice" }, "No MCP servers yet."),
-		add);
-	// Live state, but not while a form (it would lose what is typed) or a tool list is open.
-	pollWhile("mcp", () => (ui.mcpEditing === null && ui.mcpOpen === null ? mcpScreen() : undefined), 5000);
+		local, members);
+	await drawLocal(local);
+	await run(() => drawMembers(members));
+	// This machine's live state, but not while a form (it would lose what is typed) or a tool list is open.
+	pollWhile("mcp", () => (ui.mcpEditing === null && ui.mcpOpen === null ? drawLocal(local) : undefined), 5000);
 }
 
 registerTab("mcp", mcpScreen, "MCP");

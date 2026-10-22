@@ -5,6 +5,7 @@
 import type { Core } from "../app.ts";
 import { CREDENTIAL_HEADER, cleartextRemote, ConfigError, type McpServerConfig, secretRefs } from "../config.ts";
 import type { McpServerPatch } from "../core/settings.ts";
+import { HttpError } from "../hermes/http.ts";
 import { redact } from "../log.ts";
 import { exposed, isReadOnly, MANY_TOOLS, mcpToolName } from "../tools/mcp.ts";
 
@@ -74,6 +75,21 @@ function server(core: Core, name: string): McpServerConfig {
 	const c = core.config.mcp.servers.find((s) => s.name === name);
 	if (!c) throw new UnknownMcpServer(`no MCP server named "${name}"`);
 	return c;
+}
+
+/** For routes: settings errors are bad input (400), an unknown server is 404; sync and async calls alike. */
+export function mcpCall<T>(fn: () => T): T {
+	const fail = (error: unknown): never => {
+		if (error instanceof UnknownMcpServer) throw new HttpError(404, error.message);
+		if (error instanceof ConfigError) throw new HttpError(400, error.message);
+		throw error;
+	};
+	try {
+		const out = fn();
+		return (out instanceof Promise ? out.catch(fail) : out) as T;
+	} catch (error) {
+		return fail(error);
+	}
 }
 
 /** Edits through Settings, with an unknown server answered as such (404) rather than as bad input. */

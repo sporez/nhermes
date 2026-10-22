@@ -8,6 +8,7 @@ import type { Bot } from "../core/bots.ts";
 import type { BotPatch } from "../core/settings.ts";
 import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
 import { logger } from "../log.ts";
+import { mcpAction, mcpCall, mcpDetail, mcpEdit, mcpList, mcpPatch } from "../mcp/manage.ts";
 import { editorView, ownBots, promptView, skillsView } from "../panel/views.ts";
 import type { MemberRow } from "./members.ts";
 
@@ -96,5 +97,32 @@ export function manageRoutes(core: Core): Router {
 		return { ok: true, enabled };
 	});
 	r.on("GET", "/federation/manage/bots/:name/prompt", (q) => (allowed(q), promptView(core, bot(q.params.name!))));
+
+	// This machine's MCP servers (src/mcp/manage.ts), under the same switch. Key values never travel: headers
+	// name keys as {{secret:NAME}}, set on this machine (or copied with the Keys tab, under its own switch).
+	const mcpChanged = (q: Req, what: string, name: string) => log.info(`mcp server ${what} by a member`, { server: name, by: q.member!.name });
+	r.on("GET", "/federation/manage/mcp", (q) => (allowed(q), { node: core.members.self().name, ...mcpList(core) }));
+	r.on("GET", "/federation/manage/mcp/:name", (q) => (allowed(q), mcpCall(() => mcpDetail(core, q.params.name!))));
+	r.on("POST", "/federation/manage/mcp", (q) => {
+		allowed(q);
+		const b = obj(q.body);
+		if (typeof b.name !== "string" || !b.name) throw new HttpError(400, "name is required");
+		const result = mcpCall(() => core.settings.addMcpServer(b.name as string, mcpPatch(b)));
+		mcpChanged(q, "added", b.name);
+		return result;
+	});
+	r.on("PATCH", "/federation/manage/mcp/:name", (q) => {
+		allowed(q);
+		const result = mcpCall(() => mcpEdit(core, q.params.name!, () => core.settings.editMcpServer(q.params.name!, mcpPatch(obj(q.body)))));
+		mcpChanged(q, "edited", q.params.name!);
+		return result;
+	});
+	r.on("DELETE", "/federation/manage/mcp/:name", (q) => {
+		allowed(q);
+		const result = mcpCall(() => mcpEdit(core, q.params.name!, () => core.settings.removeMcpServer(q.params.name!)));
+		mcpChanged(q, "removed", q.params.name!);
+		return result;
+	});
+	r.on("POST", "/federation/manage/mcp/:name/:action", (q) => (allowed(q), mcpCall(() => mcpAction(core, q.params.name!, q.params.action!))));
 	return r;
 }

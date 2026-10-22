@@ -28,6 +28,11 @@ const FORWARDED: { method: string; re: RegExp; write: boolean; nameInPath?: bool
 	{ method: "GET", re: /^\/api\/analytics\/usage$/, write: false },
 	// Pictures in a chat with the bot: Vory asks for them under the bot's profile.
 	{ method: "GET", re: /^\/api\/media$/, write: false },
+	// The MCP Servers screen: the member's servers and the bot's access to them; a test changes nothing.
+	{ method: "GET", re: /^\/api\/mcp\/servers$/, write: false },
+	{ method: "PUT", re: /^\/api\/mcp\/servers\/[^/]+\/enabled$/, write: true },
+	{ method: "POST", re: /^\/api\/mcp\/servers\/[^/]+\/test$/, write: false },
+	{ method: "DELETE", re: /^\/api\/mcp\/servers\/[^/]+$/, write: true },
 ];
 
 const rule = (method: string, path: string) => FORWARDED.find((f) => f.method === method && f.re.test(path));

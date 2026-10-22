@@ -295,7 +295,8 @@ Every machine runs the same gateway; together they form one network of equals (`
   a member the panel marks "No encrypted link" must be removed and joined again.
 - A gateway that moves (another port or IP) tells the other members by itself on its next tick.
 - "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
-  panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`).
+  panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`) and its MCP
+  servers (the MCP tab's "Other machines"; key values stay here, see `docs/MCP.md`).
 - "Let other machines sign this machine in to model providers" (Network tab, off by default) lets the other
   members' panels and `nhermes auth --machine` start, answer and cancel provider sign-ins here, and sign
   this machine out (`docs/LOGINS.md`). The sign-in is saved on this machine; no token is sent to them.

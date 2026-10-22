@@ -148,8 +148,13 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
     hidden, key values never returned, and the doctor's lines.
   - Vory's MCP Servers routes (`test/mcp/vory.test.ts`): the list per profile in Vory's shape, the toggle as
     that bot's access, Test while up and down, Remove, 404s, and MCP groups on the Tools page.
+  - Network (`test/federation/mcp.test.ts`): a member's MCP tools used by delegating to its bot (the call
+    goes out from that machine with its key; a read-only call runs, a write's approval is answered in the
+    caller's chat), and a member's servers managed from another panel and from Vory only once that machine
+    allows bot edits, with no key value sent.
 - Panel (panel-dev, 2026-10-21): the MCP tab in dark and light and at phone width, with servers online,
-  offline and missing a key; the tool list, an edit saved, a credential header refused. `nhermes mcp` list,
+  offline and missing a key; the tool list, an edit saved, a credential header refused; a member's servers
+  under "Other machines", and a member that does not allow edits shown as such. `nhermes mcp` list,
   show, add, test, disable and rm run against the same gateways.
 - Not yet verified live against a real MCP server, nor on Vory's MCP Servers screen in the app.
 

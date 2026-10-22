@@ -272,6 +272,10 @@ run is not submitted twice.
   pair secret, which applies the edit through its own `Settings` and skills; host, workspace, keys and
   gateway settings stay editable only on that machine. Vory's settings requests for a `<bot>-<node>`
   profile follow the same path (`src/federation/vory.ts`): reads always, changes under the same switch.
+  The same switch covers its MCP servers (`/federation/manage/mcp/*`); key values never travel.
+- **MCP servers belong to the machine that configures them**: only its bots call them, and the calls go
+  out from that machine. Another machine reaches them by delegating to such a bot, so the work stays
+  untrusted there and its approvals come back to the chat that started it; there is no second path.
 - **Signing members in (`src/federation/logins.ts`, `docs/LOGINS.md`):** when a gateway's owner allows it
   (its own switch), other members' panels and `nhermes auth --machine` call `/federation/logins/*` over the
   pair secret. The login runs in that gateway's `core/logins.ts`; codes and prompts travel, credentials do not.

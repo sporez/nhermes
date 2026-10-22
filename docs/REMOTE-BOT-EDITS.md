@@ -75,7 +75,17 @@ requests (Tools, Skills, Config, instructions/description/model, model set, usag
 forwarded by that gateway to `POST /federation/manage/vory/:bot` on the owning machine, which runs them
 through its own Vory handlers for its own bot (`src/federation/vory.ts`). Reads are always answered;
 changes need the same "Let other machines edit this machine's bots" switch, and are logged there with
-the member's name. Only those requests are accepted, only for that machine's own bots.
+the member's name. Only those requests are accepted, only for that machine's own bots. The MCP Servers
+screen follows the same rule: the list and Test are reads; the toggle (the bot's access) and Remove are
+changes.
+
+## MCP servers
+
+The same switch lets other members' panels manage this machine's MCP servers (`/federation/manage/mcp/*`,
+the MCP tab's "Other machines"; `docs/MCP.md`): list them with their state and tools, add, edit, turn on or
+off, test, refresh and remove. The server's URL may be set from there; its headers name keys as
+`{{secret:NAME}}`, and the key values are set on this machine (or copied with the Keys tab's "Send to", under
+its own switch). A credential typed into a header is refused, and key values are never sent to a member.
 
 ## Not in scope
 

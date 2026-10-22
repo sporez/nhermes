@@ -11,7 +11,7 @@ import { SecretError } from "./core/secrets.ts";
 import { UpdateError } from "./core/updates.ts";
 import type { BotPatch, GatewayPatch } from "./core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "./federation/logins.ts";
-import { mcpAction, mcpDetail, mcpEdit, mcpList, mcpPatch, UnknownMcpServer } from "./mcp/manage.ts";
+import { mcpAction, mcpCall, mcpDetail, mcpEdit, mcpList, mcpPatch } from "./mcp/manage.ts";
 import { PanelAuth } from "./panel/auth.ts";
 import { HttpError, obj, Router } from "./hermes/http.ts";
 import { logger } from "./log.ts";
@@ -249,21 +249,6 @@ function secretCall<T>(fn: () => T): T {
 	} catch (error) {
 		if (error instanceof SecretError) throw new HttpError(error.status, error.message);
 		throw error;
-	}
-}
-
-/** Settings errors are bad input (400), an unknown server is 404; works for sync and async calls. */
-function mcpCall<T>(fn: () => T): T {
-	const fail = (error: unknown): never => {
-		if (error instanceof UnknownMcpServer) throw new HttpError(404, error.message);
-		if (error instanceof ConfigError) throw new HttpError(400, error.message);
-		throw error;
-	};
-	try {
-		const out = fn();
-		return (out instanceof Promise ? out.catch(fail) : out) as T;
-	} catch (error) {
-		return fail(error);
 	}
 }
 

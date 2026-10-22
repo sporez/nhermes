@@ -1,6 +1,6 @@
 # MCP servers (plan)
 
-Status: in progress.
+Status: implemented (M0–M5); not yet verified live against a real MCP server or on Vory's screen in the app.
 
 ## Steps
 
@@ -8,8 +8,8 @@ Status: in progress.
 - [x] M1. Connections: config, per-server lifecycle, health checks, backoff, tool snapshots (18b0ec6)
 - [x] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure (ca9fda1)
 - [x] M3. Management: MCP tab in the panel, `nhermes mcp`, admin API, keys, doctor (56525ee)
-- [x] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove)
-- [ ] M5. Network: manage a member's MCP servers from any panel and from Vory
+- [x] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove) (f8f4633)
+- [x] M5. Network: manage a member's MCP servers from any panel and from Vory
 - [ ] Later: OAuth sign-in, stdio servers, the stateless 2026-07-28 protocol, resources
 
 ## Goal
@@ -581,4 +581,10 @@ touched). New code goes in new files at its own seam.
 ## Progress
 
 - 2026-10-21: plan written from the code, Pi Durable 1.2.0, pi-mcp 1.2.0/1.4.0 and the MCP
-  2025-11-25 and 2026-07-28 specifications. Not started.
+  2025-11-25 and 2026-07-28 specifications.
+- 2026-10-21: M0–M5 implemented with tests against a controllable MCP server (`test/mcp/`,
+  `test/federation/mcp.test.ts`, `test/upstream/mcp-contract.test.ts`) and checked in panel-dev. Found on
+  the way: undici reuses a pooled connection to a server that just went away, so the first request fails
+  with a reset after it may have been written; a ping before a call on an idle connection takes that hit
+  instead (see "Retries, timeouts and recovery"). MCP clients close after the engine at shutdown, so a call
+  in flight is left to Durable's replay rule. Live checks are next.

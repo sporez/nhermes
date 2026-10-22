@@ -272,6 +272,13 @@ export class Panel {
 		r.on("PUT", "/panel/api/remote/:node/bots/:name/skills/:skill", (q) =>
 			this.remote(q.params.node!, "PUT", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/skills/${encodeURIComponent(q.params.skill!)}`, obj(q.body)),
 		);
+		// A member's MCP servers, managed on that machine (src/federation/manage.ts).
+		r.on("GET", "/panel/api/remote/:node/mcp", (q) => this.remote(q.params.node!, "GET", "/federation/manage/mcp", undefined, 5000));
+		r.on("GET", "/panel/api/remote/:node/mcp/:name", (q) => this.remote(q.params.node!, "GET", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}`));
+		r.on("POST", "/panel/api/remote/:node/mcp", (q) => this.remoteWrite(q.params.node!, "POST", "/federation/manage/mcp", obj(q.body)));
+		r.on("PATCH", "/panel/api/remote/:node/mcp/:name", (q) => this.remoteWrite(q.params.node!, "PATCH", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}`, obj(q.body)));
+		r.on("DELETE", "/panel/api/remote/:node/mcp/:name", (q) => this.remoteWrite(q.params.node!, "DELETE", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}`, {}));
+		r.on("POST", "/panel/api/remote/:node/mcp/:name/:action", (q) => this.remote(q.params.node!, "POST", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}/${encodeURIComponent(q.params.action!)}`, {}, 20_000));
 		r.on("GET", "/panel/api/remote/:node/bots/:name/prompt", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/prompt`));
 
 		// Network

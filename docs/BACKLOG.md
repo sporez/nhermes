@@ -53,6 +53,10 @@ Status per phase: see `docs/STATUS.md`.
 - [x] **10. Group chats**: Vory's Bot Mode rooms (`groups.*`) with this gateway's bots and members'
   bots, Hermes' turn planning, member room sessions, approvals and notifications, restart recovery.
   `src/core/rooms.ts`.
+- [x] **11. MCP servers**: Streamable HTTP MCP servers as tool groups `mcp:<server>`, availability per
+  server with offline servers kept harmless, approvals for tools that are not read-only, the panel's MCP
+  tab, `nhermes mcp`, Vory's MCP Servers screen, members' servers managed from any panel. Plan:
+  `docs/MCP.md` (open: live checks against a real server and in the Vory app).
 
 ## Future
 
