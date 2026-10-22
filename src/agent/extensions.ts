@@ -41,6 +41,8 @@ export type AgentDeps = {
 	roomOwnerMessages?: (sessionId: string) => string[] | undefined;
 	/** This machine's name in the network (for the reviewer). */
 	machine?: () => string;
+	/** An MCP server's tool by its tool name, for the policy (src/tools/mcp.ts). */
+	mcpTool?: (name: string) => { server: string; tool: string; readOnly: boolean } | undefined;
 };
 
 /** Messages in a chat that the gateway wrote, not the owner (delegation reports, scheduled prompts). */
@@ -182,7 +184,7 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const reviewer = deps.reviewer?.active() ? deps.reviewer : undefined;
 					const decision = decide(
 						{ name: call.name, arguments: call.arguments as Record<string, unknown> },
-						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention), reviewActive: reviewer !== undefined, gatewayFiles: deps.gatewayFiles },
+						{ bot: effective, sessionRules, botRules: approvals.rules(`bot:${bot.name}`), yolo: approvals.isYolo(attention), reviewActive: reviewer !== undefined, gatewayFiles: deps.gatewayFiles, mcpTool: deps.mcpTool },
 					);
 					if (decision.action === "allow") return undefined;
 					if (decision.action === "deny") return { block: decision.description };

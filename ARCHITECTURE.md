@@ -141,6 +141,7 @@ with only the high-impact patterns asking.
 | `openchamber` | `oc_sessions/read/waiting/diff`, `oc_approve/answer/stop/prompt/start` | OpenChamber's local server on the same Mac (`src/openchamber/`); control tools always ask the owner. The tool-less `openchamber_alerts` group turns on the event watcher that notifies about requests and failed threads |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
+| `mcp:<server>` | `mcp__<server>__<tool>` for each tool the server lists (narrowed by its include/exclude) | One group per configured MCP server (`src/tools/mcp.ts`). The server's last known list, kept while it is offline; re-installed as Durable's `mcp` extension when a list or the config changes. `exposure: deferred` leaves them out of the request until `tool_search` loads them. Not read-only (by the owner's `tools.readOnly`) → asks; read-only → `replay: "safe"` |
 | `self` | `self_info`, `self_models` (the pickers' model list), `nhermes_docs`, `self_update`, `self_skill_write/delete`; trusted bots also `gateway_bot_update/add/remove`, `gateway_update`, `gateway_reload`, `gateway_skill_write/delete`, `gateway_software` | Adds the `about` prompt section (what nHermes is, the bot's live settings, a docs map). Edits go through `Settings`; every change asks the owner with a diff (never Jev, no "always"); refused in jobs, from network members, and (gateway tools) through an untrusted delegation chain. `src/tools/self.ts` |
 
 Long-running tools stream output through Pi Durable's `api.output()`, honour cancellation through the
@@ -167,6 +168,12 @@ set up wrong).
   short reconnect attempt (3 s) and otherwise fails at once. Every failure is classified
   (`src/mcp/outcome.ts`) by whether the tool may have run: never sent, refused, or unknown (dropped after
   sending, timed out, server error).
+- **A down server keeps its tools declared**, and calls to it fail fast with what happened, so the model can
+  tell the owner "the calendar is offline" instead of believing it never had one, and no chat's tool list
+  churns as a laptop sleeps and wakes. Tools leave only when the owner changes the config or a fresh list
+  drops them (Durable answers a stale call with `tool_unavailable`). A call on an idle connection is preceded
+  by a `ping`, so a dead pooled connection fails there and the call is reported as not sent. The bot's prompt
+  names its servers and the owner's descriptions, never live status.
 - **Tool snapshots**: the last tool list per server is kept in `app.sqlite` (`mcp_snapshots`), so its tools
   are known while it is offline and after a restart, with a log of what changed between lists
   (`mcp_changes`). A list is taken at every (re)connect and on `notifications/tools/list_changed`. A changed

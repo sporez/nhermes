@@ -30,6 +30,7 @@ import { MemoryStore } from "./memory/memory.ts";
 import type { Tuning } from "./mcp/connection.ts";
 import { McpServers } from "./mcp/servers.ts";
 import { VERSION } from "./hermes/shapes.ts";
+import { McpTools } from "./tools/mcp.ts";
 import { isOwnGateway } from "./tools/own-gateway.ts";
 import { NetworkNotifier } from "./federation/notify.ts";
 import { FanoutNotifier, type Notification, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
@@ -89,6 +90,8 @@ export type Core = {
 	updates: Updates;
 	/** MCP servers: connections, availability, tool snapshots. */
 	mcp: McpServers;
+	/** Their tools as Durable tools, by tool group `mcp:<server>`. */
+	mcpTools: McpTools;
 	agentFor(bot: Bot): AgentChange;
 	close(): Promise<void>;
 };
@@ -185,13 +188,14 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 
 	let sessions: Sessions | undefined;
 	const toolGroups = coreToolGroups();
-	const agentFor = (bot: Bot): AgentChange => ({
-		model: bot.model,
-		thinkingLevel: bot.thinking as AgentChange["thinkingLevel"],
-		cwd: HostEnvs.isRemote(bot) ? undefined : bot.workspace,
+	let mcpTools: McpTools | undefined;
+	const agentFor = (bot: Bot): AgentChange => {
 		// Gateway-wide tools are not offered to bots that are not trusted.
-		tools: toolsFor(toolGroups, bot.toolGroups).filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name)),
-	});
+		const tools = toolsFor(toolGroups, bot.toolGroups).filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name));
+		// Deferred MCP tools are found with tool_search.
+		if (mcpTools && tools.some((t) => t.deferred)) tools.push(mcpTools.searchTool);
+		return { model: bot.model, thinkingLevel: bot.thinking as AgentChange["thinkingLevel"], cwd: HostEnvs.isRemote(bot) ? undefined : bot.workspace, tools };
+	};
 	const ownPorts = (): number[] => {
 		const ports = new Set<number>([config.server.port]);
 		try {
@@ -211,6 +215,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		tuning: options.mcpTuning,
 	});
 	secrets.onChange((name) => mcp.keyChanged(name));
+	mcpTools = new McpTools({ servers: mcp, toolGroups, configs: () => config.mcp.servers });
+	mcp.onToolsChanged(() => mcpTools?.republish());
 	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub, ownPorts };
 
 	const delegation = delegateExtension({
@@ -279,6 +285,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			);
 		},
 		...features.flatMap((f) => f.promptParts ?? []),
+		mcpTools.promptPart(),
 	];
 	const deps: AgentDeps = {
 		sessions: late.sessions,
@@ -305,14 +312,17 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		acceptsBotEdits: () => members.acceptsBotEdits(),
 		machine: () => members.self().name,
 		roomOwnerMessages: (id) => rooms?.ownerMessages(id),
+		mcpTool: (name) => mcpTools?.lookup(name),
 	};
-	const allTools: ToolRegistration[] = [...new Map([...toolGroups.values()].flat().map((t) => [t.name, t])).values()];
+	// MCP tools live in their own extension, which is re-installed when a server's tool list changes.
+	const allTools: ToolRegistration[] = [...new Map([...toolGroups.entries()].filter(([g]) => !g.startsWith("mcp:")).flatMap(([, tools]) => tools).map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
 		personaExtension(deps),
 		defineExtension({ name: "tools", tools: allTools }),
 		delegation.extension,
 		hostsExtension((convId) => sessions?.botOf(convId)),
 		...features.flatMap((f) => f.extensions ?? []),
+		mcpTools.extension(),
 		guardExtension(deps),
 	];
 	const engine = await Engine.open(
@@ -327,6 +337,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 		extensions,
 	);
+	mcpTools.attach(engine.registry);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
 	const attachments = new Attachments({ bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
 	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
@@ -358,7 +369,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		botChanged: (name) => hosts.reset(name),
 		// The openchamber_alerts group turned on or off (Vory's Tools page, the panel) takes effect without a restart.
 		applied: () => void chamberWatcher.sync(),
-		mcpChanged: () => mcp.apply(),
+		mcpChanged: () => {
+			mcp.apply();
+			mcpTools?.republish();
+		},
 	});
 	const folded = settings.withBackup(() => settings.foldOverrides());
 	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
@@ -405,9 +419,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		reviewLog,
 		updates,
 		mcp,
+		mcpTools,
 		agentFor,
 		close: async () => {
-			await mcp.close();
 			members.stop();
 			logins.close();
 			updates.stop();
@@ -419,6 +433,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			await rooms!.stop();
 			await browsers.close();
 			await engine.close();
+			// After the engine: a call still waiting must not be answered as "connection lost" while Durable shuts
+			// down; it stays unfinished, so a restart applies Durable's replay rule to it.
+			await mcp.close();
 			hosts.close();
 			db.close();
 		},

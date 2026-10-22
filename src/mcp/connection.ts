@@ -10,6 +10,9 @@
 //   server is unreachable, take it offline.
 // - A client that is replaced is closed only once our own requests on it have settled, so one call's
 //   failure never fails another call still waiting on the same server.
+// - A call on a connection that has been idle is preceded by a ping. A pooled connection to a server that
+//   went away then fails on the ping, not on the call, so the call is not sent on a dead connection (where
+//   a reset would leave its outcome unknown) and is reported as "offline, not sent" instead.
 import { type CallToolResult, McpClient, type Tool as McpTool, StreamableHttpTransport } from "@earendil-works/pi-mcp";
 import type { McpServerConfig } from "../config.ts";
 import { logger, redact } from "../log.ts";
@@ -41,6 +44,8 @@ export type Tuning = {
 	backoffCapMs: number;
 	/** Retry interval for a server that refused the key or is set up wrong. */
 	slowRetryMs: number;
+	/** A call on a connection idle this long is preceded by a ping (see `call`). */
+	preflightIdleMs: number;
 };
 
 export const DEFAULT_TUNING: Tuning = {
@@ -52,6 +57,7 @@ export const DEFAULT_TUNING: Tuning = {
 	backoffBaseMs: 5_000,
 	backoffCapMs: 300_000,
 	slowRetryMs: 30 * 60_000,
+	preflightIdleMs: 1_000,
 };
 
 export type ConnectionStatus = {
@@ -220,6 +226,14 @@ export class McpConnection {
 			const again = this.refusal();
 			if (again) return fail(again);
 			if (this.stateValue !== "online" || !this.client) return fail({ kind: "offline", sent: "no", message: this.lastError ?? "not connected" });
+		} else if (Date.now() - this.lastOkAt >= this.t.preflightIdleMs) {
+			await this.healthCheck(true, Math.min(this.t.pingTimeoutMs, this.t.probeBudgetMs));
+			if (this.stateValue !== "online" || !this.client) {
+				await within(this.connect().catch(() => undefined), this.t.probeBudgetMs);
+				const again = this.refusal();
+				if (again) return fail(again);
+				if (this.stateValue !== "online" || !this.client) return fail({ kind: "offline", sent: "no", message: this.lastError ?? "not connected" });
+			}
 		}
 		return this.send(tool, args, opts, started, true);
 	}
@@ -445,13 +459,16 @@ export class McpConnection {
 		this.healthTimer.unref?.();
 	}
 
-	/** Pings when idle (any successful request counts as a check). `now` pings regardless. */
-	private async healthCheck(now: boolean): Promise<void> {
+	/**
+	 * Pings when idle (any successful request counts as a check). `now` pings regardless (before a call, after a
+	 * timeout); a ping that fails outright then counts as the server being unreachable.
+	 */
+	private async healthCheck(now: boolean, timeoutMs = this.t.pingTimeoutMs): Promise<void> {
 		const client = this.client;
 		if (!client || this.stateValue !== "online" || this.closed) return;
 		if (!now && Date.now() - this.lastOkAt < this.cfg.healthCheckS * 1000) return this.scheduleHealth();
 		try {
-			await this.track(client, () => client.ping({ timeoutMs: this.t.pingTimeoutMs }));
+			await this.track(client, () => client.ping({ timeoutMs }));
 			if (this.client !== client) return;
 			this.ok();
 		} catch (error) {
@@ -460,7 +477,7 @@ export class McpConnection {
 			log.debug("mcp health check failed", { server: this.name, error: c.message });
 			if (c.kind === "auth") return this.fail("needs_key", c.message);
 			if (c.kind === "session_expired") return this.lost("the session expired");
-			if (++this.misses >= this.t.pingMisses || c.kind === "not_sent") return this.lost(`health check failed: ${c.message}`);
+			if (++this.misses >= this.t.pingMisses || meansUnreachable(c.kind)) return this.lost(`health check failed: ${c.message}`);
 		}
 		this.scheduleHealth();
 	}

@@ -229,6 +229,45 @@ only once they have passed it to the owner.
     tools: [openchamber, openchamber_alerts, memory, notify]
 ```
 
+## MCP servers
+
+An MCP server that speaks Streamable HTTP can give tools to the bots you pick (`docs/MCP.md`). Each server is
+a tool group `mcp:<name>`; a bot gets it by listing it under `tools:`, and no bot gets it by default.
+
+```yaml
+mcp:
+  servers:
+    calendar:                       # lower-case letters, digits and -
+      url: https://mac.example.com:8443/mcp
+      description: Calendar, reminders and contacts on my laptop   # shown to the bots and in the panel
+      headers:
+        Authorization: "Bearer {{secret:CALENDAR_MCP_TOKEN}}"     # the value lives in secrets.env (Keys)
+      tools:
+        readOnly: ["list_*", "get_*", "search_*"]  # these change nothing: no approval asked
+        # include: ["*"]  exclude: []               # which tools are exposed at all
+      # exposure: deferred   # many tools: bots find them with tool_search instead of seeing them all
+      # timeoutS: 60   maxTimeoutS: 300   healthCheckS: 60   enabled: true   trustReadOnlyHint: false
+bots:
+  - name: helper
+    tools: [memory, web, mcp:calendar]
+```
+
+- **Approvals.** A call to a tool that is not read-only asks first in smart mode (Jev may answer) and in
+  manual mode, trusted bots included; `approvals.allow: ["tool:mcp__calendar__*"]` or an "always" answer
+  lets it through. Read-only comes from you (`tools.readOnly`); `trustReadOnlyHint: true` also counts the
+  server's own hints, which the MCP spec says are untrusted unless you trust the server.
+- **Offline is normal.** The gateway starts and works whatever the servers do. A server that is away keeps
+  its last known tools; a call to it fails within a few seconds and the bot is told the call was not sent.
+  The gateway retries with backoff (up to every 5 minutes) and logs only when a server goes away or comes
+  back. A call that may have reached the tool (the connection dropped after sending, or no answer in time)
+  is never repeated automatically; the bot is told it may or may not have run.
+- **Keys.** Put the token in Keys (`nhermes secret set CALENDAR_MCP_TOKEN`); setting it reconnects the
+  server. A refused key shows as "needs a key" and is retried every 30 minutes or when the key changes.
+- **Protocol.** The client is Pi's and speaks MCP 2025-11-25 (with an `initialize` handshake). A server that
+  speaks only the newer stateless 2026-07-28 is shown as set up wrong; most SDKs serve both.
+- Plain `http://` to another machine works, with a warning: the headers travel unencrypted unless the
+  network encrypts them (Tailscale, WireGuard). Changes to `mcp.servers` apply at once, no restart.
+
 ## Network of gateways
 
 Every machine runs the same gateway; together they form one network of equals (`docs/FEDERATION.md`).

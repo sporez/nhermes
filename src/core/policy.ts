@@ -108,8 +108,13 @@ export function describeCall(name: string, args: Record<string, unknown>): strin
 }
 
 function ruleMatches(rule: string, name: string, command: string): boolean {
-	// "tool:<name>" matches a tool; anything else is a regex (or literal) on the command text.
-	if (rule.startsWith("tool:")) return rule.slice(5) === name;
+	// "tool:<name>" matches a tool (`*` matching any characters, e.g. tool:mcp__calendar__*); anything else is a
+	// regex (or literal) on the command text.
+	if (rule.startsWith("tool:")) {
+		const pattern = rule.slice(5);
+		if (!pattern.includes("*")) return pattern === name;
+		return new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
+	}
 	try {
 		return new RegExp(rule).test(command);
 	} catch {
@@ -128,6 +133,8 @@ export type PolicyContext = {
 	reviewActive?: boolean;
 	/** The gateway's own files (config, secrets, databases; not the bots' workspaces). */
 	gatewayFiles?: RegExp;
+	/** An MCP server's tool by its tool name (src/tools/mcp.ts); read-only by the owner's word. */
+	mcpTool?: (name: string) => { server: string; tool: string; readOnly: boolean } | undefined;
 };
 
 /** The gateway's own folders and files, as a pattern on commands and paths. Bots' workspaces are excluded. */
@@ -175,6 +182,10 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	if (call.name === "read" && path !== undefined && pc.gatewayFiles?.test(path)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
 	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}`, review: false });
 	if (OPENCHAMBER_CONTROL_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `act on an OpenChamber thread (${call.name})`, review: false });
+	// An MCP tool asks unless the owner marked it read-only (a server's own hints are untrusted unless the owner
+	// trusts that server); in smart mode Jev may answer, in manual mode the owner does.
+	const mcp = pc.mcpTool?.(call.name);
+	if (mcp && !mcp.readOnly) reasons.push({ key: `tool:${call.name}`, description: `use ${mcp.tool} on the MCP server "${mcp.server}" (it may change something)`, review: bot.approvals.mode !== "manual" });
 	if (reasons.length === 0) return { action: "allow", patternKey: "", description: "", command };
 
 	// Answers ("session", "always") are stored as the pattern key they were asked for and match only that

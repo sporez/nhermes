@@ -5,7 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { Config } from "../config.ts";
-import { secretEnvNames } from "../config.ts";
+import { secretEnvNames, secretRefs } from "../config.ts";
 import { logger, registerSecret } from "../log.ts";
 import type { AppDb } from "../store/db.ts";
 
@@ -124,6 +124,9 @@ export class Secrets {
 		for (const b of c.bots) {
 			for (const n of b.secrets ?? []) add(n, "A key the bot may use in web requests ({{secret:NAME}})", `bot ${b.name}`);
 			if (b.peer?.tokenEnv) add(b.peer.tokenEnv, "Token of a gateway listed by hand as a peer", `bot ${b.name}`);
+		}
+		for (const s of c.mcp.servers) {
+			for (const n of new Set(Object.values(s.headers).flatMap(secretRefs))) add(n, `Key for the MCP server ${s.name} (sent in its request headers)`, `mcp:${s.name}`);
 		}
 		return out;
 	}

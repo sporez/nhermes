@@ -117,7 +117,10 @@ export class Engine {
 		await (await this.conv(id)).configure(change, ctx);
 	}
 
-	/** The conversation's resolved model, thinking level and offered tool names, with the model's context window. */
+	/**
+	 * The conversation's resolved model, thinking level and the tools the model may call (offered now, or deferred
+	 * until tool_search loads them), with the model's context window.
+	 */
 	async agentModel(id: ConvId): Promise<{ model?: ModelRef; thinking: string; contextWindow: number; tools: string[] }> {
 		const agent = await (await this.conv(id)).agent(ctx);
 		const ref = agent.model;
@@ -126,7 +129,7 @@ export class Engine {
 			model: ref ? { provider: ref.provider, modelId: ref.modelId } : undefined,
 			thinking: agent.thinkingLevel,
 			contextWindow: model?.contextWindow ?? 0,
-			tools: agent.tools.map((t) => t.name),
+			tools: [...agent.tools, ...agent.deferred].map((t) => t.name),
 		};
 	}
 

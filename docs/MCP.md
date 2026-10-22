@@ -4,9 +4,9 @@ Status: in progress.
 
 ## Steps
 
-- [ ] M0. Upstream checks: `pi-mcp` as a direct dependency, contract tests for what we rely on
-- [ ] M1. Connections: config, per-server lifecycle, health checks, backoff, tool snapshots
-- [ ] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure
+- [x] M0. Upstream checks: `pi-mcp` as a direct dependency, contract tests for what we rely on (2216433)
+- [x] M1. Connections: config, per-server lifecycle, health checks, backoff, tool snapshots (18b0ec6)
+- [x] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure
 - [ ] M3. Management: MCP tab in the panel, `nhermes mcp`, admin API, keys, doctor
 - [ ] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove)
 - [ ] M5. Network: manage a member's MCP servers from any panel and from Vory
@@ -336,6 +336,7 @@ another, and a call waits only on its own server.
 | Connect attempt | Initialize + list bounded at 10 s; on timeout the attempt's client is closed, which aborts its fetches |
 | On-demand probe | One attempt, 3 s budget, shared by concurrent calls, at most every 5 s |
 | Health check | `ping` every `healthCheckS` while idle and online; 10 s timeout; 2 misses → offline |
+| Before a call | On a connection idle for 1 s or more, one `ping` first (3 s): a pooled connection to a server that went away fails there, so the call is reported "offline, not sent" instead of "may have run" |
 | Backoff | 5 s doubling to 5 min, 50–100 % jitter; 30 min for `needs_key`/`failed`; a config or key change retries at once |
 | Gateway restart mid-call | Durable rule: `unsafe` tools are not rerun, and the model gets `interrupted`. Read-only tools (`replay: "safe"`) rerun |
 | Redirects | Refused (`redirect: "error"` in the injected fetch), so headers never follow a redirect to another origin |

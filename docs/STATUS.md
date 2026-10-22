@@ -136,6 +136,13 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
     own URL refused, and call outcomes (expired session resent once; dropped, failed, rejected, timed-out and
     interrupted calls sent exactly once).
   - Config and Settings edits (`test/mcp/config.test.ts`), outcome classification (`test/mcp/outcome.test.ts`).
+  - Tools in chats with the faux model (`test/mcp/tools.test.ts`): the `mcp:<server>` group and the prompt
+    line, approvals for tools that are not read-only (and the policy by mode, trusted bots, glob rules), an
+    offline server's tools staying declared with a "not sent" answer while other tools run, a dropped write
+    reported as "may have run" and never resent, a changed tool list reaching chats, include/exclude and a
+    disabled server, deferred tools found with `tool_search`, a key echoed by the server redacted, a
+    restart mid-call (a write is interrupted, a read-only call runs again), and a hung call holding up only
+    its own chat.
 - Not yet verified live against a real MCP server.
 
 ## Models
