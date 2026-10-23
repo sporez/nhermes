@@ -345,3 +345,4 @@ Settled with the owner before A0.
 - A1 `8f1d486`: `src/server.ts` and `src/http.ts` out of `src/hermes/`; `/api/v1` beside the Hermes API.
 - A2 `0154841` (with `8499c75` for MCP structured results): chats, turns, live events, approvals, models.
   Chats with a member's bot answer `not_available` until A4.
+- A3 `91ff5c6`: uploads by id (`attachments` table), withdraw, download, ids in history.
