@@ -1,6 +1,6 @@
 # nHermes client API (plan)
 
-Status: in progress (phase E).
+Status: done (2026-10-23).
 
 ## Goal
 
@@ -301,7 +301,7 @@ step.
   transport (`federation/notify.ts`) works with the new sender.
 - [x] App: registration, notification categories and actions, opening the chat or approval a
   notification is about.
-- [ ] Then delete `src/notify/vory.ts`, its tests and the `<data>/vory` folder (see decision 5).
+- [x] Then delete `src/notify/vory.ts`, its tests and the `<data>/vory` folder (see decision 5).
 
 ## Parity checklist
 
@@ -376,3 +376,7 @@ Settled with the owner before A0.
   iOS Simulator with simulated pushes; found and fixed there: the app stopped when a notification was opened
   (the async delegate method finished off the main thread). Open: the APNs key and the app's push entitlement
   (the owner's Apple account), a live check, then removing Vory's relay.
+- Switch-over (2026-10-23): pushed, the three gateways updated after a backup, the apps installed with the
+  push entitlement; live chats, a member's bot, the doctor, and an approval answered from the iPhone's
+  notification. Then Vory's relay removed (`src/notify/vory.ts`), its cross-gateway test ported to the APNs
+  sender (`test/federation/push.test.ts`), `<data>/vory` removed at start, the Vory pin out of `UPSTREAM.md`.

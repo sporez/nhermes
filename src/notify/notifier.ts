@@ -12,7 +12,7 @@ export interface Notifier {
 	send(n: Notification): Promise<void>;
 }
 
-/** A transport that may have nowhere to send right now (Vory push, with no device registered). */
+/** A transport that may have nowhere to send right now (push, with no device registered). */
 export interface OptionalNotifier extends Notifier {
 	ready(): boolean;
 }

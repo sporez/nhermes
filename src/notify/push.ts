@@ -3,8 +3,8 @@
 // or is withdrawn; a chat's turn that finished or failed is sent too (jobs notify through the scheduler, and
 // delegated work answers in its parent chat); scheduled-task results, the `notify` tool and other
 // notifications arrive through `send`. A chat another gateway in the network started here is that gateway's
-// to notify, so a phone registered on both gets each notification once. Transports (src/notify/apns.ts,
-// src/notify/vory.ts) only deliver.
+// to notify, so a phone registered on both gets each notification once. A transport (src/notify/apns.ts) only
+// delivers.
 import type { Bots } from "../core/bots.ts";
 import type { Hub, SessionEvent } from "../core/events.ts";
 import type { SessionRow, Sessions } from "../core/sessions.ts";
@@ -30,16 +30,12 @@ export type PushMessage = {
 	collapse?: string;
 };
 
-export type TurnUsage = { output: number; contextUsed: number; contextMax: number };
-
 export interface PushTransport {
 	readonly name: string;
 	/** Whether it has anywhere to send right now. */
 	ready(): boolean;
 	/** Sends to its devices (only those in `only`, when given) and answers the ids of the ones it reached. */
 	push(m: PushMessage, only?: ReadonlySet<string>): Promise<Set<string>>;
-	/** A chat's turn ended (what a transport shows beside notifications, such as a Live Activity). */
-	turnEnded?(sessionId: string, phase: "done" | "error", usage: TurnUsage): Promise<void>;
 }
 
 export type PushOptions = {
@@ -98,7 +94,7 @@ export class Push implements OptionalNotifier {
 
 	/** A turn of a member's bot finished, in a chat this gateway runs for its client (src/federation/chats.ts). */
 	remoteFinished(sessionId: string, t: { text: string; status: string; error?: string }): void {
-		this.turnFinished(sessionId, { ...t, usage: { output: 0, contextUsed: 0, contextMax: 0 } }).catch((error) => log.warn("push failed", { error: String(error).slice(0, 300) }));
+		this.turnFinished(sessionId, t).catch((error) => log.warn("push failed", { error: String(error).slice(0, 300) }));
 	}
 
 	private onEvent(sid: string, e: SessionEvent): void {
@@ -107,7 +103,7 @@ export class Push implements OptionalNotifier {
 		const run = async () => {
 			if (e.type === "approval.requested") await this.approvalRequested(e.request);
 			else if (e.type === "approval.resolved") this.later(this.o.settleDelayMs, () => this.settle(e.requestId, e.reason));
-			else await this.turnFinished(sid, { text: e.text, status: e.status, error: e.error, usage: e.usage });
+			else await this.turnFinished(sid, { text: e.text, status: e.status, error: e.error });
 		};
 		run().catch((error) => log.warn("push failed", { error: String(error).slice(0, 300) }));
 	}
@@ -152,13 +148,11 @@ export class Push implements OptionalNotifier {
 		await Promise.all([...o.reached].filter(([, ids]) => ids.size > 0).map(([t, ids]) => t.push(m, ids)));
 	}
 
-	private async turnFinished(sid: string, e: { text: string; status: string; error?: string; usage: TurnUsage }): Promise<void> {
+	private async turnFinished(sid: string, e: { text: string; status: string; error?: string }): Promise<void> {
 		const { row, botId, bot, title } = this.about(sid);
 		if (!row || row.kind !== "chat" || drivenElsewhere(row)) return;
-		const failed = e.status === "error";
-		await Promise.all(this.o.transports.filter((t) => t.ready() && t.turnEnded).map((t) => t.turnEnded!(sid, failed ? "error" : "done", e.usage)));
 		if (e.status === "interrupted") return;
-		if (failed) {
+		if (e.status === "error") {
 			const err = e.error || "The turn failed.";
 			await this.pushAll({ kind: "error", title: `${bot} · turn failed`, body: `${title}: ${err.slice(0, 300)}`, text: err.slice(0, 1200), sessionId: sid, botId, collapse: `turn-${sid}` });
 			return;

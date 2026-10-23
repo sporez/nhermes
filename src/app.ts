@@ -1,4 +1,5 @@
 // Composition root: builds the core services around one Engine. `nhermes serve` and the tests use it.
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -38,7 +39,6 @@ import { FanoutNotifier, type Notification, type Notifier, type OptionalNotifier
 import { ApnsTransport } from "./notify/apns.ts";
 import { Devices } from "./notify/devices.ts";
 import { Push } from "./notify/push.ts";
-import { VoryRelay } from "./notify/vory.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
@@ -79,7 +79,7 @@ export type Core = {
 	notifier: Notifier;
 	/** Only this gateway's own transports (no forwarding to a member). */
 	localNotifier: Notifier;
-	/** Push notifications to the owner's devices (src/notify/push.ts): straight to Apple, and through Vory's relay to devices it registered before. */
+	/** Push notifications to the owner's devices (src/notify/push.ts), straight from Apple. */
 	push: Push;
 	/** The devices that get them from Apple, and the sender (src/notify/devices.ts, apns.ts). */
 	devices: Devices;
@@ -125,8 +125,6 @@ export type CoreOptions = {
 	openchamberSettingsPath?: string;
 	/** Notification transport override (tests). */
 	notifier?: Notifier;
-	/** Replaces the HTTP call to the Vory push relay (tests). */
-	voryFetch?: typeof fetch;
 	/** Apple's push servers (tests point them at a local server). */
 	apnsHosts?: Record<"production" | "development", string>;
 	/** How long after an approval is settled its push banners are replaced (tests shorten it). */
@@ -246,8 +244,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
 	const devices = new Devices(db);
 	const apns = new ApnsTransport({ config: config.apns, devices, gatewayId: () => members.self().id, hosts: options.apnsHosts });
-	const vory = new VoryRelay({ dir: join(config.dataDir, "vory"), fetch: options.voryFetch });
-	const push = new Push({ hub, bots, sessions: () => sessions, transports: [apns, vory], settleDelayMs: options.pushSettleMs });
+	const push = new Push({ hub, bots, sessions: () => sessions, transports: [apns], settleDelayMs: options.pushSettleMs });
+	removeVoryRegistrations(config.dataDir);
 	// What this gateway can deliver itself; /federation/notify uses only this. The gateway's own notifier adds
 	// forwarding to a member as the fallback for when nothing local can deliver.
 	const localNotifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), push]);
@@ -443,7 +441,6 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			updates.stop();
 			catalogs.stop();
 			push.stop();
-			vory.stop();
 			apns.close();
 			await chamberWatcher.stop();
 			memberChats.close();
@@ -458,4 +455,15 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			db.close();
 		},
 	};
+}
+
+/**
+ * The Vory app's notification registrations, kept by versions that spoke its protocol, are of no use now that the
+ * nHermes app gets notifications from Apple: removed once, with a line in the log (docs/CLIENT-API.md decision 5).
+ */
+function removeVoryRegistrations(dataDir: string): void {
+	const dir = join(dataDir, "vory");
+	if (!existsSync(dir)) return;
+	rmSync(dir, { recursive: true, force: true });
+	log.info("removed Vory's notification registrations (the nHermes app gets its notifications from Apple)", { dir });
 }

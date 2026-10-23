@@ -7,7 +7,7 @@
 # Options:
 #   --join <code>    join a network after installing (code from `nhermes invite` on any member)
 #   --name <name>    this machine's name in the network (default: the host name)
-#   --port <port>    port for Vory, other machines and the panel (default: 9119)
+#   --port <port>    port for the app, other machines and the panel (default: 9119)
 #   --no-service     install only; do not set up or restart the service
 #
 # Nothing needs root. Running it again upgrades the code and restarts the service; config and data stay.
@@ -230,7 +230,7 @@ Installed. Next:
      $CONF_DIR/secrets.env, or point pi.authPath / pi.modelsPath at a Pi auth.json / models.json.
      Then: nhermes reload   (or restart the service)
   2. Open the panel: http://<this machine>:${PORT:-9119}/panel/
-  3. Vory: add the gateway with the token NHERMES_TOKEN from $CONF_DIR/secrets.env.
+  3. The nHermes app: enter this gateway's address and the token NHERMES_TOKEN from $CONF_DIR/secrets.env.
 EOF
 	[ -z "$JOIN" ] && echo "  4. Join a network: run 'nhermes invite' on a member, then 'nhermes join <code>' here."
 else

@@ -15,7 +15,7 @@ test("set, replace and remove keys; nothing ever hands a value back", async () =
 	const { dir, cleanup } = await tempDir();
 	delete process.env.NHERMES_TOKEN;
 	const secretsPath = join(dir, "secrets.env");
-	writeFileSync(secretsPath, `# Gateway token, paste into Vory\nNHERMES_TOKEN=${TOKEN}\n# PUSHOVER_USER_KEY=\n`, { mode: 0o600 });
+	writeFileSync(secretsPath, `# Gateway token, enter it in the app\nNHERMES_TOKEN=${TOKEN}\n# PUSHOVER_USER_KEY=\n`, { mode: 0o600 });
 	writeFileSync(join(dir, "models.json"), JSON.stringify({ providers: { neuralwatt: { baseUrl: "https://x", apiKey: "$NEURALWATT_API_KEY" } } }));
 	writeFileSync(join(dir, "config.yaml"), `server: { host: 127.0.0.1, port: 0 }\npi: { modelsPath: ./models.json }\ndefaults: { model: faux/faux-1 }\nbots:\n  - name: main\n    secrets: [WEATHER_KEY]\n`);
 	process.env.FROM_SERVICE_KEY = "set-by-systemd-0123456789";
@@ -37,7 +37,7 @@ test("set, replace and remove keys; nothing ever hands a value back", async () =
 		assert.equal(r.status, 200);
 		assert.deepEqual(await r.json(), { restartNeeded: false });
 		const text = readFileSync(secretsPath, "utf8");
-		assert.match(text, /# Gateway token, paste into Vory\n/);
+		assert.match(text, /# Gateway token, enter it in the app\n/);
 		assert.match(text, /^OPENROUTER_API_KEY=sk-or-v1-abcdefghijklmnop0123456789$/m);
 		assert.equal(statSync(secretsPath).mode & 0o777, 0o600);
 		assert.equal(process.env.OPENROUTER_API_KEY, key);

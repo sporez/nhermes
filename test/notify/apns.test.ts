@@ -2,10 +2,9 @@
 // local HTTP/2 stand-in here) with a provider token signed by the owner's key, a settled approval replaces its
 // banner quietly, a token Apple calls gone is removed, and nothing a known secret is in what leaves.
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import { generateKeyPairSync, type KeyObject, verify } from "node:crypto";
-import { createServer, type Http2Server, type IncomingHttpHeaders } from "node:http2";
-import type { AddressInfo } from "node:net";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
@@ -13,66 +12,7 @@ import { registerSecret } from "../../src/log.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
 import { ApiSocketClient, http } from "../api/client.ts";
 import { tempDir, testConfig, testCore } from "../helpers.ts";
-
-type Sent = { headers: IncomingHttpHeaders; body: { aps: Record<string, unknown> & { alert: { title: string; body: string } }; nh: Record<string, string> } };
-
-/** Apple's push server, as far as a provider sees it: POST /3/device/<token>, 200, or 410 for a token it knows is gone. */
-class FakeApns {
-	readonly sent: Sent[] = [];
-	readonly gone = new Set<string>();
-	private readonly events = new EventEmitter();
-	readonly server: Http2Server;
-	private constructor(server: Http2Server) {
-		this.server = server;
-	}
-
-	static async start(): Promise<FakeApns> {
-		const server = createServer();
-		const f = new FakeApns(server);
-		server.on("stream", (stream, headers) => {
-			let data = "";
-			stream.setEncoding("utf8");
-			stream.on("data", (c: string) => (data += c));
-			stream.on("end", () => {
-				const token = String(headers[":path"]).split("/").at(-1)!;
-				if (f.gone.has(token)) {
-					stream.respond({ ":status": 410 });
-					stream.end(JSON.stringify({ reason: "Unregistered" }));
-				} else {
-					stream.respond({ ":status": 200 });
-					stream.end();
-				}
-				const sent = { headers, body: JSON.parse(data) as Sent["body"] };
-				f.sent.push(sent);
-				f.events.emit("sent", sent);
-			});
-		});
-		await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-		return f;
-	}
-
-	get url(): string {
-		return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
-	}
-
-	/** The first push (from now on, or already sent) that matches. */
-	next(pred: (s: Sent) => boolean): Promise<Sent> {
-		const hit = this.sent.find(pred);
-		if (hit) return Promise.resolve(hit);
-		return new Promise((resolve) => {
-			const on = (s: Sent) => {
-				if (!pred(s)) return;
-				this.events.off("sent", on);
-				resolve(s);
-			};
-			this.events.on("sent", on);
-		});
-	}
-
-	close(): Promise<void> {
-		return new Promise((r) => this.server.close(() => r()));
-	}
-}
+import { FakeApns } from "./fake-apns.ts";
 
 const TOKEN_A = "a1".repeat(32);
 const TOKEN_GONE = "b2".repeat(32);
@@ -182,4 +122,18 @@ test("a token Apple calls gone is removed; scheduled results and the notify tool
 	assert.equal(items.length, 1, "only the device that works is left");
 	await api()(`DELETE /devices/${items[0]!.id}`);
 	assert.equal((await api()<{ items: unknown[] }>("GET /devices")).items.length, 0);
+});
+
+test("Vory's old notification registrations are removed when the gateway starts", async () => {
+	const t = await tempDir();
+	const config = testConfig(t.dir);
+	mkdirSync(join(config.dataDir, "vory", "push", "devices"), { recursive: true });
+	writeFileSync(join(config.dataDir, "vory", "push", "devices", "phone.json"), "{}");
+	const c = await testCore(t.dir, { models, config });
+	try {
+		assert.equal(existsSync(join(config.dataDir, "vory")), false);
+	} finally {
+		await c.close();
+		await t.cleanup();
+	}
 });

@@ -144,7 +144,7 @@ with only the high-impact patterns asking.
 | `skills` | `skill` (load a SKILL.md by name) | The prompt lists names + descriptions only |
 | `schedule` | `schedule_create/list/update/delete/run/history` | Same service the app's Scheduled section uses |
 | `delegate` | `delegate` (ask another bot, wait or not) | Durable child conversations / peer HTTP |
-| `notify` | `notify` (Pushover, and Vory devices registered before) | |
+| `notify` | `notify` (push to the owner's devices, and/or Pushover) | |
 | `openchamber` | `oc_sessions/read/waiting/diff`, `oc_approve/answer/stop/prompt/start` | OpenChamber's local server on the same Mac (`src/openchamber/`); control tools always ask the owner. The tool-less `openchamber_alerts` group turns on the event watcher that notifies about requests and failed threads |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
@@ -244,6 +244,17 @@ saved list under Sessions.
 Exactly-once is **not** claimed for side effects: Durable request deduplication only guarantees the
 run is not submitted twice.
 
+## Notifications (`src/notify/`)
+
+`notify/push.ts` decides what reaches the owner's devices: an approval asked in a chat (replaced quietly once
+it is answered, times out or is withdrawn), a chat's turn that finished or failed, and, through the
+`Notifier` interface, scheduled-task results, the `notify` tool and OpenChamber alerts. A chat another
+network member started here is that member's to notify, so a phone registered with both gets each one once.
+`notify/apns.ts` delivers it straight to Apple (token authentication with the owner's `.p8` key, HTTP/2, a
+token Apple calls gone removed) to the devices the app registered (`app.devices`, `notify/devices.ts`).
+Pushover is a second transport. A gateway with no transport forwards its own notifications to a member that
+has one (`federation/notify.ts`), one hop at most.
+
 ## Delegation and remote agents
 
 - **Local delegation:** the `delegate` tool creates a Durable conversation owned by the calling tool
@@ -327,9 +338,8 @@ bot messages bound it.
 ## Persistence and operations
 
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and
-forward-only migrations; it also keeps MCP servers' last tool lists), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
-`vory/` (devices Vory registered for notifications, until phase E of `docs/CLIENT-API.md`); logs go to stderr
-(journal / launchd log), with the last 500 lines kept in memory for `gateway.logs`. Files and pictures sent
+forward-only migrations; it also keeps MCP servers' last tool lists), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`;
+logs go to stderr (journal / launchd log), with the last 500 lines kept in memory for `gateway.logs`. Files and pictures sent
 from a client are written to the bot's workspace `uploads/` folder, never over another file, and recorded
 with an id (`attachments`); a message names them by id, and `src/core/attachments.ts` expands only the
 `@file:` references of the session's own uploads.
@@ -348,5 +358,5 @@ restore <file>`, start. Deployment: one systemd unit (or a rootless Podman quadl
 No Postgres, Redis, broker or orchestrator: one owner, one process, two SQLite files. No vector store:
 FTS5 is enough until a concrete recall failure shows otherwise. The web panel (`src/panel/`) is static
 HTML, CSS and JavaScript with no framework or build step. No messaging-platform integrations: the nHermes app
-for conversation, Pushover for notifications (and, until the app has its own, Vory devices registered
-before, through the Vory push relay, `src/notify/vory.ts`).
+for conversation and its notifications (straight from Apple, `src/notify/apns.ts`), Pushover as an optional
+second channel.

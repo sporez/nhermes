@@ -1,4 +1,4 @@
-// Group chats with a member's bot: the room lives on alpha (where Vory is connected), beta's bot answers on
+// Group chats with a member's bot: the room lives on alpha (where the app is connected), beta's bot answers on
 // beta in a room session there (work alpha started: not trusted there, its approvals asked on alpha), and an
 // offline member's turn fails instead of hanging the room.
 import assert from "node:assert/strict";

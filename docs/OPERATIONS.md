@@ -104,9 +104,8 @@ known secrets first). The doctor reports the key and the devices.
 Pushover works alongside it, or alone: set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `secrets.env` (or
 Keys in the panel). In a network, a machine with no transport of its own forwards its notifications to a
 member that has one, so one setup is enough; the gateway the app is connected to notifies for chats with
-other machines' bots, and the machine running the bot stays quiet for them. Phones that had Vory
-notifications set up still get them through the Vory push relay (registrations in `<data>/vory/`) until the
-app's own have been checked live; Vory itself can no longer connect, so answer from the nHermes app.
+other machines' bots, and the machine running the bot stays quiet for them. A gateway that still held
+Vory's notification registrations (`<data>/vory/`) removes them at its next start.
 
 ### Group chats
 
@@ -336,7 +335,6 @@ Every machine runs the same gateway; together they form one network of equals (`
 | `workspaces/<bot>/` | each local bot's working directory; `uploads/` in it holds what was sent from a client, each upload with its id (kept until removed by hand) |
 | `browser/<bot>/` | browser profile (cookies, logins) and screenshots — treat as sensitive |
 | `ssh/known_hosts` | pinned host keys for remote bots |
-| `vory/` | devices Vory registered for notifications, until the app's own (phase E of `docs/CLIENT-API.md`) |
 
 ## Backup, restore, upgrade
 

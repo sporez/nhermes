@@ -47,21 +47,27 @@ member's client reads a shared bot's skills, prompt and MCP servers without the 
 bot's (`test/api/bots.test.ts`, `test/federation/mcp.test.ts`).
 
 The nHermes app uses it (app repository): against the isolated test gateways, with recorded fixtures from
-`scripts/api-fixtures.ts`. Not yet live against a deployed gateway: deployed gateways still run the Hermes
-API until this work is pushed and they update.
+`scripts/api-fixtures.ts`, and live since 2026-10-23 on the owner's three gateways (two Debian VMs and a
+Mac, one network), all updated to the client API that day after a backup. Live on the main gateway: a chat
+with a local bot and one with a member's bot through it (`scripts/smoke.ts`), the doctor, the member list
+online.
 
 Since 2026-10-23 (`docs/CLIENT-API.md` phase D) the Hermes API is gone: no `/api/*` routes but
 `/api/health`, no `/api/ws`, the admin API on Bearer only. The Vory rows in the table above (2, 4, 11, 12)
 record that earlier client; their checks now run through the client API (`test/api/`, `test/federation/`).
-Vory's push relay still serves devices it registered before (`test/federation/vory-push.test.ts`), until
-phase E.
+Vory's push relay is gone too (phase E): a gateway removes Vory's old registrations at start
+(`test/notify/apns.test.ts`).
 
 Native push (phase E): automated against a local stand-in for Apple's HTTP/2 push service
 (`test/notify/apns.test.ts`): device registration, the ES256 provider token, an approval and its quiet
 replacement, finished turns, scheduled results, a gone token removed, redaction. The app's handling checked in
 the iOS Simulator with simulated pushes: the banner, Approve once and Deny from the notification (the gateway
-ran or blocked the tool), a tap opening the chat. Not yet live: it needs an APNs key and the app's push
-entitlement.
+ran or blocked the tool), a tap opening the chat. Across a network: the connected gateway notifies for a
+member's bot and the member stays quiet (`test/federation/push.test.ts`). Live (2026-10-23, the main
+gateway with the owner's APNs key): the iPhone and the Mac app registered on connect and Apple accepted a
+test notification for each; an approval reached the iPhone as a notification and approving it there ran the
+tool. Not checked live yet: the banner on the Mac, an approval's quiet replacement once answered, a finished
+turn's notification, the iPad (installed, not yet opened).
 
 ## Security findings fixed during live testing
 

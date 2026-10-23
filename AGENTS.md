@@ -21,7 +21,7 @@ Keep it small. `ARCHITECTURE.md` ends with "Why not more"; read it before adding
 - Feature plans: `docs/FEDERATION.md`, `docs/REMOTE-BOT-EDITS.md`, `docs/SECRETS-AND-REVIEW.md`.
 - Upstream pins and the contracts we consume: `UPSTREAM.md`. Read-only upstream clones live in
   `reference/` (gitignored; recreate them with `scripts/fetch-upstream.sh`). Read them instead of guessing
-  how Pi Durable (or, for the push sender, Vory) behaves. Never edit them.
+  how Pi Durable behaves. Never edit them.
 - Optional maintainer guidance: a gitignored `CLAUDE.local.md` / `AGENTS.local.md` may supplement this
   file. Machine names, deployment paths and personal workflow belong there, not here. A missing overlay
   must not block an ordinary task.

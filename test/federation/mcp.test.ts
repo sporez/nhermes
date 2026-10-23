@@ -1,6 +1,6 @@
 // MCP servers in a network (docs/MCP.md, "Network"): a server belongs to the machine that configures it, and
 // other machines reach its tools only by delegating to a bot there (the call goes out from that machine,
-// a write's approval comes back to the chat that started it). Any panel, and Vory for a member's profile,
+// a write's approval comes back to the chat that started it). Any panel, and the client API for a member's bot,
 // manage a member's servers once that machine allows bot edits; key values never travel.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -114,7 +114,7 @@ test("a member's MCP servers are managed from another panel and from the client 
 		assert.equal(refused.status, 403);
 		assert.match(refused.json.detail, /does not accept bot edits/);
 		await assert.rejects(api(a)("PUT /mcp/servers/cal/bots/nasbot-beta", { enabled: false }), (e: { status: number }) => e.status === 403);
-		// Reading and testing need no switch (as Vory could): the client shows the member's servers either way.
+		// Reading and testing need no switch: the client shows the member's servers either way.
 		const read = await api(a)<{ items: { name: string; enabledForBot: boolean }[] }>("GET /mcp/servers", { botId: "nasbot-beta" });
 		assert.deepEqual(read.items.map((x) => x.name), ["cal"]);
 		assert.equal((await api(a)<{ ok: boolean }>("POST /mcp/servers/cal/test", { botId: "nasbot-beta" })).ok, true);

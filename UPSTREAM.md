@@ -6,7 +6,6 @@ Reference clones live in `reference/` (git-ignored, read-only). Re-create them w
 | Project | Repository | Pinned commit | Commit date | Recorded | License |
 |---|---|---|---|---|---|
 | Pi (incl. Pi Durable) | https://github.com/earendil-works/pi | `06a466935536f8c9bcacb2d5efc0fc021be1bdff` (tag `v1.2.0`) | 2026-10-13 | 2026-10-14 | MIT (Mario Zechner) |
-| Vory | https://github.com/matt0975/vory | `d99369bfdb64a29cae5aa7776fc13fd6ee5c152e` | 2026-10-09 | 2026-10-14 | MIT (Matthew Wagner) |
 | Hermes Agent (credit for ported code; not cloned) | https://github.com/NousResearch/hermes-agent | `300228d24c593f779055204753921fbe9a2163c5` | 2026-10-14 | 2026-10-14 | MIT (Nous Research) |
 
 `src/core/review.ts` adapts the permission-review rules and Jev request handling of the owner's
@@ -56,12 +55,9 @@ regression tests that pin the parts of their API we rely on; run them first afte
 - `packages/env/README.md`: `connectSsh` / `sshConnection`, host-key pinning (`scanHostKey`, `acceptHostKey`), daemon deployment.
 
 ### Hermes Agent (ported logic, MIT)
-nHermes once spoke the Hermes gateway protocol so the Vory app could drive it; that layer is gone
-(`docs/CLIENT-API.md`). What remains from Hermes is ported code, credited where it lives:
+nHermes once spoke the Hermes gateway protocol so the Vory app could drive it; that layer is gone, and so
+is Vory's push relay (`docs/CLIENT-API.md`). What remains from Hermes is ported code, credited where it
+lives:
 - `gateway/hosted_room_discussion.py` `plan_next_task` → `src/core/room-plan.ts` (group chat turn planning).
 - `agent/context_references.py` (`@file:` expansion, `format_reference_value`, the on-disk note) and
   `tui_gateway/prompt_attachments.py` (attachment lines) → `src/core/attachments.ts`.
-
-### Vory (push relay contract, until phase E of `docs/CLIENT-API.md`)
-- `server/hermes-push/hermes_push.py`: the device file and the relay request (AES-256-GCM payload, Live
-  Activity updates) that `src/notify/vory.ts` sends to devices Vory registered before. Removed with that file.

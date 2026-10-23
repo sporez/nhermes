@@ -1,5 +1,5 @@
 // Notifications a member raises on its own (scheduled jobs, the notify tool, OpenChamber alerts) have no
-// transport when only one gateway in the network has Pushover (or Vory devices) set up. This forwards them
+// transport when only one gateway in the network has push or Pushover set up. This forwards them
 // to a member that has one. It is only "ready" when nothing local can deliver, and the receiving route uses the local
 // notifier alone, so a notification never travels more than one hop.
 import { FederationError, type Members } from "./members.ts";
