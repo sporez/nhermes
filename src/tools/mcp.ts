@@ -25,6 +25,8 @@ const MAX_NAME = 64;
 const MAX_DESCRIPTION = 2000;
 /** Model-facing text of one result beyond this is cut in the middle (Pi's coding agent uses the same). */
 const MAX_TEXT_BYTES = 20 * 1024;
+/** A server's structured result is kept with the call for clients (cards), up to this size; the model never sees it. */
+const MAX_STRUCTURED_CHARS = 256 * 1024;
 /** More direct tools than this from one server is worth a warning in the panel. */
 export const MANY_TOOLS = 100;
 
@@ -159,7 +161,9 @@ export class McpTools {
 				log.info("mcp call", { server: c.name, tool: t.name, outcome: r.ok ? (r.result.isError ? "tool_error" : "ok") : r.outcome.kind, ms: r.ms });
 				if (r.ok) {
 					const isError = r.result.isError === true;
-					return { output: resultContent(r.result), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms } };
+					const structured = r.result.structuredContent;
+					const keep = structured !== undefined && JSON.stringify(structured).length <= MAX_STRUCTURED_CHARS;
+					return { output: resultContent(r.result), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
 				}
 				const o = r.outcome;
 				const text = modelText({ kind: o.kind, message: redact(o.message) }, { server: c.name, tool: t.name, readOnly, timeoutS: current.timeoutS, since: r.since });

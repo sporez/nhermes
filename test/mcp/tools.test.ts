@@ -84,6 +84,22 @@ test("a bot with mcp:cal calls its tools; a bot without the group has none; the 
 	}
 });
 
+test("a server's structured result is kept with the call for clients, beside the text the model gets", async () => {
+	const s = await setup((url) => mcpServerConfig("cal", url, { tools: { include: ["*"], exclude: [], readOnly: ["list_*"] } }));
+	try {
+		s.mcp.behavior.set("list_events", { text: "2 events", structured: { events: [{ title: "Dentist" }, { title: "Lunch" }] } });
+		const r = await run(s, "main", [call("mcp__cal__list_events", { day: "today" })]);
+		assert.equal(r.finished[0]?.resultText, "2 events");
+		const { turns } = await s.core.sessions.turns(r.session.id);
+		const item = turns.at(-1)!.items.find((i) => i.type === "tool");
+		assert.ok(item?.type === "tool");
+		assert.deepEqual(item.json, { events: [{ title: "Dentist" }, { title: "Lunch" }] });
+		assert.equal(item.result, "2 events");
+	} finally {
+		await s.cleanup();
+	}
+});
+
 test("a tool that is not read-only asks first (and runs once approved); a read-only one does not", async () => {
 	const s = await setup((url) => mcpServerConfig("cal", url, { tools: { include: ["*"], exclude: [], readOnly: ["list_events"] } }));
 	try {

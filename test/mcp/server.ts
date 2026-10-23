@@ -18,7 +18,7 @@ export type FakeTool = {
 
 /** How one call is answered. */
 export type Behavior =
-	| { text: string }
+	| { text: string; structured?: Record<string, unknown> }
 	| { toolError: string }
 	| { rpcError: { code: number; message: string } }
 	| { status: number; body?: string }
@@ -248,7 +248,7 @@ export class FakeMcpServer {
 			}
 			if ("delayMs" in b) await new Promise((r) => setTimeout(r, b.delayMs));
 			if (!this.running) return;
-			const result = "toolError" in b ? { content: [{ type: "text", text: b.toolError }], isError: true } : { content: [{ type: "text", text: b.text }] };
+			const result = "toolError" in b ? { content: [{ type: "text", text: b.toolError }], isError: true } : { content: [{ type: "text", text: b.text }], ...("structured" in b && b.structured ? { structuredContent: b.structured } : {}) };
 			this.json(res, { jsonrpc: "2.0", id: msg.id, result });
 			return;
 		}
