@@ -340,4 +340,8 @@ Settled with the owner before A0.
 
 ## Progress
 
-Nothing yet.
+- A0 `7e7093b`: conventions, errors, hello and the socket in `docs/API.md`; resource sections land with each
+  step. Durable pins in `test/upstream/durable-contract.test.ts`.
+- A1 `8f1d486`: `src/server.ts` and `src/http.ts` out of `src/hermes/`; `/api/v1` beside the Hermes API.
+- A2 `0154841` (with `8499c75` for MCP structured results): chats, turns, live events, approvals, models.
+  Chats with a member's bot answer `not_available` until A4.
