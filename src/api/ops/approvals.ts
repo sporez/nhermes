@@ -3,8 +3,7 @@
 // gateway asked. Every owner socket hears each request and each answer, whoever gave it.
 import type { Choice } from "../../core/approvals.ts";
 import { ApiError } from "../errors.ts";
-import { memberOwns } from "../events.ts";
-import { sessionOf } from "../lookup.ts";
+import { memberOwns, sessionOf } from "../lookup.ts";
 import type { Op } from "../ops.ts";
 import { approvalJson } from "../shapes/chat.ts";
 

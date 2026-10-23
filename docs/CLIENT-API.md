@@ -234,7 +234,7 @@ with its docs.
   socket A is announced on socket B; a denied tool shows as a tool item that did not run; reply parts
   split by tool calls arrive as separate items; redaction of secrets in every new field (args, results,
   JSON results).
-- [ ] **A3 Attachments.** Binary upload, withdraw, the `attachments` table, content blocks in history,
+- [x] **A3 Attachments.** Binary upload, withdraw, the `attachments` table, content blocks in history,
   content download for every kind, the limits in the hello. Tests port `test/hermes/attachments.test.ts`,
   plus withdraw and download of a PDF from an older turn.
 - [ ] **A4 Federation and peers.** Members and `peer:` bots on the new socket; member access and

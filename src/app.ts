@@ -336,7 +336,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	);
 	mcpTools.attach(engine.registry);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
-	const attachments = new Attachments({ bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
+	const attachments = new Attachments({ db, bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
 	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
 	members.onRevoke(() => proxy.dropGone());
 	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });

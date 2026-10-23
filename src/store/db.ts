@@ -287,6 +287,25 @@ const MIGRATIONS: readonly string[] = [
 	);
 	CREATE INDEX mcp_changes_server ON mcp_changes(server, id DESC);
 	`,
+	// 16: uploads by id (src/core/attachments.ts), so a client names what goes with a message, can take one
+	// back before sending, and can open any of them later from the chat's history
+	`
+	CREATE TABLE attachments (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		bot TEXT NOT NULL,
+		path TEXT NOT NULL,
+		name TEXT NOT NULL,
+		mime TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		pages INTEGER,
+		created_at REAL NOT NULL,
+		sent_at REAL,
+		withdrawn INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX attachments_session_path ON attachments(session_id, path);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

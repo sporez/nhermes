@@ -34,7 +34,9 @@ Automated (`test/api/`): Bearer auth on HTTP and the socket, hello, errors, one 
 transports, member-only operations; chats live and in history with the same turn and item ids, tool
 items with arguments, result, structured result (MCP `structuredContent`), duration and status (blocked
 when refused), following a chat mid-answer, approvals announced and answered on any device, interrupt,
-chat settings, commands, redaction of every new field. Not yet used by a client.
+chat settings, commands, redaction of every new field; uploads by id (pictures, PDFs, files, as bytes or
+base64), taken back before sending, opened from history, old chats' uploads given ids. Not yet used by a
+client.
 
 ## Security findings fixed during live testing
 

@@ -4,8 +4,14 @@ import type { Bot } from "../core/bots.ts";
 import type { SessionRow } from "../core/sessions.ts";
 import { shareable } from "../federation/roster.ts";
 import { ApiError } from "./errors.ts";
-import { memberOwns } from "./events.ts";
-import type { OpContext } from "./ops.ts";
+import { memberSource } from "../federation/members.ts";
+import type { Caller, OpContext } from "./ops.ts";
+
+/** Whether a member may see this chat: one it started (or the owner's, relayed from it). */
+export function memberOwns(row: SessionRow | undefined, caller: Caller): boolean {
+	if (caller.kind === "owner") return true;
+	return row !== undefined && (row.source === memberSource(caller.member.node_id) || row.source === memberSource(caller.member.node_id, true));
+}
 
 /** The bots a caller sees: the owner every local and member bot (not configured `peer:` agents), a member the shareable ones. */
 export function visibleBots(cx: OpContext): Bot[] {

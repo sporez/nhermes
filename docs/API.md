@@ -123,7 +123,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.turns` | `GET /sessions/:id/turns` | yes | `limit?` (50, at most 500), `cursor?`. `{items: [Turn], nextCursor}`: the newest turns, oldest first; `nextCursor` names the page before |
 | `sessions.subscribe` | socket only | yes | `id`, `limit?`. See Following a chat |
 | `sessions.unsubscribe` | socket only | yes | `id` |
-| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text` (or `content` blocks), `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered |
+| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered |
 | `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
 | `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. `{interrupted}` |
 | `sessions.compact` | `POST /sessions/:id/compact` | yes | `instructions?`. `{started: true}` |
@@ -132,6 +132,9 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.commands` | `GET /sessions/:id/commands` | yes | `{items: [{name, description, kind: "builtin" \| "skill", takesText, usage?, origin?}]}`. `new` is the client's own |
 | `sessions.command` | `POST /sessions/:id/commands` | yes | `name`, `args?`. `{kind: "output", text}`, or `{kind: "prompt", text}` for a skill: send `text` as the next message |
 | `sessions.toolResult` | `GET /sessions/:id/items/:itemId/result` | yes | A tool call's whole result: `{text, json?}` |
+| `sessions.attach` | `POST /sessions/:id/attachments` | yes | The bytes as the body; `X-Filename` (URL-encoded) or `name`, and `kind?` (`image`, `pdf`, `file`; by default what the bytes are). Over the socket: `name`, `kind?`, `data` (base64). `{attachment}` |
+| `sessions.detach` | `DELETE /sessions/:id/attachments/:attachmentId` | yes | Takes back an upload that has not gone with a message (its file is removed). `{withdrawn: true}`; `conflict` once sent |
+| `attachments.content` | `GET /attachments/:id/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
 | `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
@@ -196,7 +199,7 @@ answer, in order.
 - `user` is `null` for a turn that only carries a notice (a scheduled task's result posted into the chat,
   a compaction marker).
 - Content blocks: `{type: "text", text}`, `{type: "attachment", attachment: {id, kind, name, pages?}}`
-  (`kind`: `image`, `pdf`, `file`; `id` is `null` for uploads from before attachments had ids).
+  (`kind`: `image`, `pdf`, `file`; `id` is `null` only when an old upload's file is gone).
 - Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `notice`
   (`{kind, text, at}`), `error` (`{message, at}`).
 - A tool item's `status`: `running`, `done`, `failed`, `blocked` (refused: the owner denied it or a rule
@@ -246,6 +249,30 @@ Every owner socket also gets, without subscribing:
 | `jobs.changed` | `{}` |
 
 A member's socket gets the approval events of the chats it started, and their `session.updated`.
+
+## Attachments
+
+Upload first, then name the uploads in the message:
+
+```
+POST /api/v1/sessions/<id>/attachments      (body: the bytes; X-Filename: IMG_0042.jpg)
+→ {"attachment": {"id": "a3f9…", "kind": "image", "name": "IMG_0042.jpg", "mime": "image/jpeg", "size": 81234, "sent": false}}
+
+POST /api/v1/sessions/<id>/submit
+{"content": [{"type": "text", "text": "What is this?"}, {"type": "attachment", "id": "a3f9…"}], "requestId": "…"}
+```
+
+- Pictures: PNG, JPEG, GIF, WebP or BMP, up to the hello's `imageBytes`. The name's extension follows what
+  the bytes are. A picture of another kind (HEIC, TIFF) is kept as a file unless `kind: "image"` is asked
+  for, which answers `unsupported_media`; convert it first to let the model see it.
+- PDFs: up to `fileBytes`; the first 25 pages are shown to the model as pictures when the gateway can render
+  them (`pages` says how many).
+- Other files: up to `fileBytes`; a text file's contents go to the model with the message, any other file
+  as a note saying where it is.
+- An upload belongs to its chat. It can go with more than one message; until it has gone with one,
+  `sessions.detach` takes it back. Uploads are kept in the bot's workspace `uploads/` folder.
+- In a turn, `user.content` names each attachment by id; `attachments.content` opens it. Chats from before
+  uploads had ids get one when their history is read, if the file is still there.
 
 ## Approvals
 

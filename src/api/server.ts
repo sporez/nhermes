@@ -9,6 +9,7 @@ import { logger } from "../log.ts";
 import { ApiError, apiError } from "./errors.ts";
 import { globalFeed, sessionFeed } from "./events.ts";
 import { approvalOps } from "./ops/approvals.ts";
+import { attachmentOps } from "./ops/attachments.ts";
 import { chatOps } from "./ops/chat.ts";
 import { gatewayOps } from "./ops/gateway.ts";
 import { modelOps } from "./ops/models.ts";
@@ -32,7 +33,7 @@ export class ClientApi {
 	constructor(core: Core, o: ClientApiOptions = {}) {
 		this.core = core;
 		this.heartbeatMs = o.heartbeatMs ?? 30_000;
-		this.ops = new OpTable([...gatewayOps, ...sessionOps, ...chatOps, ...approvalOps, ...modelOps]);
+		this.ops = new OpTable([...gatewayOps, ...sessionOps, ...chatOps, ...attachmentOps, ...approvalOps, ...modelOps]);
 		this.sessionFeed = sessionFeed(core);
 		this.globalFeed = globalFeed(core);
 	}

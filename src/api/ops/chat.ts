@@ -3,6 +3,7 @@
 import { CommandError, commandCatalog, runCommand } from "../../core/commands.ts";
 import { ApiError } from "../errors.ts";
 import { localSession } from "../lookup.ts";
+import { identifyAttachments } from "./attachments.ts";
 import type { Op, OpContext } from "../ops.ts";
 import type { Params } from "../params.ts";
 import { approvalJson, sessionJson, turnJson, usageJson } from "../shapes/chat.ts";
@@ -12,6 +13,7 @@ const PAGE = 50;
 /** A page of turns, newest last, ending before the turn `cursor` names. */
 async function turnsPage(cx: OpContext, id: string, cursor: string | undefined, limit: number) {
 	const { turns } = await cx.core.sessions.turns(id);
+	identifyAttachments(cx.core, id, turns);
 	let end = turns.length;
 	if (cursor) {
 		end = turns.findIndex((t) => t.id === cursor);
@@ -41,26 +43,31 @@ async function subscribe(p: Params, cx: OpContext) {
 	}
 }
 
-/** The words of a message: `text`, or the text blocks of `content`. */
-function words(p: Params): string {
-	const text = p.optStr("text");
-	if (text !== undefined) return text;
+/** A message: `text`, or `content` blocks (text, and attachments by id). */
+function message(p: Params): { text: string; ids: string[] } {
 	const content = p.raw.content;
-	if (content === undefined) return "";
+	if (content === undefined || content === null) return { text: p.optStr("text") ?? "", ids: [] };
 	if (!Array.isArray(content)) throw new ApiError("invalid_params", "content must be a list of blocks.");
-	return content
-		.filter((b): b is { type: "text"; text: string } => !!b && typeof b === "object" && (b as { type?: unknown }).type === "text" && typeof (b as { text?: unknown }).text === "string")
-		.map((b) => b.text)
-		.join("\n\n");
+	const words: string[] = [];
+	const ids: string[] = [];
+	for (const b of content as Record<string, unknown>[]) {
+		if (b?.type === "text" && typeof b.text === "string") words.push(b.text);
+		else if (b?.type === "attachment") {
+			const id = typeof b.id === "string" ? b.id : typeof (b.attachment as { id?: unknown } | undefined)?.id === "string" ? (b.attachment as { id: string }).id : undefined;
+			if (!id) throw new ApiError("invalid_params", "An attachment block names its upload's id.");
+			ids.push(id);
+		}
+	}
+	return { text: words.join("\n\n"), ids };
 }
 
 async function submit(p: Params, cx: OpContext) {
 	const row = localSession(cx, p.str("id"));
-	const text = words(p);
-	if (!text.trim() && cx.core.attachments.pending(row.id) === 0) throw new ApiError("invalid_params", "A message needs words or an attachment.");
+	const { text, ids } = message(p);
+	if (!text.trim() && ids.length === 0) throw new ApiError("invalid_params", "A message needs words or an attachment.");
 	cx.socket?.subscribe(row.id);
 	const requestId = p.optStr("requestId");
-	const r = await cx.core.attachments.submit(row.id, text, (content) => cx.core.sessions.submit(row.id, content, { requestId, whenBusy: "followUp" }));
+	const r = await cx.core.attachments.submitWith(row.id, text, ids, (content) => cx.core.sessions.submit(row.id, content, { requestId, whenBusy: "followUp" }));
 	// `submission`: whether Durable placed it, queued it, or (a retry with the same requestId) already answered it.
 	return { status: r.status === "queued" ? "queued" : "started", submission: r.submission };
 }

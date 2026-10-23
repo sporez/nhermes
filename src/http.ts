@@ -84,6 +84,20 @@ export class Router {
 
 const MAX_BODY = 1024 * 1024;
 
+/** A request's body as bytes, refused past `max` bytes. */
+export async function readRaw(req: IncomingMessage, max: number): Promise<Buffer> {
+	const declared = Number(req.headers["content-length"] ?? 0);
+	if (declared > max) throw new HttpError(413, `The upload is larger than ${Math.floor(max / 1024 / 1024)} MB.`);
+	const chunks: Buffer[] = [];
+	let size = 0;
+	for await (const chunk of req) {
+		size += (chunk as Buffer).length;
+		if (size > max) throw new HttpError(413, `The upload is larger than ${Math.floor(max / 1024 / 1024)} MB.`);
+		chunks.push(chunk as Buffer);
+	}
+	return Buffer.concat(chunks);
+}
+
 export async function readJson(req: IncomingMessage): Promise<unknown> {
 	if (req.method === "GET" || req.method === "HEAD") return undefined;
 	const chunks: Buffer[] = [];

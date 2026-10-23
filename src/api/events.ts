@@ -3,20 +3,14 @@
 // socket, and to a member only for the chats it started. Stateless apart from the subscriptions.
 import type { Core } from "../app.ts";
 import type { ApprovalRequest, SessionEvent } from "../core/events.ts";
-import type { SessionRow } from "../core/sessions.ts";
-import { memberSource } from "../federation/members.ts";
 import { logger, redact } from "../log.ts";
+import { memberOwns } from "./lookup.ts";
+import { identifyAttachments } from "./ops/attachments.ts";
 import type { Caller } from "./ops.ts";
 import { approvalJson, itemJson, sessionJson, turnJson, usageJson } from "./shapes/chat.ts";
 import type { ApiEvent } from "./socket.ts";
 
 const log = logger("api-events");
-
-/** Whether a member may see this chat: one it started (or the owner's, relayed from it). */
-export function memberOwns(row: SessionRow | undefined, caller: Caller): boolean {
-	if (caller.kind === "owner") return true;
-	return row !== undefined && (row.source === memberSource(caller.member.node_id) || row.source === memberSource(caller.member.node_id, true));
-}
 
 /** A followed chat's event on the wire, or undefined for events that are not sent per chat. */
 export function chatEvent(e: SessionEvent): { event: string; data: unknown } | undefined {
@@ -48,6 +42,7 @@ export function chatEvent(e: SessionEvent): { event: string; data: unknown } | u
 export function sessionFeed(core: Core) {
 	return (sessionId: string, send: (e: ApiEvent) => void): (() => void) =>
 		core.hub.subscribe(sessionId, (sid, e) => {
+			if (e.type === "turn.started") identifyAttachments(core, sid, [e.turn]);
 			const out = chatEvent(e);
 			if (out) send({ event: out.event, sessionId: sid, seq: core.hub.seq(sid), at: Date.now(), data: out.data });
 		});

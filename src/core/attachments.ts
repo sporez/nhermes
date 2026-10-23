@@ -1,20 +1,25 @@
-// Files and pictures a client uploads for the next prompt (Vory's image.attach_bytes, pdf.attach and
-// file.attach, as Hermes' tui_gateway/prompt_attachments.py does them). Every upload is written to the
-// bot's workspace `uploads/` folder as a new file, never over another. Pictures and rendered PDF pages wait
-// here, in memory, until the session's next prompt takes them; uploaded files are remembered by the
-// `@file:` reference handed back, and that prompt (or a later one naming it) gets their text, as Hermes'
-// agent/context_references.py expands them. Only references this session was given are expanded, so typed
-// text never pulls another file into the prompt.
+// Files and pictures a client uploads for a prompt. Every upload is written to the bot's workspace
+// `uploads/` folder as a new file, never over another, and gets an id (the `attachments` table), so the
+// client API names what goes with a message, can take one back before sending, and can open any of them
+// later. The Hermes methods (Vory's image.attach_bytes, pdf.attach and file.attach, as Hermes'
+// tui_gateway/prompt_attachments.py does them) keep their own model: pictures and rendered PDF pages wait
+// here, in memory, until the session's next prompt takes them. Either way, uploaded files are remembered by
+// their `@file:` reference, and a prompt naming one gets its text, as Hermes' agent/context_references.py
+// expands them. Only references this session was given are expanded, so typed text never pulls another
+// file into the prompt.
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, extname, join, relative } from "node:path";
+import { randomBytes } from "node:crypto";
+import { basename, extname, isAbsolute, join, relative, sep } from "node:path";
 import type { Engine, UserInput } from "../engine/engine.ts";
 import { prepareImage } from "../engine/images.ts";
 import { logger } from "../log.ts";
 import { HostEnvs } from "../remote/hosts.ts";
+import type { AppDb } from "../store/db.ts";
 import type { Bot, Bots } from "./bots.ts";
 import type { Sessions } from "./sessions.ts";
+import type { AttachmentRef } from "./turns.ts";
 
 const log = logger("attachments");
 
@@ -47,7 +52,15 @@ type Staged =
 type Uploaded = { path: string; name: string };
 type SessionUploads = { staged: Staged[]; stagedAt: number; files: Map<string, Uploaded> };
 
+export type AttachmentKind = "image" | "pdf" | "file";
+
+/** An upload as clients see it. */
+export type AttachmentInfo = { id: string; kind: AttachmentKind; name: string; mime: string; size: number; pages?: number; sent: boolean };
+
+type AttachmentRow = { id: string; session_id: string; bot: string; path: string; name: string; mime: string; size: number; kind: AttachmentKind; pages: number | null; created_at: number; sent_at: number | null; withdrawn: number };
+
 export type AttachmentsDeps = {
+	db: AppDb;
 	bots: Bots;
 	sessions: () => Sessions;
 	engine: Engine;
@@ -57,6 +70,8 @@ export type AttachmentsDeps = {
 export class Attachments {
 	private readonly d: AttachmentsDeps;
 	private readonly bySession = new Map<string, SessionUploads>();
+	/** Pictures and PDF pages prepared at upload, by id, so sending them soon after does not prepare them again. */
+	private readonly prepared = new Map<string, { at: number; staged: Staged }>();
 
 	constructor(deps: AttachmentsDeps) {
 		this.d = deps;
@@ -65,26 +80,191 @@ export class Attachments {
 	/** A picture for the next prompt: saved to uploads/, shrunk to the model limits. */
 	async image(sessionId: string, base64: string, filename?: string): Promise<{ path: string; name: string; count: number; bytes: number }> {
 		const bytes = decode(base64, IMAGE_MAX_BYTES, "picture");
-		const type = imageType(bytes);
-		if (!type) {
-			if (isHeic(bytes)) throw new AttachmentError(4016, "HEIC pictures are not supported here. Send it as a JPEG or PNG.");
-			throw new AttachmentError(4016, "That file is not a picture this gateway can read (PNG, JPEG, GIF, WebP or BMP).");
-		}
 		const s = this.uploads(sessionId);
 		if (this.imageCount(s) >= MAX_STAGED_IMAGES) throw new AttachmentError(4017, `At most ${MAX_STAGED_IMAGES} pictures can go with one message.`);
-		const picture = await prepareImage(bytes, type.mime);
-		if (!picture) throw new AttachmentError(4016, "That picture could not be read or made small enough to send.");
-		const path = this.save(sessionId, bytes, withExt(filename, type.ext, "image"));
-		this.stage(s, { kind: "image", path, name: basename(path), picture: { data: picture.data, mimeType: picture.mimeType } });
+		const { path, picture } = await this.storeImage(sessionId, bytes, filename);
+		this.stage(s, { kind: "image", path, name: basename(path), picture });
 		return { path, name: basename(path), count: this.imageCount(s), bytes: bytes.length };
 	}
 
 	/** A PDF for the next prompt: saved to uploads/, its first pages shown to the model as pictures when they can be rendered. */
 	async pdf(sessionId: string, base64: string, filename?: string): Promise<{ path: string; name: string; pages: number; count: number }> {
 		const bytes = decode(base64, FILE_MAX_BYTES, "PDF");
-		if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") throw new AttachmentError(4016, "That file is not a PDF.");
 		const s = this.uploads(sessionId);
+		const { path, pages } = await this.storePdf(sessionId, bytes, filename, MAX_STAGED_IMAGES - this.imageCount(s));
+		this.stage(s, { kind: "pdf", path, name: basename(path), pages });
+		return { path, name: basename(path), pages: pages.length, count: this.imageCount(s) };
+	}
+
+	/** Any other file: saved to uploads/; the reference names it in a prompt, which then carries its text. */
+	file(sessionId: string, base64: string, name?: string): { path: string; name: string; ref: string; refPath: string } {
+		const bytes = decode(base64, FILE_MAX_BYTES, "file");
+		return this.storeFile(sessionId, bytes, name);
+	}
+
+	/**
+	 * An upload by id (the client API): a picture, a PDF or any other file, by what its bytes are unless `kind`
+	 * says. It goes with the message that names its id.
+	 */
+	async upload(sessionId: string, bytes: Buffer, name?: string, kind?: AttachmentKind): Promise<AttachmentInfo> {
+		if (bytes.length === 0) throw new AttachmentError(4015, "The upload is empty.");
+		const detected: AttachmentKind = kind ?? (imageType(bytes) ? "image" : isPdf(bytes) ? "pdf" : "file");
+		const max = detected === "image" ? IMAGE_MAX_BYTES : FILE_MAX_BYTES;
+		if (bytes.length > max) throw new AttachmentError(4017, `This ${detected === "image" ? "picture" : detected === "pdf" ? "PDF" : "file"} is larger than ${max / 1024 / 1024} MB.`);
+		let path: string;
+		if (detected === "image") {
+			const r = await this.storeImage(sessionId, bytes, name);
+			path = r.path;
+			this.prepared.set(this.rowByPath(sessionId, path)!.id, { at: Date.now(), staged: { kind: "image", path, name: basename(path), picture: r.picture } });
+		} else if (detected === "pdf") {
+			const r = await this.storePdf(sessionId, bytes, name, MAX_STAGED_IMAGES);
+			path = r.path;
+			this.prepared.set(this.rowByPath(sessionId, path)!.id, { at: Date.now(), staged: { kind: "pdf", path, name: basename(path), pages: r.pages } });
+		} else {
+			path = this.storeFile(sessionId, bytes, name).path;
+		}
+		return info(this.rowByPath(sessionId, path)!);
+	}
+
+	/** Takes back an upload that has not gone with a message yet: its file is removed. */
+	withdraw(sessionId: string, id: string): boolean {
+		const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND session_id = ? AND withdrawn = 0", id, sessionId);
+		if (!row || row.sent_at !== null) return false;
+		this.d.db.run("UPDATE attachments SET withdrawn = 1 WHERE id = ?", id);
+		this.prepared.delete(id);
+		rmSync(row.path, { force: true });
+		return true;
+	}
+
+	/** An upload of this session by id, if it is still there. */
+	get(sessionId: string, id: string): AttachmentInfo | undefined {
+		const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND session_id = ? AND withdrawn = 0", id, sessionId);
+		return row ? info(row) : undefined;
+	}
+
+	/** An upload's file, for downloading it. */
+	content(id: string): { sessionId: string; path: string; name: string; mime: string } | undefined {
+		const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND withdrawn = 0", id);
+		return row ? { sessionId: row.session_id, path: row.path, name: row.name, mime: row.mime } : undefined;
+	}
+
+	/**
+	 * Fills in the ids (and what is known) of attachments a chat's history names by path. An upload from before
+	 * uploads had ids gets one now, when its file is still in the bot's uploads folder.
+	 */
+	identify(sessionId: string, refs: AttachmentRef[]): void {
+		let root: string | undefined;
+		for (const ref of refs) {
+			if (!ref.path || ref.id) continue;
+			let path = ref.path;
+			if (!isAbsolute(path)) {
+				try {
+					root ??= this.workspace(sessionId);
+				} catch {
+					return;
+				}
+				path = join(root, path);
+			}
+			let row = this.rowByPath(sessionId, path);
+			if (!row) {
+				try {
+					root ??= this.workspace(sessionId);
+				} catch {
+					return;
+				}
+				if (!path.startsWith(join(root, "uploads") + sep)) continue;
+				let size: number;
+				try {
+					size = statSync(path).size;
+				} catch {
+					continue;
+				}
+				this.record(sessionId, path, ref.kind, ref.kind === "image" ? (MIME[extname(path).toLowerCase()] ?? "application/octet-stream") : mimeOf(path), size, ref.pages ?? null, true);
+				row = this.rowByPath(sessionId, path);
+			}
+			if (row) ref.id = row.id;
+		}
+	}
+
+	/**
+	 * Sends a prompt with the uploads it names by id (the client API): the words, a reference line for each
+	 * file, then as `submit` does. Pictures are prepared again if the gateway restarted since the upload.
+	 */
+	async submitWith<R>(sessionId: string, text: string, ids: readonly string[], send: (content: UserInput) => Promise<R>): Promise<R> {
+		const staged: Staged[] = [];
+		const refs: string[] = [];
+		const s = this.uploads(sessionId);
+		for (const id of ids) {
+			const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND session_id = ? AND withdrawn = 0", id, sessionId);
+			if (!row) throw new AttachmentError(4006, `No upload ${id} in this chat (it was taken back, or belongs to another chat).`);
+			if (row.kind === "file") {
+				const rel = relative(this.workspace(sessionId), row.path).split("\\").join("/");
+				const ref = `@file:${refValue(rel)}`;
+				s.files.set(ref, { path: row.path, name: row.name });
+				if (!text.includes(ref)) refs.push(ref);
+				continue;
+			}
+			staged.push(await this.preparedOf(row));
+		}
+		if (staged.reduce((n, a) => n + (a.kind === "image" ? 1 : a.pages.length), 0) > MAX_STAGED_IMAGES) throw new AttachmentError(4017, `At most ${MAX_STAGED_IMAGES} pictures can go with one message.`);
+		const words = [text.trim(), ...refs].filter(Boolean).join("\n");
+		const content = staged.length === 0 && !this.namesUpload(sessionId, words) ? words : await this.compose(sessionId, words, staged);
+		const r = await send(content);
+		const now = Date.now() / 1000;
+		for (const id of ids) {
+			this.d.db.run("UPDATE attachments SET sent_at = COALESCE(sent_at, ?) WHERE id = ?", now, id);
+			this.prepared.delete(id);
+		}
+		return r;
+	}
+
+	private async preparedOf(row: AttachmentRow): Promise<Staged> {
+		const hit = this.prepared.get(row.id);
+		if (hit && Date.now() - hit.at < STAGED_TTL_MS) return hit.staged;
+		const bytes = readFileSync(row.path);
+		if (row.kind === "image") {
+			const type = imageType(bytes);
+			const picture = type ? await prepareImage(bytes, type.mime) : undefined;
+			if (!picture) throw new AttachmentError(4016, `${row.name} could not be read as a picture.`);
+			return { kind: "image", path: row.path, name: row.name, picture: { data: picture.data, mimeType: picture.mimeType } };
+		}
+		return { kind: "pdf", path: row.path, name: row.name, pages: await this.renderPages(row.path, MAX_STAGED_IMAGES) };
+	}
+
+	private async storeImage(sessionId: string, bytes: Buffer, filename: string | undefined): Promise<{ path: string; picture: Picture }> {
+		const type = imageType(bytes);
+		if (!type) {
+			if (isHeic(bytes)) throw new AttachmentError(4016, "HEIC pictures are not supported here. Send it as a JPEG or PNG.");
+			throw new AttachmentError(4016, "That file is not a picture this gateway can read (PNG, JPEG, GIF, WebP or BMP).");
+		}
+		const picture = await prepareImage(bytes, type.mime);
+		if (!picture) throw new AttachmentError(4016, "That picture could not be read or made small enough to send.");
+		const path = this.save(sessionId, bytes, withExt(filename, type.ext, "image"));
+		this.record(sessionId, path, "image", type.mime, bytes.length, null);
+		return { path, picture: { data: picture.data, mimeType: picture.mimeType } };
+	}
+
+	private async storePdf(sessionId: string, bytes: Buffer, filename: string | undefined, room: number): Promise<{ path: string; pages: Picture[] }> {
+		if (!isPdf(bytes)) throw new AttachmentError(4016, "That file is not a PDF.");
 		const path = this.save(sessionId, bytes, withExt(filename, ".pdf", "document"));
+		const pages = await this.renderPages(path, room);
+		this.record(sessionId, path, "pdf", "application/pdf", bytes.length, pages.length);
+		return { path, pages };
+	}
+
+	private storeFile(sessionId: string, bytes: Buffer, name: string | undefined): { path: string; name: string; ref: string; refPath: string } {
+		const path = this.save(sessionId, bytes, cleanName(name) || "attachment");
+		this.record(sessionId, path, "file", mimeOf(path), bytes.length, null);
+		const refPath = relative(this.workspace(sessionId), path).split("\\").join("/");
+		const ref = `@file:${refValue(refPath)}`;
+		const s = this.uploads(sessionId);
+		s.files.set(ref, { path, name: basename(path) });
+		while (s.files.size > 50) s.files.delete(s.files.keys().next().value!);
+		return { path, name: basename(path), ref, refPath };
+	}
+
+	/** A PDF's first pages as pictures for the model, at most `room` of them; none when they cannot be rendered. */
+	private async renderPages(path: string, room: number): Promise<Picture[]> {
 		const pages: Picture[] = [];
 		let rendered: Buffer[] | undefined;
 		try {
@@ -93,24 +273,34 @@ export class Attachments {
 			log.warn("pdf pages could not be rendered", { error: error instanceof Error ? error.message : String(error) });
 		}
 		for (const png of rendered ?? []) {
-			if (this.imageCount(s) + pages.length >= MAX_STAGED_IMAGES) break;
+			if (pages.length >= room) break;
 			const page = await prepareImage(png, "image/png");
 			if (page) pages.push({ data: page.data, mimeType: page.mimeType });
 		}
-		this.stage(s, { kind: "pdf", path, name: basename(path), pages });
-		return { path, name: basename(path), pages: pages.length, count: this.imageCount(s) };
+		return pages;
 	}
 
-	/** Any other file: saved to uploads/; the reference names it in a prompt, which then carries its text. */
-	file(sessionId: string, base64: string, name?: string): { path: string; name: string; ref: string; refPath: string } {
-		const bytes = decode(base64, FILE_MAX_BYTES, "file");
-		const path = this.save(sessionId, bytes, cleanName(name) || "attachment");
-		const refPath = relative(this.workspace(sessionId), path).split("\\").join("/");
-		const ref = `@file:${refValue(refPath)}`;
-		const s = this.uploads(sessionId);
-		s.files.set(ref, { path, name: basename(path) });
-		while (s.files.size > 50) s.files.delete(s.files.keys().next().value!);
-		return { path, name: basename(path), ref, refPath };
+	private record(sessionId: string, path: string, kind: AttachmentKind, mime: string, size: number, pages: number | null, sent = false): void {
+		const row = this.d.sessions().require(sessionId);
+		const now = Date.now() / 1000;
+		this.d.db.run(
+			"INSERT INTO attachments (id, session_id, bot, path, name, mime, size, kind, pages, created_at, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			`a${randomBytes(8).toString("hex")}`,
+			sessionId,
+			row.bot,
+			path,
+			basename(path),
+			mime,
+			size,
+			kind,
+			pages,
+			now,
+			sent ? now : null,
+		);
+	}
+
+	private rowByPath(sessionId: string, path: string): AttachmentRow | undefined {
+		return this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE session_id = ? AND path = ? AND withdrawn = 0 ORDER BY created_at DESC LIMIT 1", sessionId, path);
 	}
 
 	/** Whether a PDF's pages can be shown to the model as pictures (the doctor's check). */
@@ -266,6 +456,14 @@ function imageType(b: Buffer): { mime: string; ext: string } | undefined {
 	return undefined;
 }
 
+function isPdf(b: Buffer): boolean {
+	return b.subarray(0, 5).toString("latin1") === "%PDF-";
+}
+
+function info(row: AttachmentRow): AttachmentInfo {
+	return { id: row.id, kind: row.kind, name: row.name, mime: row.mime, size: row.size, ...(row.pages !== null ? { pages: row.pages } : {}), sent: row.sent_at !== null };
+}
+
 function isHeic(b: Buffer): boolean {
 	const box = b.subarray(4, 12).toString("latin1");
 	return box.startsWith("ftyp") && /^(heic|heix|hevc|mif1|msf1)/.test(box.slice(4));
@@ -326,6 +524,7 @@ function formatBytes(n: number): string {
 }
 
 const MIME: Record<string, string> = {
+	".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
 	".zip": "application/zip", ".gz": "application/gzip", ".tar": "application/x-tar", ".pdf": "application/pdf",
 	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xls": "application/vnd.ms-excel",
 	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".doc": "application/msword",
