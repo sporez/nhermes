@@ -221,7 +221,7 @@ with its docs.
 
 ### A. Gateway: the new API
 
-- [ ] **A0 Contract.** Turn the Design section into `docs/API.md` (resources, events, ops, errors,
+- [x] **A0 Contract.** Turn the Design section into `docs/API.md` (resources, events, ops, errors,
   evolution rules). Add an upstream test that pins what the turn shape relies on: tool results'
   `durationMs`/`isError`, message timestamps, and appending a bookkeeping entry when a run ends.
 - [ ] **A1 Foundation.** `src/server.ts` (move the listeners out of `hermes/`), `/api/v1` mount, Bearer

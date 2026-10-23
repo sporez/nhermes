@@ -114,3 +114,56 @@ test("beforeTool hook can wait asynchronously and block before the tool runs", a
 	assert.match(JSON.stringify(result), /denied by owner/);
 	await harness.close(ctx);
 });
+
+test("transcript records what the client API's turns are built from", async () => {
+	const { faux, models, ref } = setup();
+	const lookup = defineTool({
+		name: "lookup",
+		description: "looks something up",
+		parameters: Type.Object({ q: Type.String() }),
+		replay: "safe",
+		execute: async () => ({ output: [{ type: "text", text: "found it" }], details: { structured: { items: [1, 2] } } }),
+	});
+	const registry = createRegistry();
+	registry.install(defineExtension({ name: "tools", tools: [lookup] }));
+	faux.setResponses([
+		fauxAssistantMessage([fauxText("Looking."), fauxToolCall("lookup", { q: "x" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("Done.")]),
+	]);
+	const { MemoryStorage } = await import("@earendil-works/pi-durable");
+	const harness = await Harness.open(new MemoryStorage(), { models, registry }, ctx);
+	const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: ref } }, ctx);
+	const stream = await watchEvents(harness, conv.id, ctx);
+	const events: AgentEvent[] = [];
+	stream.start(async (batch) => {
+		events.push(...batch);
+	});
+	await (await conv.submit({ type: "input", content: "find x" }, ctx)).wait(ctx);
+	await harness.waitForIdle(ctx);
+	// A write entry is appended after the run, with its data, and the model never sees it.
+	await (await conv.submit({ type: "write", entry: { kind: "nh.run", data: { turn: 1, status: "complete" } } }, ctx)).wait(ctx);
+	await stream.stop();
+	const entries = (await conv.entries({ order: "ascending" }, 50, undefined, ctx)).items;
+	type M = { role: string; timestamp?: number; content: { type: string; id?: string; name?: string; arguments?: unknown }[]; toolCallId?: string; isError?: boolean; durationMs?: number; details?: unknown };
+	const msgs = entries.map((e) => e.model?.[0] as M | undefined);
+	const user = entries.findIndex((e) => (e.model?.[0] as M | undefined)?.role === "user");
+	assert.ok(user >= 0 && typeof msgs[user]!.timestamp === "number", "user messages carry a timestamp");
+	// The user message's entry is announced at message_end, so a live turn can be named by it.
+	const userEnd = events.find((e) => e.type === "message_end" && (e.entry.model?.[0] as M | undefined)?.role === "user");
+	assert.equal(userEnd?.type === "message_end" ? userEnd.entry.id : undefined, entries[user]!.id);
+	const call = msgs.flatMap((m) => m?.content ?? []).find((b) => b.type === "toolCall");
+	assert.ok(call?.id && call.name === "lookup", "tool calls carry their id and name");
+	assert.deepEqual(call.arguments, { q: "x" });
+	const result = msgs.find((m) => m?.role === "toolResult");
+	assert.equal(result?.toolCallId, call.id);
+	assert.equal(result?.isError, false);
+	assert.equal(typeof result?.durationMs, "number", "tool results carry their duration");
+	assert.deepEqual(result?.details, { structured: { items: [1, 2] } }, "a tool's details are kept with its result");
+	const start = events.find((e) => e.type === "tool_execution_start");
+	assert.equal(start?.type === "tool_execution_start" ? start.toolCallId : undefined, call.id, "live tool events use the same call id");
+	const run = entries.at(-1)!;
+	assert.equal(run.kind, "nh.run");
+	assert.deepEqual(run.data, { turn: 1, status: "complete" });
+	assert.equal(run.model, undefined);
+	await harness.close(ctx);
+});
