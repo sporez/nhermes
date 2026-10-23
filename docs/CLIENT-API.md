@@ -346,3 +346,7 @@ Settled with the owner before A0.
 - A2 `0154841` (with `8499c75` for MCP structured results): chats, turns, live events, approvals, models.
   Chats with a member's bot answer `not_available` until A4.
 - A3 `91ff5c6`: uploads by id (`attachments` table), withdraw, download, ids in history.
+- A4 `79b7026`: `src/remote/api-client.ts`; peers, delegation and member bots' group chat turns on
+  `/api/v1`; the app's chats with members' bots through `src/federation/chats.ts`. Members' bot settings move
+  with A5 (through `/federation/manage/*`). The Hermes-only federation tests (Vory's proxy path, the member
+  Hermes socket) stay until D.
