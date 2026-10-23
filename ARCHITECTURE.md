@@ -117,6 +117,12 @@ If the gateway restarts while a call waits, the call has no intent yet, so Pi Du
 phase and the question is asked again; nothing ran. Scheduled runs (no client) use the job's
 `approvals: deny|allow` policy and notify on a denied action instead of waiting.
 
+A bot's question (its `ask` tool, `src/tools/ask.ts`) waits on the same broker as a second kind of request,
+so it travels the same path: the same events, listing, withdrawal on interrupt, notification and forwarding
+between machines. It has its own timeout (`questionTimeoutS`, capped at a scheduled task's next occurrence),
+ends unanswered rather than denied, and its answer is the call's result. The tool is replay-safe, so a
+restart asks it again. A message typed in the chat while it waits is taken as its answer.
+
 Every bot's prompt carries fixed ground rules (`groundRules` in `src/agent/extensions.ts`): do ordinary
 work on the owner's machine and apps with the tools it has, but say so rather than fake a missing reach
 (another bot, gateway or machine), reach other bots only through `delegate`, and leave the gateway's own

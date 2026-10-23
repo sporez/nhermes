@@ -1,6 +1,7 @@
 // Canonical events. Produced from Pi Durable's agent events (core/live.ts) and the approval broker;
 // consumed by the API layers, the scheduler and delegation. Adapters translate; they never
 // produce agent state of their own.
+import type { Question } from "./questions.ts";
 import type { RoomEvent } from "./room-plan.ts";
 import type { Turn, TurnItem, TurnUsage } from "./turns.ts";
 
@@ -18,7 +19,7 @@ export type UsageSummary = {
 	costUsd: number;
 };
 
-export type ApprovalRequest = {
+type RequestBase = {
 	requestId: string;
 	/** Where the owner answers it: the chat the work started in (a delegated task asks in its caller's chat). */
 	sessionId: string;
@@ -27,12 +28,18 @@ export type ApprovalRequest = {
 	callSessionId?: string;
 	bot: string;
 	toolName: string;
-	command: string;
 	description: string;
-	patternKey: string;
-	choices: ("once" | "session" | "always" | "deny")[];
 	createdAt: number;
 };
+
+/** A tool call waiting for the owner's approval. */
+export type CommandApproval = RequestBase & { kind: "approval"; command: string; patternKey: string; choices: ("once" | "session" | "always" | "deny")[] };
+
+/** A bot's `ask` waiting for the owner's answer (src/core/questions.ts). */
+export type QuestionRequest = RequestBase & { kind: "question"; caption: string; questions: Question[]; choices: ("answer" | "dismiss")[] };
+
+/** What waits on the approvals broker: an approval or a question. */
+export type ApprovalRequest = CommandApproval | QuestionRequest;
 
 export type RunStatus = "complete" | "error" | "interrupted";
 

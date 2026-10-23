@@ -18,7 +18,7 @@ export type BotPatch = { [K in Exclude<keyof BotConfig, "name">]?: BotConfig[K] 
 
 export type GatewayPatch = {
 	server?: { host?: string; port?: number; name?: string };
-	defaults?: { model?: string; thinking?: ThinkingLevel; approvals?: ApprovalMode; approvalTimeoutS?: number };
+	defaults?: { model?: string; thinking?: ThinkingLevel; approvals?: ApprovalMode; approvalTimeoutS?: number; questionTimeoutS?: number };
 	timezone?: string;
 	/** The ground rules for every bot; null goes back to the built-in rules. */
 	groundRules?: string | null;

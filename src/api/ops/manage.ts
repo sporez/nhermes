@@ -58,6 +58,10 @@ function settingsPatch(p: Params, cx: OpContext): GatewayPatch {
 			if (typeof d.approvalTimeoutS !== "number" || !(d.approvalTimeoutS > 0)) throw new ApiError("invalid_params", "defaults.approvalTimeoutS must be a number of seconds.");
 			defaults.approvalTimeoutS = d.approvalTimeoutS;
 		}
+		if (d.questionTimeoutS !== undefined) {
+			if (typeof d.questionTimeoutS !== "number" || !(d.questionTimeoutS > 0)) throw new ApiError("invalid_params", "defaults.questionTimeoutS must be a number of seconds.");
+			defaults.questionTimeoutS = d.questionTimeoutS;
+		}
 		patch.defaults = defaults;
 	}
 	const hide = p.optList("hiddenModelProviders");

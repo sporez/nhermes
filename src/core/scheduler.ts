@@ -496,6 +496,13 @@ export class Scheduler {
 		}
 	}
 
+	/** When the task whose run this is comes due again (ms): a question asked in the run waits no longer. */
+	questionDeadline(sessionId: string): number | undefined {
+		const row = this.d.sessions.get(sessionId);
+		const next = row?.kind === "job" && row.job_id ? this.get(row.job_id)?.next_run_at : undefined;
+		return typeof next === "number" ? next * 1000 : undefined;
+	}
+
 	/** How a job session answers approvals with nobody there. */
 	approvalsFor(sessionId: string): UnattendedApprovals | undefined {
 		const row = this.d.sessions.get(sessionId);

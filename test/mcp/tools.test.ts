@@ -108,7 +108,7 @@ test("a tool that is not read-only asks first (and runs once approved); a read-o
 		s.faux.setResponses([call("mcp__cal__list_events"), call("mcp__cal__add_event", { title: "Dentist" }), fauxAssistantMessage([fauxText("done")])]);
 		await s.core.sessions.submit(session.id, "add it");
 		const asked = await c.until((e) => e.type === "approval.requested", 10000);
-		if (asked.type !== "approval.requested") return;
+		if (asked.type !== "approval.requested" || asked.request.kind !== "approval") return assert.fail("an approval was asked");
 		assert.equal(asked.request.toolName, "mcp__cal__add_event");
 		assert.match(asked.request.description, /add_event on the MCP server "cal"/);
 		assert.match(asked.request.command, /Dentist/, "the card shows the arguments");

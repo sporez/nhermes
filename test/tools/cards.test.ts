@@ -121,7 +121,7 @@ test("show without only keeps the whole result; a batch with other tools continu
 		assert.equal(s.faux.state.callCount, 3);
 		const { turns } = await s.core.sessions.turns(r.session.id);
 		const card = turns.at(-1)!.items.find((i) => i.type === "card");
-		assert.ok(card?.type === "card");
+		assert.ok(card?.type === "card" && card.kind === "result");
 		assert.deepEqual(card.data, EVENTS);
 		assert.equal(card.filtered, undefined, "a whole result is not marked filtered");
 	} finally {

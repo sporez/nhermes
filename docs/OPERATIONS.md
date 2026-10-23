@@ -80,7 +80,7 @@ streams from a throwaway gateway, for a client's tests.
 ### Notifications
 
 The nHermes app gets push notifications straight from Apple: approvals (with Approve once and Deny on the
-notification), finished and failed turns, scheduled-task results, the `notify` tool and OpenChamber alerts. It
+notification), a bot's questions, finished and failed turns, scheduled-task results, the `notify` tool and OpenChamber alerts. It
 needs an APNs key from the Apple developer account the app is signed with (Certificates, Identifiers &
 Profiles → Keys → a key with Apple Push Notifications service). Download its `.p8` file once, then:
 
@@ -115,6 +115,16 @@ each result that can be a card ends with a line giving its handle. The owner see
 so it does not repeat it. Where the app cannot draw a card (a notification, a scheduled task's summary, another
 bot's report, a group chat), the card's caption stands in for it as `[Card: <caption>]`. Cards need an app that
 lists `cards` in the hello's `features` (`docs/API.md` "Cards").
+
+### Questions
+
+When a bot needs your choice before going on (which restaurant, which of two files), it asks with its `ask`
+tool, which every bot has. The question appears in the app as a card under the bot's reply, in Waiting for You,
+and as a notification; the bot waits, and carries on in the same turn once you answer. Typing a reply in the
+chat answers it too. A question waits a day unless you answer, dismiss it or stop the run (`defaults:
+questionTimeoutS` in `config.yaml`, in seconds; it applies at once), and in a scheduled task's run no longer
+than the task's next occurrence. A bot on another machine asks through the machine your app is connected to,
+like its approvals. Bots are told never to ask for passwords or keys; those are secrets (`nhermes secret set`).
 
 ### Group chats
 

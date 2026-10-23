@@ -75,7 +75,7 @@ test("high-impact commands on a trusted host bot still ask; routine ones do not"
 		]);
 		await core.sessions.submit(s.id, "tidy up and destroy tank");
 		const asked = await c.until((e) => e.type === "approval.requested");
-		if (asked.type !== "approval.requested") return;
+		if (asked.type !== "approval.requested" || asked.request.kind !== "approval") return assert.fail("an approval was asked");
 		assert.equal(asked.request.patternKey, "zfs destroy");
 		const firstTool = c.events.find((e) => e.type === "tool.finished");
 		assert.ok(firstTool?.type === "tool.finished" && /cleaned/.test(firstTool.resultText), "rm -rf ran without asking");

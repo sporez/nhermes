@@ -4,6 +4,7 @@
 // there is idempotent (the submission's requestId becomes the other machine's Durable request id) and
 // survives a dropped connection: the client reconnects and follows the remote chat again. Approval requests
 // from the other machine are handed to a callback (this gateway asks its owner) and answered there.
+import { type ForwardedAnswer, type ForwardedRequest, forwardedRequest } from "../core/approvals.ts";
 import { cardNote } from "../core/cards.ts";
 import { logger } from "../log.ts";
 import type { ApiEvent } from "../api/socket.ts";
@@ -14,9 +15,8 @@ const log = logger("peer");
 /** A bot on another gateway: where to reach it, and its name there. */
 export type PeerTarget = GatewayTarget & { profile?: string };
 
-/** What a request from the other machine asks, as its approval card says it. */
-export type PeerApprovalRequest = { toolName: string; command: string; description: string; patternKey: string };
-export type PeerApproval = (request: PeerApprovalRequest) => Promise<"once" | "session" | "always" | "deny">;
+/** A request from the other machine (an approval or its bot's question), asked of this gateway's owner; the answer goes back. */
+export type PeerApproval = (request: ForwardedRequest) => Promise<ForwardedAnswer>;
 
 type RemoteTurn = { id: string; status: string; error?: string; items: { type: string; text?: string; caption?: string }[] };
 
@@ -50,13 +50,13 @@ function relayApprovals(c: ApiClient, sessionId: string, ask: PeerApproval): () 
 	const asking = new Map<string, AbortController>();
 	const off = c.onEvent((e: ApiEvent) => {
 		if (e.event === "approval.requested") {
-			const a = e.data.approval as { id: string; sessionId: string; toolName?: string; command?: string; description?: string; patternKey?: string };
+			const a = e.data.approval as { id: string; sessionId: string };
 			if (a.sessionId !== sessionId || asking.has(a.id)) return;
 			const controller = new AbortController();
 			asking.set(a.id, controller);
 			// The callback asks this gateway's owner; a withdrawal there (approval.resolved) cancels the question here.
-			void withAbort(ask({ toolName: a.toolName ?? "tool", command: a.command ?? "", description: a.description ?? "needs approval", patternKey: a.patternKey ?? "" }), controller.signal)
-				.then((choice) => (choice === undefined ? undefined : c.call("approvals.answer", { id: a.id, choice })))
+			void withAbort(ask(forwardedRequest(e.data.approval as Record<string, unknown>)), controller.signal)
+				.then((answer) => (answer === undefined ? undefined : c.call("approvals.answer", { id: a.id, ...answer })))
 				.catch((error: unknown) => log.warn("approval for the other machine not answered", { error: String(error) }))
 				.finally(() => asking.delete(a.id));
 		} else if (e.event === "approval.resolved") {

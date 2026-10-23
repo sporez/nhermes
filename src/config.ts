@@ -111,7 +111,7 @@ export type Config = {
 	/** Model providers left out of model pickers (the client API, the panel); `models.hide` in config.yaml. */
 	modelLists: { hide: string[] };
 	pi: { authPath: string; modelsPath: string };
-	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number };
+	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number; questionTimeoutS: number };
 	skillsDir: string;
 	timezone: string;
 	bots: BotConfig[];
@@ -439,6 +439,8 @@ export function loadConfig(configPath: string): Config {
 			thinking,
 			approvals: (str(defaults.approvals, "defaults.approvals") ?? "smart") as ApprovalMode,
 			approvalTimeoutS: typeof defaults.approvalTimeoutS === "number" ? defaults.approvalTimeoutS : 600,
+			// A bot's question waits longer than an approval: a day, unless set.
+			questionTimeoutS: typeof defaults.questionTimeoutS === "number" && defaults.questionTimeoutS > 0 ? defaults.questionTimeoutS : 86_400,
 		},
 		skillsDir: expandPath(str(doc.skillsDir, "skillsDir") ?? "skills", configDir),
 		timezone: str(doc.timezone, "timezone") ?? Intl.DateTimeFormat().resolvedOptions().timeZone,

@@ -15,7 +15,7 @@ export const BOOT_ID = randomUUID();
  * What this gateway offers beyond the core chat operations. A client shows a feature only when its name is
  * here; a new capability is a new name.
  */
-export const FEATURES: string[] = ["events.replay", "cards"];
+export const FEATURES: string[] = ["events.replay", "cards", "questions"];
 
 /** Sizes a client should respect, so it can tell the user before sending something that will be refused. */
 export const LIMITS = {

@@ -2,9 +2,11 @@
 // "Cards"). A tool that keeps structured data gives the model a handle for the call; the bot decides what the
 // owner sees with the `show` tool (src/tools/cards.ts), which looks the handle up in the chat's transcript, so
 // it works after a restart. This file owns the handle, the "cardable" line, narrowing a result to chosen ids,
-// and the text stand-in for places that cannot draw a card.
+// and the text stand-in for places that cannot draw a card. A bot's question (`ask`) is a card too, of kind
+// "question" (src/core/questions.ts).
 import { createHash } from "node:crypto";
 import type { EntryRecord } from "../engine/engine.ts";
+import { type Answers, ASK_TOOL, type Question } from "./questions.ts";
 
 /** The tool that turns a handle into a card; the one name the text fallbacks look for. */
 export const SHOW_TOOL = "show";
@@ -15,7 +17,16 @@ export type CardSource = { item: string; name: string; args: Record<string, unkn
  * What a successful `show` call keeps in its result's details; the turn item is projected from it. `filtered`: the
  * bot kept only some items (`only`), so counts in `data` describe the whole result, not the card.
  */
-export type CardDetails = { kind: "result"; caption: string; source: CardSource; data: unknown; filtered?: true };
+export type ResultCard = { kind: "result"; caption: string; source: CardSource; data: unknown; filtered?: true };
+
+/** What an `ask` call keeps (src/tools/ask.ts): its questions and the owner's answers, null when none came. */
+export type QuestionCard = { kind: "question"; caption: string; data: { questions: Question[]; answers: Answers | null } };
+
+/** A card a call keeps in its result's details. */
+export type CardDetails = ResultCard | QuestionCard;
+
+/** The tools whose successful call is a card item rather than a tool item. */
+export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
 
 /** A short name for a tool call that the model can quote: "c" and the first 5 hex characters of the call id's hash. */
 export function cardHandle(callId: string): string {

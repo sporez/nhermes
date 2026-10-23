@@ -70,7 +70,7 @@ test("gateway settings: read, change, restart-only ones reported, bad values ref
 	try {
 		const s = await g.call<Obj>("GET /gateway/settings");
 		assert.equal(s.timeZone, "America/New_York");
-		assert.deepEqual(s.defaults, { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30 });
+		assert.deepEqual(s.defaults, { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30, questionTimeoutS: 30 });
 		assert.deepEqual(s.hiddenModelProviders, ["openrouter"]);
 		assert.equal(s.groundRules, null);
 
@@ -83,8 +83,12 @@ test("gateway settings: read, change, restart-only ones reported, bad values ref
 		assert.ok(r.restartNeeded.includes("timezone"), "the time zone applies after a restart");
 		assert.deepEqual((await g.call<Obj>("GET /gateway/settings")).defaults.thinking, "high");
 		assert.equal((await g.call<Obj>("PATCH /gateway/settings", { groundRules: null })).settings.groundRules, null);
+		// How long a bot's question waits applies at once.
+		const q = await g.call<Obj>("PATCH /gateway/settings", { defaults: { questionTimeoutS: 3600 } });
+		assert.equal(q.settings.defaults.questionTimeoutS, 3600);
+		assert.ok(!q.restartNeeded.some((k: string) => k.includes("question")));
 
-		for (const bad of [{ defaults: { thinking: "max" } }, { defaults: { model: "nope/none" } }, { defaults: { approvals: "sometimes" } }, { defaults: { approvalTimeoutS: -1 } }, { review: { allowThreshold: 0.1 } }]) {
+		for (const bad of [{ defaults: { thinking: "max" } }, { defaults: { model: "nope/none" } }, { defaults: { approvals: "sometimes" } }, { defaults: { approvalTimeoutS: -1 } }, { defaults: { questionTimeoutS: 0 } }, { review: { allowThreshold: 0.1 } }]) {
 			await assert.rejects(g.call("PATCH /gateway/settings", bad), (e: { code: string }) => e.code === "invalid_params", JSON.stringify(bad));
 		}
 	} finally {

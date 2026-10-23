@@ -62,7 +62,7 @@ test("a dangerous shell call asks for approval; 'once' runs it, 'deny' blocks it
 		]);
 		await core.sessions.submit(s.id, "clean up scratch");
 		const asked = await c.until((e) => e.type === "approval.requested");
-		if (asked.type !== "approval.requested") return;
+		if (asked.type !== "approval.requested" || asked.request.kind !== "approval") return assert.fail("an approval was asked");
 		assert.equal(asked.request.toolName, "bash");
 		assert.equal(asked.request.patternKey, "rm -rf");
 		assert.equal(core.approvals.pendingFor(s.id).length, 1);

@@ -5,6 +5,7 @@ import { basename } from "node:path";
 import type { EntryRecord } from "../engine/engine.ts";
 import { redact } from "../log.ts";
 import { cardNote, type CardDetails } from "./cards.ts";
+import { questionNote } from "./questions.ts";
 
 export type TranscriptRow = {
 	role: "user" | "assistant" | "tool" | "system";
@@ -124,8 +125,9 @@ function projectRaw(entries: readonly EntryRecord[]): TranscriptRow[] {
 		} else if (msg.role === "toolResult") {
 			const call = calls.get(msg.toolCallId ?? "");
 			const name = call?.name ?? msg.toolName ?? "tool";
-			// A shown card reads as its caption where cards are not drawn.
-			const text = !msg.isError && msg.details?.card ? cardNote(msg.details.card.caption) : textOf(msg.content).slice(0, TOOL_RESULT_PREVIEW);
+			// A shown card reads as its caption where cards are not drawn, and a question as its caption, questions and answers.
+			const card = !msg.isError ? msg.details?.card : undefined;
+			const text = card?.kind === "question" ? questionNote(card.caption, card.data.questions, card.data.answers) : card ? cardNote(card.caption) : textOf(msg.content).slice(0, TOOL_RESULT_PREVIEW);
 			rows.push({ role: "tool", name, context: toolPreview(call?.args), text, timestamp: ts, row_id: ordinal });
 		}
 	}

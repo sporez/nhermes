@@ -67,7 +67,7 @@ test("an approval pending at restart is asked again and the tool had not run", a
 		const c2 = collect(core.hub, s.id);
 		// The hook re-runs after restart: the same question is asked again.
 		const asked = await c2.until((e) => e.type === "approval.requested", 10000);
-		if (asked.type !== "approval.requested") return;
+		if (asked.type !== "approval.requested" || asked.request.kind !== "approval") return assert.fail("an approval was asked");
 		assert.equal(asked.request.patternKey, "mkfs");
 		core.approvals.answer(asked.request.requestId, "deny");
 		const done = await c2.until((e) => e.type === "run.finished", 10000);
