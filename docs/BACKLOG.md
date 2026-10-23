@@ -57,6 +57,9 @@ Status per phase: see `docs/STATUS.md`.
   server with offline servers kept harmless, approvals for tools that are not read-only, the panel's MCP
   tab, `nhermes mcp`, Vory's MCP Servers screen, members' servers managed from any panel. Plan:
   `docs/MCP.md` (open: live checks against a real server and in the Vory app).
+- [ ] **12. nHermes's own client API**: `/api/v1` designed for the native app (turn-structured history
+  with whole tool and MCP results, attachments with ids, approvals on every device, typed settings), the
+  app's engine moved onto it, the Hermes layer and Vory removed, native push. Plan: `docs/CLIENT-API.md`.
 
 ## Future
 
