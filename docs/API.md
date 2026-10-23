@@ -135,6 +135,12 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.attach` | `POST /sessions/:id/attachments` | yes | The bytes as the body; `X-Filename` (URL-encoded) or `name`, and `kind?` (`image`, `pdf`, `file`; by default what the bytes are). Over the socket: `name`, `kind?`, `data` (base64). `{attachment}` |
 | `sessions.detach` | `DELETE /sessions/:id/attachments/:attachmentId` | yes | Takes back an upload that has not gone with a message (its file is removed). `{withdrawn: true}`; `conflict` once sent |
 | `attachments.content` | `GET /sessions/:id/attachments/:attachmentId/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
+| `rooms.list` | `GET /rooms` | | `includeDisbanded?`, `limit?`, `cursor?`. `{items: [Room], nextCursor}`, most recently active first |
+| `rooms.create` | `POST /rooms` | | `name`, `members: [{botId, handle?, displayName?, id?}]` (2-6 bots, this gateway's or members'), `id?` (the same id again is the same room). `{room}` |
+| `rooms.get` | `GET /rooms/:id` | | `{room}` |
+| `rooms.send` | `POST /rooms/:id/messages` | | `text`, `threadId?` (`main`), `eventId?` (the same id again is the same message). `{event}` |
+| `rooms.events` | `GET /rooms/:id/events` | | `afterSeq?` (0), `limit?` (100, at most 500). `{items: [RoomEvent], latestSeq, hasMore}` |
+| `rooms.disband` | `DELETE /rooms/:id` | | Stops the turn going and closes the room for good; its log and sessions stay. `{room}` |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
 | `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
@@ -259,6 +265,8 @@ Every owner socket also gets, without subscribing:
 | `approval.requested` | `{approval}` |
 | `approval.resolved` | `{id, sessionId, choice, reason}`: `reason` is `answered` (on any device), `timeout` or `cancelled` (interrupt) |
 | `jobs.changed` | `{}` |
+| `room.updated` | `{room}`: a group chat was created or disbanded |
+| `room.event` | `{roomId, event}`: a group chat filed an event in its log |
 
 A member's socket gets the approval events of the chats it started, and their `session.updated`.
 
@@ -286,6 +294,26 @@ POST /api/v1/sessions/<id>/submit
 - In a turn, `user.content` names each attachment by id; `attachments.content` (with the chat's id) opens
   it. Chats from before
   uploads had ids get one when their history is read, if the file is still there.
+
+## Group chats
+
+A room is 2-6 bots and one ordered log. The owner's message is answered by the bots it @mentions (all of
+them when it mentions none, `@all`, `@everyone`), one at a time, then up to two more rounds for bots another
+bot @mentioned; a bot may pass. At most 3 rounds and 10 bot messages answer one message. A member machine's
+bot answers on its own machine.
+
+```json
+{"id": "room-abc123", "name": "Main, Ops", "members": [{"id": "main", "botId": "main", "handle": "main", "displayName": "Main"}],
+ "createdAt": 1761139200000, "updatedAt": 1761139260000, "disbandedAt": null, "latestSeq": 8}
+```
+
+A log event: `{roomId, seq, id, kind, actor: {kind, id}, data, at}`. Kinds: `message.user` (`{text,
+threadId}`), `turn.started` (`{memberId, turnId, threadId, discussionEventId, roundIndex, …}`),
+`message.member` (`{text, memberId, turnId, threadId, discussionEventId}`), `turn.settled` (`{turnId,
+messageEventId, passed}`), `turn.failed` (`{turnId, error}`), `room.activity` (`{status: "settled" |
+"bounded" | …, threadId, discussionEventId, memberId?}`, for example a bot waiting for an approval in its own
+room session), `room.disbanded`. Each new event is pushed to owner sockets as `room.event`; `rooms.events`
+reads the log from any `seq`.
 
 ## Approvals
 

@@ -8,6 +8,7 @@ import { memberOwns } from "./lookup.ts";
 import { identifyAttachments } from "./ops/attachments.ts";
 import type { Caller } from "./ops.ts";
 import { approvalJson, itemJson, sessionJson, turnJson, usageJson } from "./shapes/chat.ts";
+import { roomEventJson, roomJson } from "./shapes/rooms.ts";
 import type { ApiEvent } from "./socket.ts";
 
 const log = logger("api-events");
@@ -79,6 +80,13 @@ export function globalFeed(core: Core) {
 				if (e.sessionId) sessionChanged(e.sessionId, e.bot);
 				else if (caller.kind === "owner") emit("sessions.changed", { botId: e.bot });
 			} else if (e.type === "cron.changed" && caller.kind === "owner") emit("jobs.changed", {});
+			else if (e.type === "rooms.changed" && caller.kind === "owner") {
+				if (e.events.length === 0 || e.events.some((x) => x.kind === "room.disbanded")) {
+					const room = core.rooms.get(e.roomId);
+					if (room) emit("room.updated", { room: roomJson(room) });
+				}
+				for (const x of e.events) emit("room.event", { roomId: e.roomId, event: roomEventJson(x) });
+			}
 		});
 		return () => {
 			offAll();

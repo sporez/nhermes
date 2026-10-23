@@ -386,7 +386,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	engine.resume();
 	const reattached = await sessions.attachBusy();
 	if (reattached > 0) log.info("re-attached interrupted runs", { count: reattached });
-	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier, approvals, members, proxy });
+	rooms = new Rooms({ db, engine, sessions, bots, hub, notifier, approvals, members, memberChats });
 	rooms.start();
 	// In the background: a server that is down or slow never holds up the gateway.
 	mcp.start();

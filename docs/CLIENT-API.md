@@ -245,7 +245,7 @@ with its docs.
 - [ ] **A5 Settings and maintenance.** Bot create, edit and remove; skills; rules; gateway settings;
   keys; MCP; jobs; logs; usage analytics; files; software and actions. Tests port `test/hermes/manage.test.ts`,
   `cron.test.ts`, `test/mcp/vory.test.ts`.
-- [ ] **A6 Group chats.** Rooms on the new API, with `room.event` pushed live. Tests port
+- [x] **A6 Group chats.** Rooms on the new API, with `room.event` pushed live. Tests port
   `test/hermes/groups.test.ts`.
 - [ ] **A7 Fixtures and docs.** `scripts/api-fixtures.ts` runs a throwaway faux-model gateway and records
   real responses and event streams for the app's contract tests (nothing is written into the repo by

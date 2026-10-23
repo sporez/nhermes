@@ -16,7 +16,7 @@
 import { randomBytes } from "node:crypto";
 import type { Engine } from "../engine/engine.ts";
 import type { Members } from "../federation/members.ts";
-import type { ProxySessions } from "../federation/proxy.ts";
+import type { MemberChats } from "../federation/chats.ts";
 import { logger, redact } from "../log.ts";
 import type { Notifier } from "../notify/notifier.ts";
 import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
@@ -62,7 +62,7 @@ export type RoomsDeps = {
 	notifier: Notifier;
 	approvals: Approvals;
 	members: Members;
-	proxy: ProxySessions;
+	memberChats: MemberChats;
 };
 
 type Coords = ReturnType<typeof turnCoordinates>;
@@ -74,6 +74,8 @@ export class Rooms {
 	private readonly again = new Set<string>();
 	/** Turns running on another machine, by `<room>\0<turn>`: stopped by disbanding or shutting down. */
 	private readonly remoteTurns = new Map<string, AbortController>();
+	/** Events filed in the transaction going on, announced when it commits. */
+	private readonly unannounced = new Map<string, RoomEvent[]>();
 	private stopped = false;
 
 	constructor(deps: RoomsDeps) {
@@ -93,6 +95,12 @@ export class Rooms {
 		return { rooms: rows.map((r) => this.json(r)), next_offset: rows.length === limit ? offset + limit : null };
 	}
 
+	/** One room, disbanded ones too; undefined when there is none. */
+	get(id: string): RoomJson | undefined {
+		const row = this.row(id, true);
+		return row ? this.json(row) : undefined;
+	}
+
 	/** Creates a room of this gateway's bots; the same `room_id` again returns the room it made. */
 	create(input: { room_id?: unknown; name?: unknown; members?: unknown }): RoomJson {
 		const id = input.room_id === undefined || input.room_id === null || input.room_id === "" ? `room-${randomBytes(5).toString("hex")}` : identifier(input.room_id, "room_id", 4110);
@@ -108,6 +116,7 @@ export class Rooms {
 		const now = Date.now() / 1000;
 		this.d.db.run("INSERT INTO rooms (id, name, members, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", id, name, JSON.stringify(members), now, now);
 		log.info("room created", { room: id, members: members.map((m) => m.profile) });
+		this.d.hub.publishGlobal({ type: "rooms.changed", roomId: id, events: [] });
 		return this.json(this.row(id)!);
 	}
 
@@ -147,14 +156,14 @@ export class Rooms {
 		const room = this.require(roomId, 4113);
 		if (room.disbanded_at === null) {
 			const now = Date.now() / 1000;
-			this.d.db.tx(() => {
+			this.commit(room.id, () => {
 				this.d.db.run("UPDATE rooms SET disbanded_at = ? WHERE id = ?", now, room.id);
 				this.appendIn(room.id, [{ kind: "room.disbanded", actor: GATEWAY, payload: {} }]);
 			});
 			for (const t of this.d.db.all<{ turn_id: string; session_id: string }>("SELECT turn_id, session_id FROM room_turns WHERE room_id = ?", room.id)) {
 				const row = this.d.sessions.get(t.session_id);
 				this.remoteTurns.get(`${room.id}\0${t.turn_id}`)?.abort();
-				if (row?.remote_node) await this.d.proxy.forward(row.id, "session.interrupt", { session_id: row.id }).catch(() => undefined);
+				if (row?.remote_node) await this.d.memberChats.forward(row, "sessions.interrupt", {}).catch(() => undefined);
 				else if (row) await this.d.sessions.interrupt(row.id).catch(() => false);
 			}
 			log.info("room disbanded", { room: room.id });
@@ -379,7 +388,7 @@ export class Rooms {
 	}
 
 	private closeTurn(roomId: string, turnId: string, outcome: Append[]): void {
-		this.d.db.tx(() => {
+		this.commit(roomId, () => {
 			// A disbanded room files nothing more about its turns.
 			if (this.row(roomId)) this.appendIn(roomId, outcome);
 			this.d.db.run("DELETE FROM room_turns WHERE room_id = ? AND turn_id = ?", roomId, turnId);
@@ -443,10 +452,19 @@ export class Rooms {
 	}
 
 	private append(roomId: string, items: Append[]): RoomEvent[] {
-		return this.d.db.tx(() => this.appendIn(roomId, items));
+		return this.commit(roomId, () => this.appendIn(roomId, items));
 	}
 
-	/** Appends inside the caller's transaction, numbering each event after the last. */
+	/** One transaction; the events it filed are announced once it committed (the client API pushes them). */
+	private commit<T>(roomId: string, fn: () => T): T {
+		const r = this.d.db.tx(fn);
+		const filed = this.unannounced.get(roomId) ?? [];
+		this.unannounced.delete(roomId);
+		if (filed.length > 0) this.d.hub.publishGlobal({ type: "rooms.changed", roomId, events: filed });
+		return r;
+	}
+
+	/** Appends inside the caller's transaction (commit), numbering each event after the last. */
 	private appendIn(roomId: string, items: Append[]): RoomEvent[] {
 		const now = Date.now() / 1000;
 		let seq = this.latestSeq(roomId);
@@ -458,6 +476,7 @@ export class Rooms {
 			out.push(event(e));
 		}
 		if (items.length) this.d.db.run("UPDATE rooms SET updated_at = ? WHERE id = ?", now, roomId);
+		this.unannounced.set(roomId, [...(this.unannounced.get(roomId) ?? []), ...out]);
 		return out;
 	}
 

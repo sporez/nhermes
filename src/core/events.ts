@@ -1,6 +1,7 @@
 // Canonical events. Produced from Pi Durable's agent events (core/live.ts) and the approval broker;
 // consumed by the API layers, the scheduler and delegation. Adapters translate; they never
 // produce agent state of their own.
+import type { RoomEvent } from "./room-plan.ts";
 import type { Turn, TurnItem, TurnUsage } from "./turns.ts";
 
 export type UsageSummary = {
@@ -57,7 +58,11 @@ export type SessionEvent =
 	| { type: "notice"; message: string };
 
 /** `sessionId`: the one session that changed, when there is one (a client then fetches just that row). */
-export type GlobalEvent = { type: "sessions.changed"; bot: string; sessionId?: string } | { type: "cron.changed" };
+export type GlobalEvent =
+	| { type: "sessions.changed"; bot: string; sessionId?: string }
+	| { type: "cron.changed" }
+	/** A group chat was created, or filed events in its log (src/core/rooms.ts). */
+	| { type: "rooms.changed"; roomId: string; events: RoomEvent[] };
 
 type SessionListener = (sessionId: string, event: SessionEvent) => void;
 type GlobalListener = (event: GlobalEvent) => void;
