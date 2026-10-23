@@ -40,7 +40,9 @@ member's bot through this gateway (calls, events, approvals asked here, uploads 
 an offline member), a member on the encrypted port limited to its own chats and shareable bots.
 Delegation, `peer:` agents and member bots' group chat turns run over the client API
 (`test/remote/peer.test.ts`, `test/core/delegate.test.ts`, `test/federation/rooms.test.ts`,
-`test/federation/network.test.ts`); group chats with their log pushed live (`test/api/rooms.test.ts`). Not yet
+`test/federation/network.test.ts`); group chats with their log pushed live (`test/api/rooms.test.ts`); bot settings, skills, rules, tool
+groups and MCP servers, a member's bot edited on its machine (`test/api/bots.test.ts`); gateway settings,
+keys (never returned), scheduled tasks, logs, usage, files, software and actions (`test/api/manage.test.ts`). Not yet
 used by a client.
 
 ## Security findings fixed during live testing

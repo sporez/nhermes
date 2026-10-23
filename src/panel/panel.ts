@@ -20,6 +20,7 @@ import { SecretError } from "../core/secrets.ts";
 import { UpdateError } from "../core/updates.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "../federation/logins.ts";
+import { manageCall } from "../federation/manage-client.ts";
 import { LinkError } from "../federation/link.ts";
 import { FederationError } from "../federation/members.ts";
 import { HttpError, obj, readJson, Router, sendJson } from "../http.ts";
@@ -148,14 +149,7 @@ export class Panel {
 
 	/** Calls a member's bot management API. Its 401 (it no longer knows this machine) must not read as "sign in to the panel". */
 	private async remote(node: string, method: string, path: string, body?: unknown, timeoutMs?: number): Promise<Record<string, unknown>> {
-		const m = this.core.members.byName(node);
-		if (!m) throw new HttpError(404, `no member named "${node}"`);
-		try {
-			return await this.core.members.call<Record<string, unknown>>(m, path, body, method, timeoutMs);
-		} catch (error) {
-			if (error instanceof FederationError && error.status === 401) throw new HttpError(502, `${node} no longer accepts this machine; join it to the network again`);
-			throw error;
-		}
+		return manageCall(this.core, node, method, path, body, timeoutMs);
 	}
 
 	/** A change on a member: its roster here is refreshed so names and descriptions follow. */

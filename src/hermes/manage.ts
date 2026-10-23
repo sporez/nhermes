@@ -3,31 +3,22 @@
 // the default model, keys, creating and removing bots, usage analytics and a read-only Files browser
 // over the bots' workspaces. Hermes-only settings answer 400 with the reason rather than pretending.
 import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError, THINKING_LEVELS, type ThinkingLevel } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
-import { runDoctor } from "../core/doctor.ts";
+import { BOT_NAME, BOT_NAME_RULE, cloneEntry } from "../core/bot-entry.ts";
+import { isRunning, loadAction, runRestart, runUpdate, startDoctor } from "../core/actions.ts";
 import { SecretError } from "../core/secrets.ts";
-import type { UsageEvent } from "../core/sessions.ts";
+import { usageReport } from "../core/usage.ts";
 import { UpdateError } from "../core/updates.ts";
 import { recentLogs } from "../log.ts";
 import { HttpError, obj, RawBody, type Router } from "../http.ts";
-import { botFor, insideWorkspace, localOnly, workspaceRoots } from "./lookup.ts";
+import { FILE_MAX, insideWorkspace, mimeOf, workspaceRoots } from "../core/workspaces.ts";
+import { botFor, localOnly } from "./lookup.ts";
 import { VERSION } from "../version.ts";
 
-/** This process; an action started by an earlier one finished when that process exited for it. */
-const BOOT = randomUUID();
-
-type Action = { boot: string; startedAt: number; finishedAt?: number; exitCode?: number; lines: string[]; restarting?: boolean };
 const ACTIONS = new Set(["hermes-update", "gateway-restart", "doctor"]);
-const FILE_MAX = 50 * 1024 * 1024;
-const MIME: Record<string, string> = {
-	".txt": "text/plain", ".md": "text/markdown", ".json": "application/json", ".yaml": "text/yaml", ".yml": "text/yaml", ".csv": "text/csv",
-	".html": "text/html", ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
-	".webp": "image/webp", ".svg": "image/svg+xml", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".zip": "application/zip",
-};
 /** Pictures GET /api/media serves (Hermes' list, without SVG and icons). */
 const MEDIA: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp" };
 const MEDIA_MAX = 25 * 1024 * 1024;
@@ -60,14 +51,6 @@ export function manageRoutes(core: Core, r: Router): void {
 	const profileOf = (q: { query: URLSearchParams; body: unknown }) => q.query.get("profile") ?? (obj(q.body).profile as string | undefined);
 
 	// ---- Maintenance: update, restart and doctor, with the status Vory polls while one runs ----
-	const actionKey = (name: string) => `actions.${name}`;
-	const saveAction = (name: string, a: Action) =>
-		core.db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", actionKey(name), JSON.stringify(a));
-	const loadAction = (name: string): Action | undefined => {
-		const row = core.db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", actionKey(name));
-		return row ? (JSON.parse(row.value) as Action) : undefined;
-	};
-
 	r.on("GET", "/api/hermes/update/check", (q) => {
 		const s = q.query.get("force") === "true" ? call(() => core.updates.check()) : core.updates.status();
 		const message = !s.updatable
@@ -89,35 +72,23 @@ export function manageRoutes(core: Core, r: Router): void {
 		};
 	});
 	r.on("POST", "/api/hermes/update", () => {
-		const started = Date.now() / 1000;
-		const u = call(() => core.updates.update());
-		const lines = [`Updated ${u.from.hash} → ${u.to.hash} (${u.to.subject}).`, u.packagesReinstalled ? "Packages reinstalled." : "", u.restarting ? "Restarting…" : "Restart the gateway on its machine to run the new version."].filter(Boolean);
-		saveAction("hermes-update", { boot: BOOT, startedAt: started, lines, restarting: u.restarting, ...(u.restarting ? {} : { finishedAt: Date.now() / 1000, exitCode: 0 }) });
-		return { ok: true, name: "hermes-update", message: lines.join(" ") };
+		const a = call(() => runUpdate(core, "hermes-update"));
+		return { ok: true, name: "hermes-update", message: a.lines.join(" ") };
 	});
 	r.on("POST", "/api/gateway/restart", () => {
-		call(() => core.updates.restart());
-		saveAction("gateway-restart", { boot: BOOT, startedAt: Date.now() / 1000, lines: ["Restarting the gateway…"], restarting: true });
+		call(() => runRestart(core, "gateway-restart"));
 		return { ok: true, name: "gateway-restart" };
 	});
 	r.on("POST", "/api/ops/doctor", async () => {
-		const report = await runDoctor(core);
-		saveAction("doctor", { boot: BOOT, startedAt: report.at, finishedAt: Date.now() / 1000, exitCode: report.exitCode, lines: report.lines });
-		return { ok: true, name: "doctor", exit_code: report.exitCode, output: report.lines.join("\n") };
+		const a = await startDoctor(core, "doctor").done;
+		return { ok: true, name: "doctor", exit_code: a.exitCode, output: a.lines.join("\n") };
 	});
 	r.on("GET", "/api/actions/:name/status", (q) => {
 		const name = q.params.name!;
 		if (!ACTIONS.has(name)) throw new HttpError(404, `no action "${name}"`);
-		const a = loadAction(name);
+		const a = loadAction(core, name);
 		if (!a) return { name, running: false, exit_code: null, lines: [] };
-		// A restart ends this process: the action is running while the one that started it lives, and done once a new one answers.
-		if (a.restarting && a.finishedAt === undefined) {
-			if (a.boot === BOOT) return { name, running: true, exit_code: null, lines: a.lines };
-			a.finishedAt = Date.now() / 1000;
-			a.exitCode = 0;
-			a.lines = [...a.lines, `Back up at ${new Date().toISOString().slice(11, 19)} on ${VERSION}${core.updates.status().current ? ` (${core.updates.status().current!.hash})` : ""}.`];
-			saveAction(name, a);
-		}
+		if (isRunning(a)) return { name, running: true, exit_code: null, lines: a.lines };
 		const lines = a.lines.slice(-Number(q.query.get("lines") ?? 60));
 		return { name, running: false, exit_code: a.exitCode ?? 0, lines, output: lines.join("\n"), receipt: { outcome: (a.exitCode ?? 0) === 0 ? "success" : "failed" } };
 	});
@@ -229,13 +200,9 @@ export function manageRoutes(core: Core, r: Router): void {
 	r.on("POST", "/api/profiles", (q) => {
 		const b = obj(q.body);
 		const name = typeof b.name === "string" ? b.name.trim() : "";
-		if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) throw new HttpError(400, "use lowercase letters, digits and dashes, starting with a letter or digit (max 41 characters)");
+		if (!BOT_NAME.test(name)) throw new HttpError(400, BOT_NAME_RULE);
 		let entry: BotConfig = { name };
-		if (typeof b.clone_from === "string" && b.clone_from) {
-			const from = local(b.clone_from);
-			const { name: _n, default: _d, displayName: _dn, workspace: _w, soulFile: _s, peer: _p, ...rest } = from.config;
-			entry = { ...rest, name, instructions: from.instructions };
-		}
+		if (typeof b.clone_from === "string" && b.clone_from) entry = cloneEntry(local(b.clone_from), name);
 		call(() => settings.addBot(entry));
 		return { ok: true, name };
 	});
@@ -247,63 +214,25 @@ export function manageRoutes(core: Core, r: Router): void {
 	});
 
 	// ---- Usage analytics from the chats' model calls (Dashboard, widgets, watch) ----
-	const usageCache = new Map<string, { key: string; events: UsageEvent[] }>();
 	r.on("GET", "/api/analytics/usage", async (q) => {
 		// A member's bot keeps its chats on its own machine: nothing to count here.
 		const bot = botFor(core, profileOf(q));
 		const days = Math.min(Math.max(Number(q.query.get("days") ?? 30) || 30, 1), 366);
-		const since = Date.now() / 1000 - days * 86_400;
-		const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone: core.config.timezone, year: "numeric", month: "2-digit", day: "2-digit" });
-		type Sum = { input: number; output: number; cacheRead: number; reasoning: number; cost: number; calls: number; sessions: Set<string> };
-		const blank = (): Sum => ({ input: 0, output: 0, cacheRead: 0, reasoning: 0, cost: 0, calls: 0, sessions: new Set() });
-		const daily = new Map<string, Sum>();
-		const byModel = new Map<string, Sum>();
-		const total = blank();
-		const into = <K>(m: Map<K, Sum>, k: K) => m.get(k) ?? m.set(k, blank()).get(k)!;
-		for (let offset = 0; !bot.remote; offset += 500) {
-			const { rows } = core.sessions.list(bot.name, { limit: 500, offset, archived: "include", order: "recent" });
-			for (const row of rows) {
-				if (row.remote_node || row.last_active < since) continue;
-				// A chat's model calls are read once and again only when it changed.
-				const key = `${row.message_count}:${row.last_active}`;
-				let hit = usageCache.get(row.id);
-				if (hit?.key !== key) {
-					hit = { key, events: await core.sessions.usageEvents(row.id) };
-					usageCache.set(row.id, hit);
-				}
-				for (const e of hit.events) {
-					if (e.at < since) continue;
-					for (const s of [into(daily, dayOf.format(e.at * 1000)), into(byModel, e.model), total]) {
-						s.input += e.input;
-						s.output += e.output;
-						s.cacheRead += e.cacheRead;
-						s.reasoning += e.reasoning;
-						s.cost += e.cost;
-						s.calls += 1;
-						s.sessions.add(row.id);
-					}
-				}
-			}
-			if (rows.length < 500) break;
-		}
-		const cost = (n: number) => Math.round(n * 1e6) / 1e6;
+		const u = await usageReport(core, bot.remote ? [] : [bot.name], days);
+		const daily = u.daily.map((s) => ({ day: s.day, input_tokens: s.input, output_tokens: s.output, cache_read_tokens: s.cacheRead, reasoning_tokens: s.reasoning, estimated_cost: s.cost, actual_cost: s.cost, sessions: s.sessions, api_calls: s.calls }));
 		return {
 			period_days: days,
-			daily: [...daily.entries()]
-				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([day, s]) => ({ day, input_tokens: s.input, output_tokens: s.output, cache_read_tokens: s.cacheRead, reasoning_tokens: s.reasoning, estimated_cost: cost(s.cost), actual_cost: cost(s.cost), sessions: s.sessions.size, api_calls: s.calls })),
-			by_model: [...byModel.entries()]
-				.sort(([, a], [, b]) => b.input + b.output - (a.input + a.output))
-				.map(([model, s]) => ({ model, input_tokens: s.input, output_tokens: s.output, estimated_cost: cost(s.cost), sessions: s.sessions.size, api_calls: s.calls })),
+			daily,
+			by_model: u.byModel.map((s) => ({ model: s.model, input_tokens: s.input, output_tokens: s.output, estimated_cost: s.cost, sessions: s.sessions, api_calls: s.calls })),
 			totals: {
-				total_input: total.input,
-				total_output: total.output,
-				total_cache_read: total.cacheRead,
-				total_reasoning: total.reasoning,
-				total_estimated_cost: cost(total.cost),
-				total_actual_cost: cost(total.cost),
-				total_sessions: total.sessions.size,
-				total_api_calls: total.calls,
+				total_input: u.totals.input,
+				total_output: u.totals.output,
+				total_cache_read: u.totals.cacheRead,
+				total_reasoning: u.totals.reasoning,
+				total_estimated_cost: u.totals.cost,
+				total_actual_cost: u.totals.cost,
+				total_sessions: u.totals.sessions,
+				total_api_calls: u.totals.calls,
 			},
 		};
 	});
@@ -328,7 +257,7 @@ export function manageRoutes(core: Core, r: Router): void {
 				const p = join(path, d.name);
 				try {
 					const st = d.isSymbolicLink() ? statSync(join(real, d.name)) : lstatSync(join(real, d.name));
-					return { name: d.name, path: p, is_directory: st.isDirectory(), size: st.isDirectory() ? undefined : st.size, modified_at: st.mtimeMs / 1000, mime_type: MIME[extname(d.name).toLowerCase()] };
+					return { name: d.name, path: p, is_directory: st.isDirectory(), size: st.isDirectory() ? undefined : st.size, modified_at: st.mtimeMs / 1000, mime_type: mimeOf(d.name) };
 				} catch {
 					return { name: d.name, path: p, is_directory: false };
 				}
@@ -343,7 +272,7 @@ export function manageRoutes(core: Core, r: Router): void {
 		const st = statSync(real);
 		if (!st.isFile()) throw new HttpError(400, `${path} is not a file`);
 		if (st.size > FILE_MAX) throw new HttpError(413, `${basename(path)} is larger than ${FILE_MAX / 1024 / 1024} MB`);
-		return new RawBody(readFileSync(real), MIME[extname(real).toLowerCase()] ?? "application/octet-stream", basename(path));
+		return new RawBody(readFileSync(real), mimeOf(real) ?? "application/octet-stream", basename(path));
 	});
 	r.on("POST", "/api/files/upload-stream", () => {
 		throw new HttpError(403, "the Files tab is read-only on this gateway");

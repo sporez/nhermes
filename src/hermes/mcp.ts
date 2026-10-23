@@ -4,7 +4,7 @@
 // live check; Remove deletes the server from the gateway (Vory asks first). Vory cannot add a server: the
 // panel and `nhermes mcp` do. For a member's bot, src/federation/vory.ts forwards these to its machine.
 import type { Core } from "../app.ts";
-import { mcpAction, mcpServerView, UnknownMcpServer } from "../mcp/manage.ts";
+import { mcpAction, mcpServerView, setBotMcp, UnknownMcpServer } from "../mcp/manage.ts";
 import { call } from "./manage.ts";
 import { HttpError, obj, type Router } from "../http.ts";
 import { botFor, localOnly } from "./lookup.ts";
@@ -52,10 +52,7 @@ export function mcpVoryRoutes(core: Core, r: Router): void {
 		const enabled = obj(q.body).enabled;
 		if (typeof enabled !== "boolean") throw new HttpError(400, "enabled must be true or false");
 		const b = bot(profileOf(q));
-		const group = `mcp:${c.name}`;
-		const tools = b.toolGroups.filter((g) => g !== group);
-		if (enabled) tools.push(group);
-		if (tools.length !== b.toolGroups.length || enabled !== b.toolGroups.includes(group)) call(() => core.settings.editBot(b.name, { tools }));
+		call(() => setBotMcp(core, b.name, b.toolGroups, c.name, enabled));
 		return { ok: true, name: c.name, enabled };
 	});
 

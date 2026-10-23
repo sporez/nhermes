@@ -182,3 +182,11 @@ export async function mcpAction(core: Core, name: string, action: string) {
 	else throw new ConfigError(`unknown action "${action}" (test, reconnect, refresh)`);
 	return mcpServerView(core, server(core, name));
 }
+
+/** Gives a bot an MCP server's tool group, or takes it away (the per-bot switch in Vory and the client API). */
+export function setBotMcp(core: Core, botName: string, toolGroups: string[], server: string, enabled: boolean): void {
+	const group = `mcp:${server}`;
+	const tools = toolGroups.filter((g) => g !== group);
+	if (enabled) tools.push(group);
+	if (tools.length !== toolGroups.length || enabled !== toolGroups.includes(group)) core.settings.editBot(botName, { tools });
+}

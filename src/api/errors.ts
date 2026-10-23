@@ -10,6 +10,9 @@ import { UnknownSession } from "../core/sessions.ts";
 import { UpdateError } from "../core/updates.ts";
 import { ConfigError } from "../config.ts";
 import { LinkError } from "../federation/link.ts";
+import { FederationError } from "../federation/members.ts";
+import { UnknownMcpServer } from "../mcp/manage.ts";
+import { UnknownSkill } from "../skills/skills.ts";
 import { HttpError } from "../http.ts";
 import { RemoteError } from "../remote/api-client.ts";
 
@@ -73,6 +76,9 @@ export function apiError(error: unknown): ApiError | undefined {
 	if (error instanceof UnknownBot) return new ApiError("bot_not_found", error.message);
 	if (error instanceof ConfigError) return new ApiError("invalid_params", error.message);
 	if (error instanceof HttpError || error instanceof JobError || error instanceof SecretError || error instanceof UpdateError) return new ApiError(codeOfStatus(error.status), error.message);
+	if (error instanceof FederationError) return new ApiError(error.status === 401 ? "member_offline" : codeOfStatus(error.status), error.message);
+	if (error instanceof UnknownSkill) return new ApiError("not_found", error.message);
+	if (error instanceof UnknownMcpServer) return new ApiError("not_found", error.message);
 	if (error instanceof LinkError) return new ApiError(error.code === 4004 ? "not_found" : error.code === 4003 ? "not_allowed" : "member_offline", error.message);
 	// A member's answer keeps its own code; a lost link is the member being offline.
 	if (error instanceof RemoteError) return new ApiError(error.code in ERROR_STATUS ? (error.code as ErrorCode) : "member_offline", error.message);

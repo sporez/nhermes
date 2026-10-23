@@ -141,6 +141,45 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `rooms.send` | `POST /rooms/:id/messages` | | `text`, `threadId?` (`main`), `eventId?` (the same id again is the same message). `{event}` |
 | `rooms.events` | `GET /rooms/:id/events` | | `afterSeq?` (0), `limit?` (100, at most 500). `{items: [RoomEvent], latestSeq, hasMore}` |
 | `rooms.disband` | `DELETE /rooms/:id` | | Stops the turn going and closes the room for good; its log and sessions stay. `{room}` |
+| `bots.create` | `POST /bots` | | `name`, `cloneFrom?`, editor fields (see Bot settings). Clone copies settings and instructions, not name, default, display name, workspace, SOUL file or peer. `{bot}` |
+| `bots.update` | `PATCH /bots/:id` | | Editor fields; `null` removes a setting. A member's bot takes only the fields its machine lets members change, and is changed there. `{bot}` |
+| `bots.delete` | `DELETE /bots/:id` | | `{deleted: true}`; the default bot answers `conflict`. Its chats, memory and workspace stay |
+| `bots.settings` | `GET /bots/:id/settings` | | What an editor needs: see Bot settings |
+| `bots.skills` | `GET /bots/:id/skills` | | `{items: [{name, description, source, active, usage}], toolGroupOn, allGlobal}` |
+| `bots.setSkill` | `PUT /bots/:id/skills/:name` | | `enabled`. `{skill}` |
+| `bots.prompt` | `GET /bots/:id/prompt` | | The system prompt in parts: `{prompt: {instructions, identity, groundRules, generated, groundRulesCustom, builtInGroundRules, tools, full}}` |
+| `bots.rules` | `GET /bots/:id/rules` | | The bot's "always allowed" approval rules: `{items: [{rule}]}`. A member's bot answers `not_available` (its rules are kept on its machine) |
+| `bots.addRule` | `POST /bots/:id/rules` | | `rule`. `{rule: {rule}}` |
+| `bots.removeRule` | `DELETE /bots/:id/rules` | | `rule`. `{deleted}` |
+| `toolGroups.list` | `GET /tool-groups` | | `{items: [{name, label, description, tools}]}`. A bot's groups are its `toolGroups` (`bots.update`) |
+| `mcp.list` | `GET /mcp/servers` | | `botId?`. `{items: [MCPServer]}`; with `botId` each has `enabledForBot`. A member's bot: that machine's servers |
+| `mcp.get` | `GET /mcp/servers/:name` | | `botId?`. `{server}` with its tools (`toolList`), the server's instructions and recent changes |
+| `mcp.create` | `POST /mcp/servers` | | `name`, settings, `botId?`. `{server}`. A credential header must be a `{{secret:NAME}}` reference |
+| `mcp.update` | `PATCH /mcp/servers/:name` | | Settings (`null` removes one), `botId?`. `{server}` |
+| `mcp.delete` | `DELETE /mcp/servers/:name` | | Removes it, and its tool group from every bot. `{deleted: true}` |
+| `mcp.action` | `POST /mcp/servers/:name/:action` | | `test`: `{ok, error?, state, toolCount, tools}`; `reconnect`, `refresh`: `{ok: true, server}` |
+| `mcp.setForBot` | `PUT /mcp/servers/:name/bots/:botId` | | `enabled`: gives the bot the server's tools or takes them away. `{server}` |
+| `gateway.settings` | `GET /gateway/settings` | | See Gateway settings |
+| `gateway.updateSettings` | `PATCH /gateway/settings` | | The same fields, all optional. `{settings, restartNeeded}` |
+| `gateway.logs` | `GET /gateway/logs` | | `lines?` (200, at most 500). `{lines}`: what this process logged |
+| `gateway.usage` | `GET /gateway/usage` | | `days?` (30, at most 366), `botId?`. See Usage analytics |
+| `keys.list` | `GET /keys` | | `{items: [{name, set, description, usedBy, hint}]}`. Never a value |
+| `keys.set` | `PUT /keys/:name` | | `value`. `{key, restartNeeded}`. The gateway's own token answers `not_allowed` |
+| `keys.delete` | `DELETE /keys/:name` | | `{key, restartNeeded}` |
+| `jobs.list` | `GET /jobs` | | `botId?`. `{items: [Job]}` |
+| `jobs.get` | `GET /jobs/:id` | | `{job}` |
+| `jobs.create` | `POST /jobs` | | `name`, `prompt`, `schedule` (`every 1h`, cron, `at …`), `botId?`, `timezone?`, `notify?`, `deliver?`, `context?`, `approvals?`, `model?`, `skills?`, `enabled?`. `{job}` |
+| `jobs.update` | `PATCH /jobs/:id` | | The same fields. `{job}` |
+| `jobs.delete` | `DELETE /jobs/:id` | | `{deleted: true, id}` |
+| `jobs.runs` | `GET /jobs/:id/runs` | | `limit?` (20, at most 200). `{items: [Run]}`, newest first |
+| `jobs.run` | `POST /jobs/:id/run` | | Starts a run now. `{run}` at once; `jobs.changed` follows. `conflict` while one is going |
+| `jobs.pause`, `jobs.resume` | `POST /jobs/:id/pause`, `/resume` | | `{job}`. Resuming computes the next run from now |
+| `files.list` | `GET /files` | | `path?` (absolute; none: one entry per bot's workspace). `{path, parent, items: [{name, path, isDirectory, size, modifiedAt, mime, botId?}]}`. Read-only, inside the workspaces only |
+| `files.content` | `GET /files/content` | | `path`. The bytes (base64 `{name, mime, data}` over the socket); at most 50 MB |
+| `sessions.file` | `GET /sessions/:id/files/content` | yes | `path`, relative to the chat's bot's workspace or absolute inside it: a picture a reply names, also for a chat with a member's bot |
+| `software.status` | `GET /software` | | `{version, commit, branch, behind, commits, lastCheck, canUpdate, canRestart, reason, running}` |
+| `actions.start` | `POST /actions` | | `kind`: `check`, `update`, `restart`, `doctor`. `{action}` |
+| `actions.get` | `GET /actions/:id` | | `{action}`: `{id, kind, status: "running" \| "done" \| "failed", startedAt, finishedAt, exitCode, lines}`. An update or restart stays `running` until the restarted gateway answers |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
 | `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
@@ -320,6 +359,42 @@ messageEventId, passed}`), `turn.failed` (`{turnId, error}`), `room.activity` (`
 "bounded" | …, threadId, discussionEventId, memberId?}`, for example a bot waiting for an approval in its own
 room session), `room.disbanded`. Each new event is pushed to owner sockets as `room.event`; `rooms.events`
 reads the log from any `seq`.
+
+## Bot settings
+
+`bots.settings` answers `{botId, config, effective, editableKeys, choices}`: `config` is the bot's entry as the
+gateway keeps it, `effective` what is in force (`displayName`, `description`, `model` as `provider/id`,
+`thinking`, `tools`, `approvals`, `recentChats`, `trusted`, `private`, `default`, `instructions`,
+`instructionsFrom`), `editableKeys` what may be changed from here, and `choices` the models, tool groups and
+shared memory spaces to pick from. For a member's bot it comes from that machine, which shows only what members
+may change (never its host, workspace or keys), and changes need its "Let other machines edit this machine's
+bots" switch (`not_allowed` until it is on).
+
+An MCP server: `{name, group, url, description, enabled, exposure, timeoutS, maxTimeoutS, healthCheckS, tools:
+{include, exclude, readOnly}, trustReadOnlyHint, headers: [{name, value}], secrets: [{name, set}], botIds,
+warnings, status: {state, since, lastError, lastConnectedAt, offlineSince, nextAttemptAt, …}, toolCount,
+exposedCount, readOnlyCount, enabledForBot?}`. A header value is a `{{secret:NAME}}` reference, a harmless
+literal, or `null` when its name looks like a credential; no key is ever returned.
+
+## Gateway settings
+
+`{timeZone, defaults: {model, thinking, approvals, approvalTimeoutS}, hiddenModelProviders, groundRules,
+review: {enabled, allowThreshold, timeoutMs, keyEnv}}`. `groundRules` is `null` for the built-in rules (send
+`null` to go back to them). `restartNeeded` names the settings that take effect only after a restart (time
+zone, approval timeout); until then the answer shows the values in force.
+
+## Scheduled tasks
+
+A job: `{id, name, botId, prompt, schedule, scheduleDetail: {kind, timezone}, timezone, deliver, notify,
+context, approvals, model, skills, enabled, state: "active" | "running" | "paused" | "completed", nextRunAt,
+lastRunAt, lastStatus, lastError, sessionId, createdAt, updatedAt}`. A run: `{id, jobId, trigger, status,
+startedAt, finishedAt, summary, error, notified, sessionId}`. `sessionId` is the job's chat, where its runs are.
+
+## Usage analytics
+
+`{days, daily: [{day, input, output, cacheRead, reasoning, cost, calls, sessions}], byModel: [{model, …}],
+totals: {…}}`: every model call in the bots' chats over the last `days` (in the gateway's time zone), cost in
+USD. A member's bot's chats are on its own machine and count there.
 
 ## Approvals
 

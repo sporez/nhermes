@@ -242,7 +242,7 @@ with its docs.
   member bots; delegation to members, background delegation included. All `test/federation/` and
   `test/remote/` tests move over, including the security ones (a member cannot reach another member's
   chats, turn off approvals, or see private bots).
-- [ ] **A5 Settings and maintenance.** Bot create, edit and remove; skills; rules; gateway settings;
+- [x] **A5 Settings and maintenance.** Bot create, edit and remove; skills; rules; gateway settings;
   keys; MCP; jobs; logs; usage analytics; files; software and actions. Tests port `test/hermes/manage.test.ts`,
   `cron.test.ts`, `test/mcp/vory.test.ts`.
 - [x] **A6 Group chats.** Rooms on the new API, with `room.event` pushed live. Tests port
