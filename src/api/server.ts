@@ -10,9 +10,12 @@ import { ApiError, apiError } from "./errors.ts";
 import { globalFeed, sessionFeed } from "./events.ts";
 import { approvalOps } from "./ops/approvals.ts";
 import { attachmentOps } from "./ops/attachments.ts";
+import { botOps } from "./ops/bots.ts";
 import { chatOps } from "./ops/chat.ts";
 import { gatewayOps } from "./ops/gateway.ts";
+import { manageOps } from "./ops/manage.ts";
 import { modelOps } from "./ops/models.ts";
+import { roomOps } from "./ops/rooms.ts";
 import { sessionOps } from "./ops/sessions.ts";
 import { type Caller, OpTable } from "./ops.ts";
 import { ApiSocket, type GlobalFeed, type SessionFeed } from "./socket.ts";
@@ -33,7 +36,17 @@ export class ClientApi {
 	constructor(core: Core, o: ClientApiOptions = {}) {
 		this.core = core;
 		this.heartbeatMs = o.heartbeatMs ?? 30_000;
-		this.ops = new OpTable([...gatewayOps, ...sessionOps, ...chatOps, ...attachmentOps, ...approvalOps, ...modelOps]);
+		this.ops = new OpTable([
+			...gatewayOps,
+			...sessionOps,
+			...chatOps,
+			...attachmentOps,
+			...approvalOps,
+			...modelOps,
+			...botOps,
+			...manageOps,
+			...roomOps,
+		]);
 		this.sessionFeed = sessionFeed(core);
 		this.globalFeed = globalFeed(core);
 	}
