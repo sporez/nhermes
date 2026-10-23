@@ -13,6 +13,7 @@ import { FederationError } from "../federation/members.ts";
 import { UnknownMcpServer } from "../mcp/manage.ts";
 import { UnknownSkill } from "../skills/skills.ts";
 import { HttpError } from "../http.ts";
+import { DeviceError } from "../notify/devices.ts";
 import { RemoteError } from "../remote/api-client.ts";
 
 /** Every error code the API answers with, and its HTTP status. Codes are only ever added. */
@@ -80,6 +81,7 @@ export function apiError(error: unknown): ApiError | undefined {
 	if (error instanceof UnknownMcpServer) return new ApiError("not_found", error.message);
 	// A member's answer keeps its own code; a lost link is the member being offline.
 	if (error instanceof RemoteError) return new ApiError(error.code in ERROR_STATUS ? (error.code as ErrorCode) : "member_offline", error.message);
+	if (error instanceof DeviceError) return new ApiError("invalid_params", error.message);
 	if (error instanceof AttachmentError) return new ApiError(ATTACHMENT_CODES[error.code] ?? "invalid_params", error.message);
 	if (error instanceof RoomError) return new ApiError(ROOM_CODES[error.code] ?? "invalid_params", error.message);
 	return undefined;

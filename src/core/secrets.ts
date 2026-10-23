@@ -110,6 +110,7 @@ export class Secrets {
 		add("PUSHOVER_USER_KEY", "Pushover user key (notifications)", "notifications", true);
 		add("PUSHOVER_APP_TOKEN", "Pushover application token (notifications)", "notifications", true);
 		add(c.review.keyEnv, "OpenRouter API key: Jev permission review", "permission review");
+		if (c.apns) add(c.apns.keyEnv, "APNs key (.p8, its text or base64): push notifications to the nHermes app", "push notifications");
 		// Setting one of these is all a catalog provider needs: its models are fetched and offered.
 		for (const k of this.providerKeys) add(k.name, `API key for the ${k.providerName} models (its model list is fetched automatically)`, `models: ${k.provider}`);
 		try {

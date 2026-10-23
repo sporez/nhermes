@@ -46,6 +46,11 @@ export async function runDoctor(c: Core): Promise<DoctorReport> {
 
 	const missing = c.secrets.list().filter((s) => !s.set && s.usedBy.length > 0);
 	for (const s of missing) add("warn", `${s.name} is not set (used by ${s.usedBy.join(", ")})`);
+	if (c.config.apns) {
+		const devices = c.devices.list();
+		if (!c.apns.configured()) add("warn", `push notifications: the APNs key in ${c.config.apns.keyEnv} is missing or cannot be read`);
+		else add(devices.length ? "ok" : "warn", `push notifications: APNs key set, ${devices.length} device${devices.length === 1 ? "" : "s"} registered${devices.some((d) => d.last_error) ? ` (${devices.filter((d) => d.last_error).length} failing)` : ""}`);
+	}
 	if (missing.length === 0) add("ok", "every key in use is set");
 
 	for (const m of c.members.list()) {

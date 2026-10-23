@@ -31,7 +31,7 @@ export function hello(core: Core, caller: Caller) {
 		api: API_VERSION,
 		gateway: { id: self.id, name: self.name, version: VERSION, commit: core.updates.status().current?.hash ?? null },
 		bootId: BOOT_ID,
-		features: FEATURES,
+		features: [...FEATURES, ...(core.apns.configured() ? ["push.apns"] : [])],
 		limits: LIMITS,
 		caller: caller.kind === "member" ? { kind: "member", node: { id: caller.member.node_id, name: caller.member.name } } : { kind: "owner" },
 	};

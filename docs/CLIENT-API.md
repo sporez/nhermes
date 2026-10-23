@@ -294,12 +294,12 @@ step.
 
 ### E. Native push
 
-- [ ] Gateway: devices, an APNs sender (token auth with a `.p8` key in `secrets.env`, sent straight to
+- [x] Gateway: devices, an APNs sender (token auth with a `.p8` key in `secrets.env`, sent straight to
   Apple; no relay), notification kinds and settings as `notify/vory.ts` has them today (approvals,
   finished and failed turns, scheduled results, the `notify` tool, a settled approval's banner replaced
   on other devices), approval actions. Federation's forwarding of notifications to the member that has a
   transport (`federation/notify.ts`) works with the new sender.
-- [ ] App: registration, notification categories and actions, opening the chat or approval a
+- [x] App: registration, notification categories and actions, opening the chat or approval a
   notification is about.
 - [ ] Then delete `src/notify/vory.ts`, its tests and the `<data>/vory` folder (see decision 5).
 
@@ -368,3 +368,11 @@ Settled with the owner before A0.
   way: Vory could read a member bot's skills, prompt and MCP servers with that machine's edit switch off, and
   the client API could not; `/federation/read/*` restores that for shared bots (a private one stays hidden).
   The Vory pin stays in `UPSTREAM.md` for the push sender until E; Hermes stays as credit for ported code.
+- E so far: `src/notify/push.ts` decides what to notify, for transports `src/notify/apns.ts` (new: token auth,
+  HTTP/2 straight to Apple, gone tokens removed) and `src/notify/vory.ts` (now only Vory's relay);
+  `src/notify/devices.ts` (migration 17) and `devices.*`; feature `push.apns`; `push.apns` in config.yaml and
+  the doctor. App: token registration, categories with Approve once and Deny (both ask for the device to be
+  unlocked), taps open the chat; its own approval notifications share the push's identifier. Checked in the
+  iOS Simulator with simulated pushes; found and fixed there: the app stopped when a notification was opened
+  (the async delegate method finished off the main thread). Open: the APNs key and the app's push entitlement
+  (the owner's Apple account), a live check, then removing Vory's relay.

@@ -35,7 +35,10 @@ import { McpTools } from "./tools/mcp.ts";
 import { isOwnGateway } from "./tools/own-gateway.ts";
 import { NetworkNotifier } from "./federation/notify.ts";
 import { FanoutNotifier, type Notification, type Notifier, type OptionalNotifier, PushoverNotifier } from "./notify/notifier.ts";
-import { VoryPush } from "./notify/vory.ts";
+import { ApnsTransport } from "./notify/apns.ts";
+import { Devices } from "./notify/devices.ts";
+import { Push } from "./notify/push.ts";
+import { VoryRelay } from "./notify/vory.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
@@ -76,8 +79,11 @@ export type Core = {
 	notifier: Notifier;
 	/** Only this gateway's own transports (no forwarding to a member). */
 	localNotifier: Notifier;
-	/** Vory's notifications to devices it registered before, through its push relay (until the app has its own). */
-	vory: VoryPush;
+	/** Push notifications to the owner's devices (src/notify/push.ts): straight to Apple, and through Vory's relay to devices it registered before. */
+	push: Push;
+	/** The devices that get them from Apple, and the sender (src/notify/devices.ts, apns.ts). */
+	devices: Devices;
+	apns: ApnsTransport;
 	browsers: Browsers;
 	settings: Settings;
 	members: Members;
@@ -121,6 +127,10 @@ export type CoreOptions = {
 	notifier?: Notifier;
 	/** Replaces the HTTP call to the Vory push relay (tests). */
 	voryFetch?: typeof fetch;
+	/** Apple's push servers (tests point them at a local server). */
+	apnsHosts?: Record<"production" | "development", string>;
+	/** How long after an approval is settled its push banners are replaced (tests shorten it). */
+	pushSettleMs?: number;
 	browserHeadless?: boolean;
 	browserExecutable?: string;
 	/** Software updates: the checkout, package install and restart (the CLI passes restart; tests replace the rest). */
@@ -234,10 +244,13 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const memory = new MemoryStore(db);
 	const skills = new Skills(config.skillsDir, db);
 	const browsers = new Browsers(config.dataDir, { headless: options.browserHeadless ?? true, executablePath: options.browserExecutable ?? config.browserExecutable });
-	const vory = new VoryPush({ dir: join(config.dataDir, "vory"), hub, bots, sessions: () => sessions, fetch: options.voryFetch });
+	const devices = new Devices(db);
+	const apns = new ApnsTransport({ config: config.apns, devices, gatewayId: () => members.self().id, hosts: options.apnsHosts });
+	const vory = new VoryRelay({ dir: join(config.dataDir, "vory"), fetch: options.voryFetch });
+	const push = new Push({ hub, bots, sessions: () => sessions, transports: [apns, vory], settleDelayMs: options.pushSettleMs });
 	// What this gateway can deliver itself; /federation/notify uses only this. The gateway's own notifier adds
 	// forwarding to a member as the fallback for when nothing local can deliver.
-	const localNotifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), vory]);
+	const localNotifier: Notifier = options.notifier ?? new FanoutNotifier([...(config.pushover ? [new PushoverNotifier(config.pushover)] : []), push]);
 	const notifier: Notifier = options.notifier ?? new FanoutNotifier([{ get name() { return localNotifier.name; }, send: (n) => localNotifier.send(n), ready: () => localNotifier.name !== "none" } satisfies OptionalNotifier, new NetworkNotifier(() => members, () => localNotifier)]);
 	tellOwner = (n) => notifier.send(n);
 	let scheduler: Scheduler | undefined;
@@ -338,7 +351,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	mcpTools.attach(engine.registry);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
 	const attachments = new Attachments({ db, bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
-	const memberChats = new MemberChats({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, t) => vory.remoteFinished(id, t) });
+	const memberChats = new MemberChats({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, t) => push.remoteFinished(id, t) });
 	members.onRevoke(() => memberChats.dropGone());
 	sessions.setRemoteHooks({ running: (id) => memberChats.isRunning(id), deleted: (row) => memberChats.deleted(row) });
 	scheduler = new Scheduler({
@@ -378,7 +391,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const folded = settings.withBackup(() => settings.foldOverrides());
 	if (folded.length > 0) log.info("moved bot overrides into config.yaml", { bots: folded });
 
-	vory.start();
+	push.start();
 	chamberWatcher.start();
 	engine.resume();
 	const reattached = await sessions.attachBusy();
@@ -408,7 +421,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		rooms,
 		notifier,
 		localNotifier,
-		vory,
+		push,
+		devices,
+		apns,
 		browsers,
 		settings,
 		members,
@@ -427,7 +442,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			logins.close();
 			updates.stop();
 			catalogs.stop();
+			push.stop();
 			vory.stop();
+			apns.close();
 			await chamberWatcher.stop();
 			memberChats.close();
 			await scheduler!.stop();

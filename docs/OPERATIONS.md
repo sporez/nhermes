@@ -79,14 +79,34 @@ streams from a throwaway gateway, for a client's tests.
 
 ### Notifications
 
-Set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `secrets.env` (or Keys in the panel) for push
-notifications: approvals, finished and failed turns, scheduled-task results, the `notify` tool and
-OpenChamber alerts. In a network, a machine with no transport of its own forwards its notifications to a
+The nHermes app gets push notifications straight from Apple: approvals (with Approve once and Deny on the
+notification), finished and failed turns, scheduled-task results, the `notify` tool and OpenChamber alerts. It
+needs an APNs key from the Apple developer account the app is signed with (Certificates, Identifiers &
+Profiles → Keys → a key with Apple Push Notifications service). Download its `.p8` file once, then:
+
+```yaml
+# config.yaml
+push:
+  apns:
+    keyId: ABC123DEFG     # the key's Key ID
+    teamId: XYZ987TEAM    # the account's Team ID
+```
+
+```sh
+base64 < AuthKey_ABC123DEFG.p8 | tr -d '\n'   # copy what this prints
+nhermes secret set APNS_AUTH_KEY                # paste it when asked (or set it in the panel's Keys)
+nhermes reload
+```
+
+The app registers each device when it connects. Apple sees the notifications' text (the gateway removes
+known secrets first). The doctor reports the key and the devices.
+
+Pushover works alongside it, or alone: set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `secrets.env` (or
+Keys in the panel). In a network, a machine with no transport of its own forwards its notifications to a
 member that has one, so one setup is enough; the gateway the app is connected to notifies for chats with
-other machines' bots, and the machine running the bot stays quiet for them. The nHermes app's own push
-notifications come later (`docs/CLIENT-API.md`, phase E). Until then, phones that had Vory notifications set
-up still get them, through the Vory push relay (registrations in `<data>/vory/`); Vory itself can no longer
-connect, so answer an approval in the nHermes app rather than from that notification.
+other machines' bots, and the machine running the bot stays quiet for them. Phones that had Vory
+notifications set up still get them through the Vory push relay (registrations in `<data>/vory/`) until the
+app's own have been checked live; Vory itself can no longer connect, so answer from the nHermes app.
 
 ### Group chats
 

@@ -306,6 +306,20 @@ const MIGRATIONS: readonly string[] = [
 	);
 	CREATE INDEX attachments_session_path ON attachments(session_id, path);
 	`,
+	// 17: the owner's devices that get push notifications straight from Apple (src/notify/apns.ts)
+	`
+	CREATE TABLE devices (
+		id TEXT PRIMARY KEY,
+		token TEXT NOT NULL UNIQUE,
+		platform TEXT NOT NULL,
+		environment TEXT NOT NULL,
+		bundle_id TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		created_at REAL NOT NULL,
+		last_seen REAL NOT NULL,
+		last_error TEXT
+	);
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;

@@ -116,6 +116,8 @@ export type Config = {
 	timezone: string;
 	bots: BotConfig[];
 	pushover?: { user: string; token: string };
+	/** Push notifications straight to Apple (`push.apns`, src/notify/apns.ts); the key itself is in `keyEnv`. */
+	apns?: { keyId: string; teamId: string; keyEnv: string };
 	/** Chrome/Chromium binary for Playwright (e.g. /usr/bin/google-chrome); default: Playwright's own. */
 	browserExecutable?: string;
 	/** This gateway as a network member: its name (default: the host name) and the URL members use. */
@@ -131,6 +133,16 @@ export type Config = {
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
 export type ReviewConfig = { enabled: boolean; keyEnv: string; allowThreshold: number; timeoutMs: number };
+
+function parseApns(raw: unknown): Config["apns"] {
+	const apns = asRecord(asRecord(raw, "push").apns, "push.apns");
+	if (Object.keys(apns).length === 0) return undefined;
+	const keyId = str(apns.keyId, "push.apns.keyId");
+	const teamId = str(apns.teamId, "push.apns.teamId");
+	if (!keyId || !/^[A-Z0-9]{10}$/.test(keyId)) throw new ConfigError("push.apns.keyId must be the 10-character Key ID of the APNs key");
+	if (!teamId || !/^[A-Z0-9]{10}$/.test(teamId)) throw new ConfigError("push.apns.teamId must be the 10-character Team ID");
+	return { keyId, teamId, keyEnv: str(apns.keyEnv, "push.apns.keyEnv") ?? "APNS_AUTH_KEY" };
+}
 
 function parseReview(raw: unknown): ReviewConfig {
 	const jev = asRecord(asRecord(raw, "review").jev, "review.jev");
@@ -432,6 +444,7 @@ export function loadConfig(configPath: string): Config {
 		timezone: str(doc.timezone, "timezone") ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
 		bots,
 		pushover: pushUser && pushToken ? { user: pushUser, token: pushToken } : undefined,
+		apns: parseApns(doc.push),
 		browserExecutable: str(doc.browserExecutable, "browserExecutable"),
 		node: { name: nodeName, url: str(node.url, "node.url") },
 		panel: { enabled: asRecord(doc.panel, "panel").enabled !== false },

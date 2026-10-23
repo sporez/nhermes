@@ -86,7 +86,8 @@ person can read; `details` is optional. Codes, with their HTTP status:
 - `bootId` changes when the gateway restarts; a client that sees a new one after reconnecting knows that
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
-- `features` lists optional capabilities by name: `events.replay` (see Following a chat).
+- `features` lists optional capabilities by name: `events.replay` (see Following a chat), `push.apns` (see
+  Push notifications).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
 
@@ -180,6 +181,10 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `software.status` | `GET /software` | | `{version, commit, branch, behind, commits, lastCheck, canUpdate, canRestart, reason, running}` |
 | `actions.start` | `POST /actions` | | `kind`: `check`, `update`, `restart`, `doctor`. `{action}` |
 | `actions.get` | `GET /actions/:id` | | `{action}`: `{id, kind, status: "running" \| "done" \| "failed", startedAt, finishedAt, exitCode, lines}`. An update or restart stays `running` until the restarted gateway answers |
+| `devices.register` | `POST /devices` | | `token` (the APNs device token, hex), `platform` (`ios`, `macos`), `environment` (`development`, `production`: the build's `aps-environment`), `bundleId`, `name?`. The same token again is the same device. `{device, pushEnabled}` |
+| `devices.list` | `GET /devices` | | `{items: [Device], pushEnabled}` |
+| `devices.delete` | `DELETE /devices/:id` | | `{deleted: true}` |
+| `devices.test` | `POST /devices/:id/test` | | Sends a test notification. `{ok, error?}`; `not_available` without an APNs key |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
 | `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
@@ -397,6 +402,21 @@ startedAt, finishedAt, summary, error, notified, sessionId}`. `sessionId` is the
 `{days, daily: [{day, input, output, cacheRead, reasoning, cost, calls, sessions}], byModel: [{model, …}],
 totals: {…}}`: every model call in the bots' chats over the last `days` (in the gateway's time zone), cost in
 USD. A member's bot's chats are on its own machine and count there.
+
+## Push notifications
+
+With feature `push.apns` the gateway sends notifications straight to Apple's push service for the devices
+registered with `devices.register` (register again on every connection: tokens change). A device:
+`{id, platform, environment, bundleId, name, tokenEnd, createdAt, lastSeenAt, lastError}`; the token itself
+never comes back. A token Apple says is gone is removed.
+
+Each notification carries `aps` (alert, sound, `category`, `thread-id`: the chat, `interruption-level`) and
+`nh: {kind, gateway, sessionId?, botId?, approvalId?}`. `kind`: `approval` (category `NH_APPROVAL`, for
+actions Approve once and Deny, answered with `approvals.answer`), `settled` (the same approval answered, timed
+out or withdrawn: it replaces the approval's notification quietly, `NH_INFO`), `turn` and `notice`
+(`NH_TURN`), `error` (`NH_ERROR`), `cron` (a scheduled task's result), `test`. An approval's notification has
+the collapse id `approval-<id>`, so a client's own notification for it with that identifier is replaced
+rather than doubled. A chat another network member started here is that member's to notify.
 
 ## Approvals
 

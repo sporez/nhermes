@@ -12,6 +12,7 @@ import { approvalOps } from "./ops/approvals.ts";
 import { attachmentOps } from "./ops/attachments.ts";
 import { botOps } from "./ops/bots.ts";
 import { chatOps } from "./ops/chat.ts";
+import { deviceOps } from "./ops/devices.ts";
 import { gatewayOps } from "./ops/gateway.ts";
 import { manageOps } from "./ops/manage.ts";
 import { modelOps } from "./ops/models.ts";
@@ -46,6 +47,7 @@ export class ClientApi {
 			...botOps,
 			...manageOps,
 			...roomOps,
+			...deviceOps,
 		]);
 		this.feeds = new ChatFeeds(core);
 		this.globalFeed = globalFeed(core);

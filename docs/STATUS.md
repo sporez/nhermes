@@ -56,6 +56,13 @@ record that earlier client; their checks now run through the client API (`test/a
 Vory's push relay still serves devices it registered before (`test/federation/vory-push.test.ts`), until
 phase E.
 
+Native push (phase E): automated against a local stand-in for Apple's HTTP/2 push service
+(`test/notify/apns.test.ts`): device registration, the ES256 provider token, an approval and its quiet
+replacement, finished turns, scheduled results, a gone token removed, redaction. The app's handling checked in
+the iOS Simulator with simulated pushes: the banner, Approve once and Deny from the notification (the gateway
+ran or blocked the tool), a tap opening the chat. Not yet live: it needs an APNs key and the app's push
+entitlement.
+
 ## Security findings fixed during live testing
 
 - A denied package install was retried by delegating to the trusted `ops` bot → delegation now never
