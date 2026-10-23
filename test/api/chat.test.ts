@@ -285,3 +285,33 @@ test("a network member sees only the chats it started, cannot list chats, and ca
 	assert.deepEqual(items.map((b) => b.id), ["main", "ops"]);
 	await assert.rejects(server.api.ops.call(op("approvals.answer"), { id: "nope", choice: "once" }, cx), (e: { code: string }) => e.code === "approval_not_found");
 });
+
+test("a client back soon after a drop gets only the events it missed, then the rest live", async () => {
+	const c1 = await socket();
+	const sid = await newChat(c1);
+	const long = "word ".repeat(400).trim();
+	faux.setResponses([fauxAssistantMessage([fauxText(long)])]);
+	await c1.call("sessions.submit", { id: sid, text: "a long one" });
+	await c1.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	const seen = chatEvents(c1, sid);
+	const lastSeq = seen.at(-1)!.seq!;
+	const before = seen.filter((e) => e.event === "item.delta").map((e) => e.data.text).join("");
+	await c1.close();
+
+	const c2 = await socket();
+	const back = await c2.call<{ seq: number; replay?: ApiEvent[]; turns?: unknown }>("sessions.subscribe", { id: sid, afterSeq: lastSeq });
+	assert.ok(back.replay, "the missed events, not a snapshot");
+	assert.equal(back.turns, undefined);
+	assert.ok(back.replay.every((e) => e.seq! > lastSeq));
+	await c2.waitEvent(finished(sid), 15000);
+	const live = chatEvents(c2, sid).filter((e) => e.seq! > back.seq);
+	const text = [...back.replay, ...live].filter((e) => e.event === "item.delta").map((e) => e.data.text).join("");
+	assert.equal(before + text, long, "what was seen + what was missed + what followed = the whole answer");
+	// A seq the gateway no longer covers gets a snapshot.
+	const c3 = await socket();
+	const fresh = await c3.call<{ replay?: unknown; turns?: { items: unknown[] } }>("sessions.subscribe", { id: sid, afterSeq: 999_999 });
+	assert.equal(fresh.replay, undefined);
+	assert.ok(fresh.turns!.items.length >= 1);
+	await c2.close();
+	await c3.close();
+});

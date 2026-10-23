@@ -1,6 +1,6 @@
 // Canonical events → client API events (docs/API.md "Events"). A followed chat's events carry its `seq`
-// (the hub's count for that chat, so a client can tell it missed some); gateway-wide events go to every owner
-// socket, and to a member only for the chats it started. Stateless apart from the subscriptions.
+// (the hub's count for that chat, so a client can tell it missed some) and are kept a while for a client that
+// reconnects; gateway-wide events go to every owner socket, and to a member only for the chats it started.
 import type { Core } from "../app.ts";
 import type { ApprovalRequest, SessionEvent } from "../core/events.ts";
 import { logger, redact } from "../log.ts";
@@ -40,16 +40,74 @@ export function chatEvent(e: SessionEvent): { event: string; data: Record<string
 	}
 }
 
-export function sessionFeed(core: Core) {
-	return (sessionId: string, send: (e: ApiEvent) => void): (() => void) => {
-		// A chat with a member's bot: its events come from the member, already in this shape.
-		if (core.sessions.get(sessionId)?.remote_node) return core.memberChats.follow(sessionId, send);
-		return core.hub.subscribe(sessionId, (sid, e) => {
-			if (e.type === "turn.started") identifyAttachments(core, sid, [e.turn]);
+/** Events of a chat kept for a client that reconnects soon (docs/API.md "Following a chat"). */
+const REPLAY_EVENTS = 2000;
+/** How long a chat's recent events are kept after its last follower left. */
+const REPLAY_KEEP_MS = 5 * 60_000;
+
+type Feed = { off: () => void; followers: Set<(e: ApiEvent) => void>; recent: ApiEvent[]; from: number; idle?: NodeJS.Timeout };
+
+/**
+ * One hub subscription per followed local chat, turned into wire events once and fanned out to its sockets.
+ * The latest events are kept for a while after the last follower leaves, so a client that reconnects gets
+ * only what it missed (`events.replay`). A chat with a member's bot is followed through src/federation/chats.ts.
+ */
+export class ChatFeeds {
+	private readonly core: Core;
+	private readonly feeds = new Map<string, Feed>();
+
+	constructor(core: Core) {
+		this.core = core;
+	}
+
+	follow(sessionId: string, send: (e: ApiEvent) => void): () => void {
+		if (this.core.sessions.get(sessionId)?.remote_node) return this.core.memberChats.follow(sessionId, send);
+		const feed = this.feed(sessionId);
+		if (feed.idle) clearTimeout(feed.idle);
+		feed.idle = undefined;
+		feed.followers.add(send);
+		return () => {
+			feed.followers.delete(send);
+			if (feed.followers.size > 0) return;
+			feed.idle = setTimeout(() => {
+				feed.off();
+				this.feeds.delete(sessionId);
+			}, REPLAY_KEEP_MS);
+			feed.idle.unref();
+		};
+	}
+
+	/** The chat's events after `afterSeq`, or undefined when they are not all kept (the client needs a snapshot). */
+	since(sessionId: string, afterSeq: number): ApiEvent[] | undefined {
+		const feed = this.feeds.get(sessionId);
+		if (!feed || afterSeq < feed.from || afterSeq > this.core.hub.seq(sessionId)) return undefined;
+		return feed.recent.filter((e) => (e.seq ?? 0) > afterSeq);
+	}
+
+	close(): void {
+		for (const f of this.feeds.values()) {
+			if (f.idle) clearTimeout(f.idle);
+			f.off();
+		}
+		this.feeds.clear();
+	}
+
+	private feed(sessionId: string): Feed {
+		let feed = this.feeds.get(sessionId);
+		if (feed) return feed;
+		const f: Feed = { off: () => {}, followers: new Set(), recent: [], from: this.core.hub.seq(sessionId) };
+		f.off = this.core.hub.subscribe(sessionId, (sid, e) => {
+			if (e.type === "turn.started") identifyAttachments(this.core, sid, [e.turn]);
 			const out = chatEvent(e);
-			if (out) send({ event: out.event, sessionId: sid, seq: core.hub.seq(sid), at: Date.now(), data: out.data });
+			if (!out) return;
+			const wire: ApiEvent = { event: out.event, sessionId: sid, seq: this.core.hub.seq(sid), at: Date.now(), data: out.data };
+			f.recent.push(wire);
+			if (f.recent.length > REPLAY_EVENTS) f.from = f.recent.splice(0, f.recent.length - REPLAY_EVENTS).at(-1)!.seq!;
+			for (const send of [...f.followers]) send(wire);
 		});
-	};
+		this.feeds.set(sessionId, (feed = f));
+		return feed;
+	}
 }
 
 export function globalFeed(core: Core) {

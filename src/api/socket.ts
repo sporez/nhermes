@@ -14,8 +14,8 @@ const log = logger("api-ws");
 /** An event frame (docs/API.md "Events"); also what src/remote/api-client.ts receives from another gateway. */
 export type ApiEvent = { event: string; sessionId?: string; seq?: number; at: number; data: Record<string, unknown> };
 
-/** Feeds a socket the events of one chat; returns how to stop. Supplied by the chat operations (src/api/events.ts). */
-export type SessionFeed = (sessionId: string, send: (e: ApiEvent) => void, caller: Caller) => () => void;
+/** Feeds a socket the events of one chat (src/api/events.ts ChatFeeds). */
+export type SessionFeed = { follow(sessionId: string, send: (e: ApiEvent) => void): () => void; since(sessionId: string, afterSeq: number): ApiEvent[] | undefined };
 /** Feeds a socket the gateway-wide events its caller may see; returns how to stop. */
 export type GlobalFeed = (send: (e: ApiEvent) => void, caller: Caller) => () => void;
 
@@ -56,7 +56,11 @@ export class ApiSocket implements SocketHandle {
 
 	subscribe(sessionId: string): void {
 		if (this.following.has(sessionId)) return;
-		this.following.set(sessionId, this.sessionFeed(sessionId, (e) => this.send(e), this.caller));
+		this.following.set(sessionId, this.sessionFeed.follow(sessionId, (e) => this.send(e)));
+	}
+
+	missed(sessionId: string, afterSeq: number): ApiEvent[] | undefined {
+		return this.sessionFeed.since(sessionId, afterSeq);
 	}
 
 	unsubscribe(sessionId: string): void {

@@ -7,7 +7,7 @@ import type { Core } from "../app.ts";
 import { RawBody, readJson, sendJson, sendRaw } from "../http.ts";
 import { logger } from "../log.ts";
 import { ApiError, apiError } from "./errors.ts";
-import { globalFeed, sessionFeed } from "./events.ts";
+import { ChatFeeds, globalFeed } from "./events.ts";
 import { approvalOps } from "./ops/approvals.ts";
 import { attachmentOps } from "./ops/attachments.ts";
 import { botOps } from "./ops/bots.ts";
@@ -18,7 +18,7 @@ import { modelOps } from "./ops/models.ts";
 import { roomOps } from "./ops/rooms.ts";
 import { sessionOps } from "./ops/sessions.ts";
 import { type Caller, OpTable } from "./ops.ts";
-import { ApiSocket, type GlobalFeed, type SessionFeed } from "./socket.ts";
+import { ApiSocket, type GlobalFeed } from "./socket.ts";
 
 const log = logger("api");
 
@@ -30,7 +30,7 @@ export class ClientApi {
 	readonly ops: OpTable;
 	private readonly core: Core;
 	private readonly heartbeatMs: number;
-	private readonly sessionFeed: SessionFeed;
+	private readonly feeds: ChatFeeds;
 	private readonly globalFeed: GlobalFeed;
 
 	constructor(core: Core, o: ClientApiOptions = {}) {
@@ -47,7 +47,7 @@ export class ClientApi {
 			...manageOps,
 			...roomOps,
 		]);
-		this.sessionFeed = sessionFeed(core);
+		this.feeds = new ChatFeeds(core);
 		this.globalFeed = globalFeed(core);
 	}
 
@@ -78,7 +78,11 @@ export class ClientApi {
 		}
 	}
 
+	close(): void {
+		this.feeds.close();
+	}
+
 	connect(ws: WebSocket, caller: Caller): ApiSocket {
-		return new ApiSocket(ws, { core: this.core, ops: this.ops, caller, sessionFeed: this.sessionFeed, globalFeed: this.globalFeed, heartbeatMs: this.heartbeatMs });
+		return new ApiSocket(ws, { core: this.core, ops: this.ops, caller, sessionFeed: this.feeds, globalFeed: this.globalFeed, heartbeatMs: this.heartbeatMs });
 	}
 }

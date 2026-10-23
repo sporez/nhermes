@@ -33,6 +33,13 @@ async function subscribe(p: Params, cx: OpContext) {
 	const row = localSession(cx, p.str("id"));
 	const limit = p.optInt("limit", { min: 1, max: 500 }) ?? PAGE;
 	const { hub, approvals } = cx.core;
+	// A client back soon after a dropped connection gets only what it missed, when that is all still kept.
+	const afterSeq = p.optInt("afterSeq", { min: 0 });
+	const missed = afterSeq === undefined ? undefined : cx.socket.missed(row.id, afterSeq);
+	if (missed) {
+		cx.socket.subscribe(row.id);
+		return { session: await sessionJson(cx.core, row), seq: hub.seq(row.id), replay: missed, approvals: approvals.pendingFor(row.id).map(approvalJson) };
+	}
 	for (let attempt = 0; ; attempt++) {
 		const before = hub.seq(row.id);
 		const [turns, session] = await Promise.all([turnsPage(cx, row.id, undefined, limit), sessionJson(cx.core, cx.core.sessions.require(row.id))]);

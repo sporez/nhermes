@@ -77,7 +77,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   "api": 1,
   "gateway": {"id": "4f0c…", "name": "studio", "version": "0.1.0", "commit": "c67d427"},
   "bootId": "9b2e…",
-  "features": [],
+  "features": ["events.replay"],
   "limits": {"toolResultChars": 65536, "imageBytes": 26214400, "fileBytes": 41943040},
   "caller": {"kind": "owner"}
 }
@@ -86,7 +86,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
 - `bootId` changes when the gateway restarts; a client that sees a new one after reconnecting knows that
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
-- `features` lists optional capabilities by name.
+- `features` lists optional capabilities by name: `events.replay` (see Following a chat).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
 
@@ -121,7 +121,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.update` | `PATCH /sessions/:id` | yes | Any of `title`, `pinned`, `archived`, `model` (`"provider/id"` or `{provider, id}`), `thinking`, `yolo`. `{session}`. A member may change only title, model and thinking |
 | `sessions.delete` | `DELETE /sessions/:id` | yes | `{deleted: true}`. The bot, its memory and its jobs are untouched |
 | `sessions.turns` | `GET /sessions/:id/turns` | yes | `limit?` (50, at most 500), `cursor?`. `{items: [Turn], nextCursor}`: the newest turns, oldest first; `nextCursor` names the page before |
-| `sessions.subscribe` | socket only | yes | `id`, `limit?`. See Following a chat |
+| `sessions.subscribe` | socket only | yes | `id`, `limit?`, `afterSeq?`. See Following a chat |
 | `sessions.unsubscribe` | socket only | yes | `id` |
 | `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered |
 | `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
@@ -236,8 +236,14 @@ Over the socket, `sessions.subscribe {id}` answers with the chat's state and sta
 
 The running turn (if any) is in `turns` with what has streamed so far. Events of this chat carry `seq`; an
 event with a `seq` at or below the snapshot's is already in it and must be skipped (one can arrive just
-before the reply). `seq` only grows, with gaps. After a reconnect, subscribe again; the snapshot replaces
-what the client holds. `sessions.submit` over a socket also subscribes it.
+before the reply). `seq` only grows, with gaps. `sessions.submit` over a socket also subscribes it.
+
+After a reconnect, subscribe again. With feature `events.replay`, pass the last `seq` the client applied as
+`afterSeq`: when the gateway still has every event after it, the answer is
+`{session, seq, replay: [events], approvals}`, the missed events in order, and live events continue after
+them. Otherwise (too long away, or the hello's `bootId` changed: then do not pass `afterSeq` at all) the
+answer is the snapshot above, which replaces what the client holds. A gateway keeps a chat's latest 2,000
+events for 5 minutes after its last follower leaves.
 
 ## Events
 

@@ -211,6 +211,7 @@ export async function startServer(core: Core, opts: { host: string; port: number
 			new Promise<void>((resolve) => {
 				for (const c of wss.clients) c.terminate();
 				wss.close();
+				api.close();
 				let open = tls ? 2 : 1;
 				const done = () => --open === 0 && resolve();
 				server.close(done);

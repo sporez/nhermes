@@ -17,6 +17,8 @@ export type Caller = { kind: "owner" } | { kind: "member"; member: MemberRow };
 export type SocketHandle = {
 	subscribe(sessionId: string): void;
 	unsubscribe(sessionId: string): void;
+	/** A chat's events after `afterSeq` if they are all still kept (src/api/events.ts ChatFeeds). */
+	missed(sessionId: string, afterSeq: number): { seq?: number }[] | undefined;
 };
 
 export type OpContext = {

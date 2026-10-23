@@ -251,7 +251,7 @@ with its docs.
   real responses and event streams for the app's contract tests (nothing is written into the repo by
   `npm test`). `docs/OPERATIONS.md` (connecting a client), `ARCHITECTURE.md` (the boundary is
   `src/api/`), `docs/STATUS.md`.
-- [ ] **A8 Replay on reconnect.** The per-chat event buffer and `afterSeq` (feature `events.replay`).
+- [x] **A8 Replay on reconnect.** The per-chat event buffer and `afterSeq` (feature `events.replay`).
   Optional for the bar above; the snapshot keeps working without it.
 
 ### C. App: NHermesKit onto the new API
