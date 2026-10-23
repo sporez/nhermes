@@ -175,8 +175,10 @@ matching nothing and a handle two results share; the run ending with the reply t
 model call) while a batch with other tools continues; the card as the same turn item live (`item.started` and
 `item.finished`, no tool step for `show`) and in history; captions in a run's text, an answer's text and the
 transcript rows, and in a delegation's report from a local bot and from a peer gateway's bot
-(`test/remote/peer.test.ts`). `scripts/api-fixtures.ts` writes `events-card.jsonl` and `turns-card.json`. Not verified: with a
-real MacBridge server and a real model, or in the app.
+(`test/remote/peer.test.ts`); `show` offered to bots whose `tools:` list does not name it. `scripts/api-fixtures.ts`
+writes `events-card.jsonl` and `turns-card.json`. In the nHermes app (Mac and iPhone), 2026-10-23, against two
+throwaway gateways with the faux model and a fake MacBridge: cards under the reply, `only`, a bad handle, captions in
+the chat preview. Not verified: with a real MacBridge server and a real model.
 
 ## MCP servers
 

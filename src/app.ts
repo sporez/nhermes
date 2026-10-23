@@ -108,6 +108,8 @@ export type Core = {
 /** A feature module: tool groups, Durable extensions and prompt parts it contributes. */
 export type Feature = {
 	groups?: ToolGroups;
+	/** Tools every bot has, whatever its tool groups (cards' `show`). */
+	always?: ToolRegistration[];
 	extensions?: Extension[];
 	promptParts?: PromptPart[];
 };
@@ -202,7 +204,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	let mcpTools: McpTools | undefined;
 	const agentFor = (bot: Bot): AgentChange => {
 		// Gateway-wide tools are not offered to bots that are not trusted.
-		const tools = toolsFor(toolGroups, bot.toolGroups).filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name));
+		const tools = [...toolsFor(toolGroups, bot.toolGroups), ...alwaysTools].filter((t) => bot.trusted || !GATEWAY_TOOLS.has(t.name));
 		// Deferred MCP tools are found with tool_search.
 		if (mcpTools && tools.some((t) => t.deferred)) tools.push(mcpTools.searchTool);
 		return { model: bot.model, thinkingLevel: bot.thinking as AgentChange["thinkingLevel"], cwd: HostEnvs.isRemote(bot) ? undefined : bot.workspace, tools };
@@ -278,6 +280,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		...(options.features?.(late) ?? []),
 	];
 	for (const f of features) for (const [k, v] of f.groups ?? []) toolGroups.set(k, v);
+	const alwaysTools = features.flatMap((f) => f.always ?? []);
 
 	const promptParts: PromptPart[] = [
 		(bot) => {
@@ -326,7 +329,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		mcpTool: (name) => mcpTools?.lookup(name),
 	};
 	// MCP tools live in their own extension, which is re-installed when a server's tool list changes.
-	const allTools: ToolRegistration[] = [...new Map([...toolGroups.entries()].filter(([g]) => !g.startsWith("mcp:")).flatMap(([, tools]) => tools).map((t) => [t.name, t])).values()];
+	const allTools: ToolRegistration[] = [...new Map([...[...toolGroups.entries()].filter(([g]) => !g.startsWith("mcp:")).flatMap(([, tools]) => tools), ...alwaysTools].map((t) => [t.name, t])).values()];
 	const extensions: Extension[] = [
 		personaExtension(deps),
 		defineExtension({ name: "tools", tools: allTools }),

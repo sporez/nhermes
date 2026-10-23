@@ -92,7 +92,7 @@ test("a card the peer's bot showed reaches the delegating bot as its caption", a
 	});
 	const peerCore = await testCore(join(dir, "peer"), {
 		models: pm,
-		config: testConfig(join(dir, "peer"), [{ name: "nasbot", default: true, instructions: "You run on the NAS.", tools: ["cards", "probe"] }]),
+		config: testConfig(join(dir, "peer"), [{ name: "nasbot", default: true, instructions: "You run on the NAS.", tools: ["probe"] }]),
 		features: () => [{ groups: new Map([["probe", [probe]]]) }],
 	});
 	const peer = await startServer(peerCore, { host: "127.0.0.1", port: 0 });

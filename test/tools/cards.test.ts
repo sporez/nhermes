@@ -26,7 +26,7 @@ async function setup() {
 	mcp.behavior.set("list_events", { text: "3 events", structured: EVENTS });
 	mcp.behavior.set("plain", { text: "just text" });
 	const { models, faux } = fauxModels();
-	const config = testConfig(t.dir, [{ name: "main", default: true, instructions: "test", tools: ["cards", "mcp:cal"] }], { mcp: { servers: [mcpServerConfig("cal", mcp.url, { tools: { include: ["*"], exclude: [], readOnly: ["*"] } })] } });
+	const config = testConfig(t.dir, [{ name: "main", default: true, instructions: "test", tools: ["mcp:cal"] }], { mcp: { servers: [mcpServerConfig("cal", mcp.url, { tools: { include: ["*"], exclude: [], readOnly: ["*"] } })] } });
 	const core = await testCore(t.dir, { models, config, mcpTuning: FAST });
 	await new Promise<void>((resolve) => {
 		const check = () => (core.mcp.status().find((s) => s.name === "cal")?.state === "online" ? resolve() : undefined);
@@ -199,7 +199,7 @@ test("a delegated bot's card reaches the caller as its caption", async () => {
 	const { models, faux } = fauxModels();
 	const config = testConfig(dir, [
 		{ name: "main", default: true, instructions: "main", tools: ["delegate"] },
-		{ name: "ops", instructions: "ops", tools: ["cards", "probe"] },
+		{ name: "ops", instructions: "ops", tools: ["probe"] },
 	]);
 	const core = await testCore(dir, { models, config, features: () => [{ groups: new Map([["probe", [probe]]]) }] });
 	try {

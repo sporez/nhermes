@@ -35,5 +35,6 @@ export function cardsFeature(late: LateServices): Feature {
 			return { output: [{ type: "text" as const, text: shownText(card.caption, card.data) }], details: { card } as never, control: { terminate: true as const } };
 		},
 	});
-	return { groups: new Map([["cards", [show] as ToolRegistration[]]]) };
+	// Every bot has it: showing a result it already has needs no permission, and without it the app shows no cards.
+	return { always: [show] as ToolRegistration[] };
 }

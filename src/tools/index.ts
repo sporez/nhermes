@@ -36,7 +36,6 @@ export const GROUP_LABELS: Record<string, { label: string; description: string }
 	self: { label: "Self-management", description: "self_info, self_models, nhermes_docs, change own setup" },
 	schedule: { label: "Scheduled Tasks", description: "schedule_create, schedule_list, …" },
 	delegate: { label: "Delegation", description: "delegate to another bot" },
-	cards: { label: "Cards", description: "show: show the owner a tool's result as a card in the app" },
 	notify: { label: "Notifications", description: "notify (push notifications to the owner)" },
 	browser: { label: "Browser Automation", description: "Playwright: open, snapshot, click, type, screenshot" },
 	desktop: { label: "Desktop Automation", description: "X11 desktop: screenshot, click, type, windows" },
