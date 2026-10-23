@@ -13,9 +13,9 @@ import { SecretError } from "../core/secrets.ts";
 import type { UsageEvent } from "../core/sessions.ts";
 import { UpdateError } from "../core/updates.ts";
 import { recentLogs } from "../log.ts";
-import { HttpError, obj, RawBody, type Router } from "./http.ts";
+import { HttpError, obj, RawBody, type Router } from "../http.ts";
 import { botFor, insideWorkspace, localOnly, workspaceRoots } from "./lookup.ts";
-import { VERSION } from "./shapes.ts";
+import { VERSION } from "../version.ts";
 
 /** This process; an action started by an earlier one finished when that process exited for it. */
 const BOOT = randomUUID();

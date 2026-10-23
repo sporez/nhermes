@@ -1,13 +1,13 @@
 // Canonical objects → Hermes wire shapes (field names per Hermes's generated contract, restricted to
 // what Vory decodes). Pure functions; no state.
 import { redact } from "../log.ts";
+import { VERSION } from "../version.ts";
 import type { Bot } from "../core/bots.ts";
 import type { ApprovalRequest, UsageSummary } from "../core/events.ts";
 import type { SessionRow } from "../core/sessions.ts";
 import { describeSpec } from "../core/schedule.ts";
 import { type JobRow, type RunRow, specOf } from "../core/scheduler.ts";
 
-export const VERSION = "0.1.0";
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json | undefined };
 

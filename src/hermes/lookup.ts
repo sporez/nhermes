@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { sep } from "node:path";
 import type { Core } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
-import { HttpError } from "./http.ts";
+import { HttpError } from "../http.ts";
 
 export function botFor(core: Core, profile: string | null | undefined): Bot {
 	if (!profile || profile === "current" || (profile === "default" && !core.bots.get("default"))) return core.bots.defaultBot();

@@ -5,7 +5,7 @@
 // reach a member's routes.
 import type { Core } from "../app.ts";
 import { LoginError } from "../core/logins.ts";
-import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
+import { HttpError, obj, type Req, Router } from "../http.ts";
 import { logger } from "../log.ts";
 import { FederationError, type MemberRow } from "./members.ts";
 

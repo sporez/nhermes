@@ -3,7 +3,7 @@
 // handler runs (`req.member`): by its TLS-PSK handshake. They are served on the encrypted port only; the main
 // port answers 404 for all of `/federation/*`. The owner's side lives under `/admin/` (token).
 import type { Core } from "../app.ts";
-import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
+import { HttpError, obj, type Req, Router } from "../http.ts";
 import { SecretError } from "../core/secrets.ts";
 import { logger } from "../log.ts";
 import { FederationError, type MemberRow } from "./members.ts";

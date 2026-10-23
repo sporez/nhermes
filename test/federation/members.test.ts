@@ -7,15 +7,15 @@ import { test } from "node:test";
 import type { Core } from "../../src/app.ts";
 import { encodeInvite } from "../../src/federation/members.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; url: string; admin: (method: string, path: string, body?: unknown) => Promise<Response> };
+type Gw = { core: Core; server: GatewayServer; url: string; admin: (method: string, path: string, body?: unknown) => Promise<Response> };
 
 async function gateway(dir: string, name: string, now?: () => number): Promise<Gw> {
 	const d = join(dir, name);
 	const core = await testCore(d, { models: fauxModels().models, config: testConfig(d, [{ name: `${name}bot`, default: true }], { node: { name } }), members: now ? { now } : undefined });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [federationAdminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [federationAdminRoutes(core)] });
 	const url = `http://127.0.0.1:${server.port}`;
 	const admin = (method: string, path: string, body?: unknown) =>
 		fetch(`${url}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -121,7 +121,7 @@ test("expired codes, name clashes and an offline member during an introduction",
 		await a.core.members.flush();
 		assert.deepEqual(names(b), ["alpha"]);
 		assert.equal(a.core.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM member_outbox")!.n, 1);
-		b.server = await startHermesServer(b.core, { host: "127.0.0.1", port: Number(new URL(b.url).port), extraRouters: [federationAdminRoutes(b.core)] });
+		b.server = await startServer(b.core, { host: "127.0.0.1", port: Number(new URL(b.url).port), extraRouters: [federationAdminRoutes(b.core)] });
 		// beta came back on another encrypted port and tells alpha so (its maintenance tick).
 		assert.notEqual(a.core.members.byName("beta")!.psk_port, b.server.pskPort);
 		await b.core.members.maintain();

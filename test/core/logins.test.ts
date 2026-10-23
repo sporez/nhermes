@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import type { AuthInteraction, Models } from "@earendil-works/pi-ai";
 import { adminRoutes } from "../../src/admin.ts";
 import { LoginError, Logins } from "../../src/core/logins.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { registerSecret, setLogLevel, setLogSink } from "../../src/log.ts";
 import { AppDb } from "../../src/store/db.ts";
 import { fauxModels, testCore, tempDir, TOKEN } from "../helpers.ts";
@@ -287,7 +287,7 @@ test("the admin API starts, answers, reads, cancels and logs out", async () => {
 		kimi: (i) => new Promise((_, reject) => i.signal!.addEventListener("abort", () => reject(i.signal!.reason))),
 	});
 	const core = await testCore(dir, { models });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const call = async (method: string, path: string, body?: unknown) => {
 		const res = await fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 		return { status: res.status, json: (await res.json()) as Record<string, any> };

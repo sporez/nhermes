@@ -1,27 +1,30 @@
-// The Hermes-compatible HTTP + WebSocket server. Auth is the Hermes session-token mode:
-// `X-Hermes-Session-Token` on HTTP, `?token=` on the WebSocket. Wrong or missing: 401 / close 4401.
-// A second listener, the encrypted port, serves only network members over TLS-PSK
-// (src/federation/psk.ts): `/federation/*` and the member WebSocket, identified by the handshake.
+// The gateway's listeners. The main port serves the panel, the client API (`/api/v1`, src/api/), the
+// Hermes-compatible API Vory uses (src/hermes/) and the admin routes. The client API takes the gateway token
+// as `Authorization: Bearer` only; the Hermes API also takes `X-Hermes-Session-Token` and, on its socket,
+// `?token=`. Wrong or missing: 401 / close 4401. A second listener, the encrypted port, serves only network
+// members over TLS-PSK (src/federation/psk.ts): `/federation/*` and the member WebSockets, identified by the
+// handshake.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createTlsServer } from "node:https";
 import type { AddressInfo, Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { type WebSocket, WebSocketServer } from "ws";
-import type { Core } from "../app.ts";
-import { UnknownBot } from "../core/bots.ts";
-import { UnknownSession } from "../core/sessions.ts";
-import type { MemberRow } from "../federation/members.ts";
-import { loginRoutes } from "../federation/logins.ts";
-import { manageRoutes } from "../federation/manage.ts";
-import { forwardVory, voryMemberRoutes } from "../federation/vory.ts";
-import { PSK_TLS } from "../federation/psk.ts";
-import { federationRoutes, KEY_CHANGING_PATHS, KEY_CHANGING_PREFIXES, OPEN_FEDERATION_PATHS } from "../federation/routes.ts";
-import { Panel } from "../panel/panel.ts";
-import { logger } from "../log.ts";
+import type { Core } from "./app.ts";
+import { UnknownBot } from "./core/bots.ts";
+import { UnknownSession } from "./core/sessions.ts";
+import type { MemberRow } from "./federation/members.ts";
+import { loginRoutes } from "./federation/logins.ts";
+import { manageRoutes } from "./federation/manage.ts";
+import { forwardVory, voryMemberRoutes } from "./federation/vory.ts";
+import { PSK_TLS } from "./federation/psk.ts";
+import { federationRoutes, KEY_CHANGING_PATHS, KEY_CHANGING_PREFIXES, OPEN_FEDERATION_PATHS } from "./federation/routes.ts";
+import { Panel } from "./panel/panel.ts";
+import { API_PREFIX, ClientApi, type ClientApiOptions } from "./api/server.ts";
+import { logger } from "./log.ts";
 import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
-import { restRoutes } from "./rest.ts";
-import { Connection } from "./ws.ts";
+import { restRoutes } from "./hermes/rest.ts";
+import { Connection } from "./hermes/ws.ts";
 
 const log = logger("http");
 
@@ -34,6 +37,11 @@ function tokenMatches(given: string | null | undefined, expected: string): boole
 	return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function bearerToken(req: IncomingMessage): string | null {
+	const auth = req.headers.authorization;
+	return typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7) : null;
+}
+
 function requestToken(req: IncomingMessage, url: URL): string | null {
 	const header = req.headers["x-hermes-session-token"];
 	if (typeof header === "string") return header;
@@ -42,7 +50,7 @@ function requestToken(req: IncomingMessage, url: URL): string | null {
 	return url.searchParams.get("token");
 }
 
-export type HermesServer = { server: Server; port: number; pskPort: number | null; close(): Promise<void>; dropConnections(): void };
+export type GatewayServer = { server: Server; port: number; pskPort: number | null; api: ClientApi; close(): Promise<void>; dropConnections(): void };
 
 /** How many ports up from the default the encrypted listener tries before giving up. */
 const PSK_PORT_TRIES = 10;
@@ -51,9 +59,10 @@ const PSK_PORT_TRIES = 10;
  * Extra route sets (the admin API) mounted before the Hermes routes. `federationPort`: the encrypted port
  * as configured (used as given); without it, main port + 1000 or the next free one; null turns it off.
  */
-export async function startHermesServer(core: Core, opts: { host: string; port: number; federationPort?: number | null; extraRouters?: Router[] }): Promise<HermesServer> {
+export async function startServer(core: Core, opts: { host: string; port: number; federationPort?: number | null; extraRouters?: Router[]; api?: ClientApiOptions }): Promise<GatewayServer> {
 	const federation = [federationRoutes(core), manageRoutes(core), loginRoutes(core), voryMemberRoutes(core)];
 	const panel = new Panel(core);
+	const api = new ClientApi(core, opts.api);
 	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 	// The handshake identity of each encrypted connection, for its requests.
@@ -76,6 +85,10 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 				res.writeHead(302, { location: "/panel/" });
 				return void res.end();
 			}
+		}
+		if (!encrypted && ClientApi.owns(url.pathname)) {
+			if (!tokenMatches(bearerToken(req), core.config.token)) return sendJson(res, 401, { error: { code: "unauthorized", message: "This gateway needs its token (Authorization: Bearer)." } });
+			return api.handle(req, res, url, { kind: "owner" });
 		}
 		try {
 			// Members reach only /federation/*, and only on the encrypted port; everything else takes the gateway token.
@@ -120,6 +133,19 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 
 	const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer, psk?: string) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
+		if (url.pathname === `${API_PREFIX}/ws`) {
+			return wss.handleUpgrade(req, socket, head, (ws) => {
+				if (psk !== undefined) {
+					const member = core.members.pskMember(psk);
+					if (!member) return void ws.close(4401, "not a member");
+					memberSockets.set(ws, psk);
+					ws.on("close", () => memberSockets.delete(ws));
+					return void api.connect(ws, { kind: "member", member });
+				}
+				if (!tokenMatches(bearerToken(req), core.config.token)) return void ws.close(4401, "invalid token");
+				api.connect(ws, { kind: "owner" });
+			});
+		}
 		if (url.pathname !== "/api/ws") {
 			socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
 			socket.destroy();
@@ -177,6 +203,7 @@ export async function startHermesServer(core: Core, opts: { host: string; port: 
 		server,
 		port,
 		pskPort,
+		api,
 		dropConnections: () => {
 			for (const c of wss.clients) c.terminate();
 		},

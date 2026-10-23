@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 import { FakeMcpServer } from "./server.ts";
 
@@ -18,7 +18,7 @@ test("Vory: MCP servers per profile, the toggle grants the bot the server, Test 
 	writeFileSync(path, `server:\n  host: 127.0.0.1\n  port: 0\ndefaults:\n  model: faux/faux-1\nmcp:\n  servers:\n    cal:\n      url: ${fake.url}\n      description: The calendar\nbots:\n  - name: main\n    default: true\n    tools: [memory, mcp:cal]\n  - name: ops\n    tools: [files]\n`);
 	const { models } = fauxModels();
 	const core = await createCore(loadConfig(path), { models });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const api = async (method: string, p: string, body?: unknown) => {
 		const res = await fetch(`http://127.0.0.1:${server.port}${p}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 		return { status: res.status, json: (await res.json()) as Record<string, any> };

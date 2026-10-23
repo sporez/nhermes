@@ -10,7 +10,7 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { adminRoutes } from "../../src/admin.ts";
 import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { collect, fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
 const CONFIG = `# Household gateway
@@ -146,7 +146,7 @@ test("add and remove bots; instructions kept in a SOUL file stay there", async (
 
 test("admin API: config view, bot edits, unknown settings refused", async () => {
 	const { core, cleanup } = await setup();
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const call = (method: string, path: string, body?: unknown) =>
 		fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 	try {

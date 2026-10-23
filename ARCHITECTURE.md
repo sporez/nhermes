@@ -10,6 +10,7 @@ drive it as if it were a Hermes gateway.
         │ HTTPS/WSS (Tailscale or TLS proxy)  │ (local HTTP)       ▲
         ▼                                      ▼                    │
  ┌──────────────────────────── nhermes serve (one Node process) ───────────────────────────┐
+ │  api/           client API: /api/v1 HTTP + /api/v1/ws, one operation table (docs/API.md) │
  │  hermes/        Hermes-compatible REST + /api/ws JSON-RPC  (translation only)           │
  │  admin/         small JSON API used by the CLI                                          │
  │  panel/         web control panel at /panel (static page + /panel/api/*)                 │
@@ -39,9 +40,10 @@ drive it as if it were a Hermes gateway.
 - **One process owns each Durable database.** `nhermes serve` opens `durable.sqlite` once; the CLI never
   opens it. It talks to the running service over the local admin API, so there are never two owners.
   A peer agent has its own database on its own machine.
-- **The Hermes layer only translates.** `src/hermes/` maps Vory's REST/JSON-RPC onto `core/` calls and
-  maps canonical events back onto Hermes events. It holds no agent state of its own beyond per-socket
-  bookkeeping (pending server→client request ids).
+- **The API layers only translate.** `src/api/` (the client API, `docs/API.md`) and `src/hermes/` (Vory's
+  REST/JSON-RPC) map requests onto `core/` calls and canonical events onto their own events. They hold no
+  agent state beyond per-socket bookkeeping (followed chats, pending request ids). `src/server.ts` owns the
+  listeners and authentication for both, the panel and the federation port.
 - **Upstream before custom.** Providers, OAuth and `models.json` custom endpoints come from Pi's
   `ModelRuntime`; catalog providers (`src/models/`, a key fetches the provider's model list) are
   registered into it with Pi's own `registerProvider`; SKILL.md discovery from Pi's skills loader; SSH

@@ -11,16 +11,16 @@ import type { Core } from "../../src/app.ts";
 import * as membersModule from "../../src/federation/members.ts";
 import { clientTls, inviteId, inviteKey, keyId, memberIdentity, pairKey, pskRequest } from "../../src/federation/psk.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; url: string };
+type Gw = { core: Core; server: GatewayServer; url: string };
 
 async function gateway(dir: string, name: string, opts: { now?: () => number; port?: number; federationPort?: number | null } = {}): Promise<Gw> {
 	const d = join(dir, name);
 	const core = await testCore(d, { models: fauxModels().models, config: testConfig(d, [{ name: `${name}bot`, default: true }], { node: { name } }), members: opts.now ? { now: opts.now } : undefined });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: opts.port ?? 0, federationPort: opts.federationPort, extraRouters: [federationAdminRoutes(core)] }).catch(async (error: unknown) => {
+	const server = await startServer(core, { host: "127.0.0.1", port: opts.port ?? 0, federationPort: opts.federationPort, extraRouters: [federationAdminRoutes(core)] }).catch(async (error: unknown) => {
 		await core.close();
 		throw error;
 	});

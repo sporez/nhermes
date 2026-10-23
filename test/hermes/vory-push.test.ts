@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { TOKEN, tempDir, testCore } from "../helpers.ts";
 import { HermesClient } from "./client.ts";
 
@@ -63,7 +63,7 @@ test("Vory notifications through the push relay", async () => {
 		return new Response('{"ok":true}', { status: 200 });
 	}) as typeof fetch;
 	const core = await testCore(dir, { models, voryFetch });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const base = `http://127.0.0.1:${server.port}`;
 	const call = async (method: string, path: string, body?: unknown) => {
 		const r = await fetch(base + path, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });

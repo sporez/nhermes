@@ -9,7 +9,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi
 import { adminRoutes } from "../../src/admin.ts";
 import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { setThrottleClock } from "../../src/panel/auth.ts";
 import { localHost } from "../../src/panel/panel.ts";
 import { collect, fauxModels, TOKEN, tempDir } from "../helpers.ts";
@@ -21,7 +21,7 @@ async function setup() {
 	writeFileSync(path, `server:\n  host: 127.0.0.1\n  port: 0\ndefaults:\n  model: faux/faux-1\nbots:\n  - name: main\n    default: true\n    sharedMemory: [household]\n  - name: ops\n    description: Infrastructure\n`);
 	const { models, faux } = fauxModels();
 	const core = await createCore(loadConfig(path), { models });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const base = `http://127.0.0.1:${server.port}`;
 	let cookie = "";
 	const panel = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {

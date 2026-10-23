@@ -8,12 +8,12 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCal
 import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import type { RoomEvent } from "../../src/core/room-plan.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import type { Notification, Notifier } from "../../src/notify/notifier.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; port: number };
+type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
 class Recorder implements Notifier {
 	readonly name = "recorder";
@@ -29,7 +29,7 @@ async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const core = await testCore(d, { models, notifier: new Recorder(), config: testConfig(d, bots, { node: { name } }) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, port: server.port };
 }
 
@@ -60,7 +60,7 @@ test("alpha restarts while beta's bot is answering: the answer is filed once, th
 		const models = createModels();
 		models.setProvider(faux.provider);
 		const core = await testCore(d, { models, notifier: new Recorder(), config: testConfig(d, [{ name: "main", default: true }], { node: { name: "alpha" } }) });
-		a = { ...a, core, server: await startHermesServer(core, { host: "127.0.0.1", port: 0 }) };
+		a = { ...a, core, server: await startServer(core, { host: "127.0.0.1", port: 0 }) };
 		await until(() => core.rooms.log({ room_id: "net-2" }).events.some((e) => e.kind === "room.activity"));
 		const events = core.rooms.log({ room_id: "net-2" }).events;
 		assert.deepEqual(kinds(events), ["message.user", "turn.started:nasbot-beta", "message.member:nasbot-beta", "turn.settled:nasbot-beta", "room.activity"]);

@@ -10,11 +10,11 @@ import type { AuthInteraction, Models } from "@earendil-works/pi-ai";
 import { adminRoutes } from "../../src/admin.ts";
 import { createCore, type Core } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { setLogLevel, setLogSink } from "../../src/log.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; url: string; saved: string[] };
+type Gw = { core: Core; server: GatewayServer; url: string; saved: string[] };
 type Res = { status: number; json: Record<string, unknown> & { detail?: string } };
 
 const lines: string[] = [];
@@ -53,7 +53,7 @@ async function gateway(root: string, name: string): Promise<Gw> {
 	writeFileSync(path, `server:\n  host: 127.0.0.1\n  port: 0\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\nbots:\n  - name: ${name}bot\n    default: true\n`);
 	const saved: string[] = [];
 	const core = await createCore(loadConfig(path), { models: fakeModels(saved) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	return { core, server, url: `http://127.0.0.1:${server.port}`, saved };
 }
 

@@ -6,7 +6,7 @@ import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
 import type { BotPatch } from "../core/settings.ts";
-import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
+import { HttpError, obj, type Req, Router } from "../http.ts";
 import { logger } from "../log.ts";
 import { mcpAction, mcpCall, mcpDetail, mcpEdit, mcpList, mcpPatch } from "../mcp/manage.ts";
 import { editorView, ownBots, promptView, skillsView } from "../panel/views.ts";

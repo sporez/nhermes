@@ -29,7 +29,7 @@ import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
 import type { Tuning } from "./mcp/connection.ts";
 import { McpServers } from "./mcp/servers.ts";
-import { VERSION } from "./hermes/shapes.ts";
+import { VERSION } from "./version.ts";
 import { McpTools } from "./tools/mcp.ts";
 import { isOwnGateway } from "./tools/own-gateway.ts";
 import { NetworkNotifier } from "./federation/notify.ts";

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import type { RoomEvent } from "../../src/core/room-plan.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import type { Notification, Notifier } from "../../src/notify/notifier.ts";
 import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 import { HermesClient } from "./client.ts";
@@ -60,7 +60,7 @@ test("a group chat: create, send, each bot answers in turn, the room settles and
 	const { faux, models: m } = models();
 	const notifier = new Recorder();
 	const core = await testCore(dir, { models: m, notifier });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const ws = await HermesClient.connect(server.port, TOKEN);
 	try {
 		await ws.waitEvent("gateway.ready");
@@ -178,7 +178,7 @@ test("a turn that needs approval says so in the room, is asked in the bot's room
 	const { dir, cleanup } = await tempDir();
 	const { faux, models: m } = models();
 	const core = await testCore(dir, { models: m, notifier: new Recorder() });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const listed = async () => ((await (await fetch(`http://127.0.0.1:${server.port}/api/sessions?profile=main`, { headers: { "X-Hermes-Session-Token": TOKEN } })).json()) as { sessions: { id: string }[] }).sessions.map((x) => x.id);
 	try {
 		core.rooms.create({ room_id: "r1", name: "Ops room", members: voryMembers });

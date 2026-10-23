@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, type Models } from "@earendil-works/pi-ai";
 import { adminRoutes } from "../../src/admin.ts";
 import { Logins } from "../../src/core/logins.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import type { Notification, Notifier } from "../../src/notify/notifier.ts";
 import { AppDb } from "../../src/store/db.ts";
 import { collect, fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -83,7 +83,7 @@ test("a model call that fails to refresh notifies once, names the machine, and m
 	const { models, faux } = oauthFaux(signedIn);
 	const notifier = new Recorder();
 	const core = await testCore(dir, { models, notifier, config: testConfig(dir) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const state = async () => ((await (await fetch(`http://127.0.0.1:${server.port}/panel/api/state`)).json()) as { bots: { name: string; signIn?: { provider: string; name: string; reason: string } }[] }).bots;
 	try {
 		assert.deepEqual((await state()).map((b) => b.signIn), [undefined, undefined], "a working sign-in marks nothing");

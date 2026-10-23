@@ -7,10 +7,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createCore, type Core } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; url: string; path: string };
+type Gw = { core: Core; server: GatewayServer; url: string; path: string };
 
 async function gateway(root: string, name: string, bots: string): Promise<Gw> {
 	const dir = join(root, name);
@@ -18,7 +18,7 @@ async function gateway(root: string, name: string, bots: string): Promise<Gw> {
 	const path = join(dir, "config.yaml");
 	writeFileSync(path, `server:\n  host: 127.0.0.1\n  port: 0\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\nbots:\n${bots}`);
 	const core = await createCore(loadConfig(path), { models: fauxModels().models });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, url: `http://127.0.0.1:${server.port}`, path };
 }
 

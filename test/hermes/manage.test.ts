@@ -10,7 +10,7 @@ import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { createCore } from "../../src/app.ts";
 import { pdftoppmInstalled } from "../../src/core/attachments.ts";
 import { loadConfig } from "../../src/config.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { logger, setLogLevel } from "../../src/log.ts";
 import { collect, fauxModels, pngBytes, TOKEN, tempDir } from "../helpers.ts";
 
@@ -41,7 +41,7 @@ async function setup(opts: { managed?: boolean } = {}) {
 	const { models, faux } = fauxModels();
 	let restarts = 0;
 	const core = await createCore(loadConfig(path), { models, updates: { codeDir: code, installPackages: () => {}, restart: () => void restarts++, managed: opts.managed ?? true } });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const base = `http://127.0.0.1:${server.port}`;
 	const api = async (method: string, p: string, body?: unknown) => {
 		const res = await fetch(`${base}${p}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });

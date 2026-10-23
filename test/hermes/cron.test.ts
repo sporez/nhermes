@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { TOKEN, tempDir, testCore } from "../helpers.ts";
 import { HermesClient } from "./client.ts";
 
@@ -13,7 +13,7 @@ test("cron REST surface", async () => {
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const core = await testCore(dir, { models });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	const url = `http://127.0.0.1:${server.port}`;
 	const h = { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" };
 	const call = async (method: string, path: string, body?: unknown) => {

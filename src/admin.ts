@@ -13,7 +13,7 @@ import type { BotPatch, GatewayPatch } from "./core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "./federation/logins.ts";
 import { mcpAction, mcpCall, mcpDetail, mcpEdit, mcpList, mcpPatch } from "./mcp/manage.ts";
 import { PanelAuth } from "./panel/auth.ts";
-import { HttpError, obj, Router } from "./hermes/http.ts";
+import { HttpError, obj, Router } from "./http.ts";
 import { logger } from "./log.ts";
 
 const log = logger("admin");

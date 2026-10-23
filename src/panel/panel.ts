@@ -22,7 +22,7 @@ import type { BotPatch, GatewayPatch } from "../core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "../federation/logins.ts";
 import { LinkError } from "../federation/link.ts";
 import { FederationError } from "../federation/members.ts";
-import { HttpError, obj, readJson, Router, sendJson } from "../hermes/http.ts";
+import { HttpError, obj, readJson, Router, sendJson } from "../http.ts";
 import { logger } from "../log.ts";
 import { MemoryAccessError } from "../memory/memory.ts";
 import { mcpAction, mcpDetail, mcpEdit, mcpList, mcpPatch } from "../mcp/manage.ts";

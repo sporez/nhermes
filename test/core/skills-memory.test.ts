@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { MemoryAccessError } from "../../src/memory/memory.ts";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
@@ -61,7 +61,7 @@ test("skills: per-bot and opted-in global skills are active; the skill tool load
 		assert.match(jobPrompt, /release-notes/);
 
 		// Vory's Skills screen: list per bot, toggle, and the change persists as a bot override.
-		const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+		const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 		try {
 			const h = { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" };
 			const url = `http://127.0.0.1:${server.port}`;

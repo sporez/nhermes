@@ -8,7 +8,7 @@ import { adminRoutes, restoreBackup } from "./admin.ts";
 import { createCore } from "./app.ts";
 import { ConfigError, loadConfig, NODE_NAME } from "./config.ts";
 import { federationAdminRoutes } from "./federation/routes.ts";
-import { startHermesServer } from "./hermes/server.ts";
+import { startServer } from "./server.ts";
 import { logger } from "./log.ts";
 
 const log = logger("cli");
@@ -96,7 +96,7 @@ async function serve(configPath: string): Promise<void> {
 	// After a software update the gateway exits with 75; systemd (Restart=on-failure) and launchd (KeepAlive) start it again.
 	let restart: () => void = () => {};
 	const core = await createCore(config, { updates: { restart: () => restart() } });
-	const server = await startHermesServer(core, { host: config.server.host, port: config.server.port, federationPort: config.server.federationPort, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
+	const server = await startServer(core, { host: config.server.host, port: config.server.port, federationPort: config.server.federationPort, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
 	core.members.start(() => core.roster.sync());
 	core.updates.start();

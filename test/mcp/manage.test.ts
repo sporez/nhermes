@@ -10,7 +10,7 @@ import { adminRoutes } from "../../src/admin.ts";
 import { createCore } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
 import { runDoctor } from "../../src/core/doctor.ts";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 import { closedPort, FakeMcpServer } from "./server.ts";
 
@@ -25,7 +25,7 @@ async function setup(extra = "") {
 	writeFileSync(path, `server:\n  host: 127.0.0.1\n  port: 0\ndefaults:\n  model: faux/faux-1\nbots:\n  - name: main\n    default: true\n    tools: [memory]\n${extra}`);
 	const { models } = fauxModels();
 	const core = await createCore(loadConfig(path), { models, mcpTuning: { probeGapMs: 0, backoffBaseMs: 20, backoffCapMs: 80 } });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const base = `http://127.0.0.1:${server.port}`;
 	const send = async (url: string, method: string, body: unknown, headers: Record<string, string>) => {
 		const res = await fetch(url, { method, headers: { ...(method === "GET" ? {} : { "content-type": "application/json" }), ...headers }, body: method === "GET" ? undefined : JSON.stringify(body ?? {}) });

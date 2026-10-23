@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import { registerSecret } from "../../src/log.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { TOKEN, tempDir, testCore } from "../helpers.ts";
 import { type Ev, HermesClient } from "./client.ts";
 
@@ -13,14 +13,14 @@ const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning
 const models = createModels();
 models.setProvider(faux.provider);
 let core: Core;
-let server: HermesServer;
+let server: GatewayServer;
 let cleanup: () => Promise<void>;
 
 before(async () => {
 	const t = await tempDir();
 	cleanup = t.cleanup;
 	core = await testCore(t.dir, { models });
-	server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	server = await startServer(core, { host: "127.0.0.1", port: 0 });
 });
 
 after(async () => {

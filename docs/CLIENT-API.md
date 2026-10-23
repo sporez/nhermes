@@ -224,7 +224,7 @@ with its docs.
 - [x] **A0 Contract.** Turn the Design section into `docs/API.md` (resources, events, ops, errors,
   evolution rules). Add an upstream test that pins what the turn shape relies on: tool results'
   `durationMs`/`isError`, message timestamps, and appending a bookkeeping entry when a run ends.
-- [ ] **A1 Foundation.** `src/server.ts` (move the listeners out of `hermes/`), `/api/v1` mount, Bearer
+- [x] **A1 Foundation.** `src/server.ts` (move the listeners out of `hermes/`), `/api/v1` mount, Bearer
   auth, errors, the op table with HTTP and WebSocket dispatch, hello and features, the event envelope,
   `test/api/client.ts`. Tests: auth (401 and close 4401), unknown op, the same op over both transports.
 - [ ] **A2 Chat.** Bots (read), sessions (list, get, search, patch, delete, create), turns history,

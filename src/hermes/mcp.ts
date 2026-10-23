@@ -6,7 +6,7 @@
 import type { Core } from "../app.ts";
 import { mcpAction, mcpServerView, UnknownMcpServer } from "../mcp/manage.ts";
 import { call } from "./manage.ts";
-import { HttpError, obj, type Router } from "./http.ts";
+import { HttpError, obj, type Router } from "../http.ts";
 import { botFor, localOnly } from "./lookup.ts";
 
 export function mcpVoryRoutes(core: Core, r: Router): void {

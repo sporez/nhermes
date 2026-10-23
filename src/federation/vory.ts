@@ -5,7 +5,7 @@
 // (its panel: Network), as the panel's remote bot editor requires.
 import type { Core } from "../app.ts";
 import type { Bot } from "../core/bots.ts";
-import { HttpError, obj, type Req, Router } from "../hermes/http.ts";
+import { HttpError, obj, type Req, Router } from "../http.ts";
 import { restRoutes } from "../hermes/rest.ts";
 import { logger } from "../log.ts";
 import { ownBots } from "../panel/views.ts";

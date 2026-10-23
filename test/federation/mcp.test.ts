@@ -9,11 +9,11 @@ import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { createCore, type Core } from "../../src/app.ts";
 import { loadConfig } from "../../src/config.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { collect, TOKEN, tempDir } from "../helpers.ts";
 import { FakeMcpServer } from "../mcp/server.ts";
 
-type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; url: string; path: string };
+type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; url: string; path: string };
 
 async function gateway(root: string, name: string, yaml: string): Promise<Gw> {
 	const dir = join(root, name);
@@ -24,7 +24,7 @@ async function gateway(root: string, name: string, yaml: string): Promise<Gw> {
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const core = await createCore(loadConfig(path), { models, mcpTuning: { probeGapMs: 0, backoffBaseMs: 20, backoffCapMs: 80 } });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, url: `http://127.0.0.1:${server.port}`, path };
 }
 

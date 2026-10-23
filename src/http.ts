@@ -1,6 +1,6 @@
-// Minimal HTTP plumbing for the Hermes REST surface: JSON bodies, errors, a tiny router.
+// Minimal HTTP plumbing shared by the routes: JSON bodies, errors, a tiny router.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { MemberRow } from "../federation/members.ts";
+import type { MemberRow } from "./federation/members.ts";
 
 export class HttpError extends Error {
 	readonly status: number;

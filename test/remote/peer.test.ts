@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { startHermesServer } from "../../src/hermes/server.ts";
+import { startServer } from "../../src/server.ts";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
 test("delegating to a peer gateway: answer, relayed approval, reconnect without duplicates", async () => {
@@ -15,7 +15,7 @@ test("delegating to a peer gateway: answer, relayed approval, reconnect without 
 	const pm = createModels();
 	pm.setProvider(pf.provider);
 	const peerCore = await testCore(join(dir, "peer"), { models: pm, config: testConfig(join(dir, "peer"), [{ name: "nasbot", default: true, instructions: "You run on the NAS." }]) });
-	const peer = await startHermesServer(peerCore, { host: "127.0.0.1", port: 0 });
+	const peer = await startServer(peerCore, { host: "127.0.0.1", port: 0 });
 	process.env.TEST_PEER_TOKEN = TOKEN;
 	// What the central gateway sends in its WebSocket upgrade: the token is in a header, not in the URL.
 	const upgrades: { url: string | undefined; authorization: string | undefined }[] = [];

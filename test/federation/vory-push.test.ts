@@ -8,12 +8,12 @@ import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Push = { kind: string; title: string; body: string; hermes: Record<string, string> };
-type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; port: number; pushes: Push[]; live: string[] };
+type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number; pushes: Push[]; live: string[] };
 
 const KEY = randomBytes(32).toString("base64");
 
@@ -40,7 +40,7 @@ async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw
 		return new Response("{}", { status: 200 });
 	}) as typeof fetch;
 	const core = await testCore(d, { models, voryFetch, config: testConfig(d, bots, { node: { name } }) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, port: server.port, pushes, live };
 }
 

@@ -5,7 +5,7 @@
 import type { Core } from "../app.ts";
 import { CREDENTIAL_HEADER, cleartextRemote, ConfigError, type McpServerConfig, secretRefs } from "../config.ts";
 import type { McpServerPatch } from "../core/settings.ts";
-import { HttpError } from "../hermes/http.ts";
+import { HttpError } from "../http.ts";
 import { redact } from "../log.ts";
 import { exposed, isReadOnly, MANY_TOOLS, mcpToolName } from "../tools/mcp.ts";
 

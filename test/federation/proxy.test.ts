@@ -7,11 +7,11 @@ import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { pngBytes, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; faux: ReturnType<typeof fauxProvider>; port: number };
+type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
 async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw> {
 	const d = join(dir, name);
@@ -19,7 +19,7 @@ async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const core = await testCore(d, { models, config: testConfig(d, bots, { node: { name } }) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, port: server.port };
 }
 

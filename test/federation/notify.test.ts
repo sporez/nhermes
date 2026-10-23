@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Core, LateServices } from "../../src/app.ts";
 import { registerSecret } from "../../src/log.ts";
-import { type HermesServer, startHermesServer } from "../../src/hermes/server.ts";
+import { type GatewayServer, startServer } from "../../src/server.ts";
 import { type Notification, type Notifier, NotifyError } from "../../src/notify/notifier.ts";
 import { scheduleFeature } from "../../src/tools/schedule.ts";
 import { tempDir, testConfig, testCore } from "../helpers.ts";
 
-type Gw = { core: Core; server: HermesServer; sent: Notification[] };
+type Gw = { core: Core; server: GatewayServer; sent: Notification[] };
 
 class Recorder implements Notifier {
 	readonly name = "recorder";
@@ -25,7 +25,7 @@ async function gateway(dir: string, name: string, bot: string, transport: boolea
 	const d = join(dir, name);
 	const rec = new Recorder();
 	const core = await testCore(d, { ...(transport ? { notifier: rec } : {}), config: testConfig(d, [{ name: bot, default: true }], { node: { name } }) });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port: 0 });
+	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, sent: rec.sent };
 }
 

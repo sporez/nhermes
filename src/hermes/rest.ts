@@ -3,14 +3,15 @@
 import type { Core } from "../app.ts";
 import { GROUP_LABELS } from "../tools/index.ts";
 import { LinkError } from "../federation/link.ts";
-import { HttpError, obj, type Req, Router } from "./http.ts";
+import { HttpError, obj, type Req, Router } from "../http.ts";
 import { botFor, localOnly } from "./lookup.ts";
 import { call, manageRoutes } from "./manage.ts";
 import { mcpVoryRoutes } from "./mcp.ts";
 import { JobError, type JobInput } from "../core/scheduler.ts";
 import type { SessionKind } from "../core/sessions.ts";
 import { VoryPushError } from "../notify/vory.ts";
-import { cronJobJson, cronRunJson, profileJson, storedSession, VERSION } from "./shapes.ts";
+import { VERSION } from "../version.ts";
+import { cronJobJson, cronRunJson, profileJson, storedSession } from "./shapes.ts";
 
 
 /** A member that cannot be reached answers 502 with the reason. */
