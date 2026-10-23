@@ -260,23 +260,23 @@ Work happens in the app repository, against a gateway built from phase A (the ap
 pointed at a current gateway source). The app keeps building and working on both platforms after every
 step.
 
-- [ ] **C1 Transport.** `RESTClient` on `/api/v1` with Bearer auth and the error object;
+- [x] **C1 Transport.** `RESTClient` on `/api/v1` with Bearer auth and the error object;
   `GatewaySocket` with the new frames, hello, server pings and features; reconnect and backoff unchanged.
-- [ ] **C2 Wire types.** Bot, Session, Turn and items, Approval, Job, Room, MCP and Usage types from
+- [x] **C2 Wire types.** Bot, Session, Turn and items, Approval, Job, Room, MCP and Usage types from
   `docs/API.md`, with tolerant enums. `ContractTests` read the fixtures from A7.
-- [ ] **C3 Chat.** `ConversationStore` applies the turn and item events; history loads as turns.
+- [x] **C3 Chat.** `ConversationStore` applies the turn and item events; history loads as turns.
   Deleted: `TranscriptBuilder`'s failure guessing, closing reply parts on `tool.start`, replacing the
   reply with `message.complete.text`, the `Failed:` prefix. "Worked 11s" and step durations come from the
   gateway, for history too.
-- [ ] **C4 Approvals and change events.** Approvals from the global events; deleted: subscribing to every
+- [x] **C4 Approvals and change events.** Approvals from the global events; deleted: subscribing to every
   running chat to catch approvals, re-reading `approval.pending`. Lists update from the objects in change
   events instead of refetching.
-- [ ] **C5 Attachments.** Binary uploads, withdraw on discard, any file opens from history. Deleted:
+- [x] **C5 Attachments.** Binary uploads, withdraw on discard, any file opens from history. Deleted:
   `AttachmentMarks`, the `@file:` line in prompts.
-- [ ] **C6 Everything else.** Bots with `node` (no name parsing), model picker with thinking levels, chat
+- [x] **C6 Everything else.** Bots with `node` (no name parsing), model picker with thinking levels, chat
   settings through `PATCH`, Scheduled on `/jobs`, MCP settings, search, commands, MacBridge cards from
   `result.json` where present (the text path stays for servers without it).
-- [ ] **C7 Test harness and docs.** `TestServer` on the new API (its verify scripts too), the app's
+- [x] **C7 Test harness and docs.** `TestServer` on the new API (its verify scripts too), the app's
   `README.md` and `docs/CAPABILITIES.md` rewritten, the limitations that no longer apply removed.
 - [ ] **C8 Parity check.** The checklist below on the Mac and the iOS simulator against `TestServer`,
   then read-only against the owner's gateways.
@@ -353,3 +353,11 @@ Settled with the owner before A0.
 - A5 `68e5951` (two workers: bot settings and MCP; gateway upkeep), `c3ea182` (`bots.changed`).
 - A6 `056589b`: group chats with the log pushed live. A8 `49ddb7a`: replay on reconnect.
 - A7: `scripts/api-fixtures.ts`, the API reference complete in `docs/API.md`, `docs/OPERATIONS.md`.
+- C1-C7 (app repository `c85dd06`, `ac89a34`; the views by a worker): NHermesKit on `/api/v1`, 93 package tests,
+  9 Mac and 16 iOS app tests, Mac Debug and Release and iOS builds. The harness's verify scripts pass on both test
+  gateways.
+- C8 so far, against `TestServer` with the Mac locked: on the Mac (debug hooks and state dumps) a multi-step run,
+  approvals once and deny, a member's bot and an approval on the member, attachments, stop, history after a
+  relaunch; on the iPhone simulator (screenshots) durations in an older chat, attachments from history, an approval
+  answered on the Mac leaving the phone. Open: dark mode, iPad, split view and Quick Entry by eye; the owner's
+  gateways, which need the new gateway deployed first.
