@@ -27,6 +27,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { withCardNotes } from "../core/cards.ts";
 import { logger } from "../log.ts";
 import { imageTokens } from "./image-tokens.ts";
 
@@ -173,7 +174,8 @@ export class Engine {
 		const conv = await this.conv(id);
 		const page = await conv.entries({ minEntryId: entryId as EntryRecord["id"], maxEntryId: entryId as EntryRecord["id"] }, 1, undefined, ctx);
 		const msg = page.items[0]?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
-		return (msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+		// Cards shown with the answer read as their captions: this text goes where cards are not drawn.
+		return withCardNotes((msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join(""), msg?.content);
 	}
 
 	async abort(id: ConvId): Promise<void> {

@@ -173,7 +173,9 @@ only on a kept, non-error structured result and after the 20 KB cut; `show` reso
 transcript, narrowing with `only`, plain errors for an unknown handle, a result without card data, `only`
 matching nothing and a handle two results share; the run ending with the reply that shows the card (no further
 model call) while a batch with other tools continues; the card as the same turn item live (`item.started` and
-`item.finished`, no tool step for `show`) and in history. `scripts/api-fixtures.ts` writes `events-card.jsonl` and `turns-card.json`. Not verified: with a
+`item.finished`, no tool step for `show`) and in history; captions in a run's text, an answer's text and the
+transcript rows, and in a delegation's report from a local bot and from a peer gateway's bot
+(`test/remote/peer.test.ts`). `scripts/api-fixtures.ts` writes `events-card.jsonl` and `turns-card.json`. Not verified: with a
 real MacBridge server and a real model, or in the app.
 
 ## MCP servers

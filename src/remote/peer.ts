@@ -4,6 +4,7 @@
 // there is idempotent (the submission's requestId becomes the other machine's Durable request id) and
 // survives a dropped connection: the client reconnects and follows the remote chat again. Approval requests
 // from the other machine are handed to a callback (this gateway asks its owner) and answered there.
+import { cardNote } from "../core/cards.ts";
 import { logger } from "../log.ts";
 import type { ApiEvent } from "../api/socket.ts";
 import { ApiClient, type GatewayTarget, RemoteError } from "./api-client.ts";
@@ -17,7 +18,7 @@ export type PeerTarget = GatewayTarget & { profile?: string };
 export type PeerApprovalRequest = { toolName: string; command: string; description: string; patternKey: string };
 export type PeerApproval = (request: PeerApprovalRequest) => Promise<"once" | "session" | "always" | "deny">;
 
-type RemoteTurn = { id: string; status: string; error?: string; items: { type: string; text?: string }[] };
+type RemoteTurn = { id: string; status: string; error?: string; items: { type: string; text?: string; caption?: string }[] };
 
 const machineOf = (t: PeerTarget) => {
 	try {
@@ -27,9 +28,9 @@ const machineOf = (t: PeerTarget) => {
 	}
 };
 
-/** The reply text of a turn: its reply parts, as the run's answer. */
+/** The reply text of a turn: its reply parts, as the run's answer, and the captions of the cards it showed. */
 function answerOf(turn: RemoteTurn | undefined): string | undefined {
-	const parts = turn?.items.filter((i) => i.type === "text" && i.text).map((i) => i.text!) ?? [];
+	const parts = turn?.items.flatMap((i) => (i.type === "text" && i.text ? [i.text] : i.type === "card" && i.caption ? [cardNote(i.caption)] : [])) ?? [];
 	return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 

@@ -6,6 +6,7 @@
 // reach the owner the same way a local bot's do, and the answer goes back.
 import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
+import { cardNote } from "../core/cards.ts";
 import type { Hub } from "../core/events.ts";
 import type { SessionRow, Sessions } from "../core/sessions.ts";
 import { logger } from "../log.ts";
@@ -217,8 +218,9 @@ export class MemberChats {
 				this.setRunning(id, true);
 				break;
 			case "item.finished": {
-				const item = e.data.item as { type?: string; text?: string };
+				const item = e.data.item as { type?: string; text?: string; caption?: string };
 				if (item.type === "text" && item.text) this.replies.get(id)?.push(item.text);
+				else if (item.type === "card" && item.caption) this.replies.get(id)?.push(cardNote(item.caption));
 				break;
 			}
 			case "turn.finished": {

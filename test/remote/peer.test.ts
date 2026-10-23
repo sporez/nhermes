@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-durable";
+import { cardableLine, cardHandle } from "../../src/core/cards.ts";
 import { startServer } from "../../src/server.ts";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
@@ -73,5 +75,55 @@ test("delegating to a peer gateway: answer, relayed approval, reconnect without 
 		await peerCore.close();
 		await cleanup();
 		delete process.env.TEST_PEER_TOKEN;
+	}
+});
+
+test("a card the peer's bot showed reaches the delegating bot as its caption", async () => {
+	const { dir, cleanup } = await tempDir();
+	const pf = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 300 });
+	const pm = createModels();
+	pm.setProvider(pf.provider);
+	const probe = defineTool({
+		name: "probe",
+		description: "returns a list",
+		parameters: Type.Object({}),
+		replay: "safe",
+		execute: async (_args, api) => ({ output: [{ type: "text" as const, text: `one item\n\n${cardableLine(api.callId)}` }], details: { structured: { items: [{ id: "i1", title: "Milk" }] } } }),
+	});
+	const peerCore = await testCore(join(dir, "peer"), {
+		models: pm,
+		config: testConfig(join(dir, "peer"), [{ name: "nasbot", default: true, instructions: "You run on the NAS.", tools: ["cards", "probe"] }]),
+		features: () => [{ groups: new Map([["probe", [probe]]]) }],
+	});
+	const peer = await startServer(peerCore, { host: "127.0.0.1", port: 0 });
+	process.env.TEST_PEER_TOKEN = TOKEN;
+	const c = fauxModels();
+	const central = await testCore(join(dir, "central"), {
+		models: c.models,
+		config: testConfig(join(dir, "central"), [
+			{ name: "main", default: true, instructions: "main" },
+			{ name: "nas", description: "Agent on the NAS", peer: { url: `http://127.0.0.1:${peer.port}`, tokenEnv: "TEST_PEER_TOKEN", profile: "nasbot" } },
+		]),
+	});
+	try {
+		const s = await central.sessions.create("main");
+		const ev = collect(central.hub, s.id);
+		c.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "nas", task: "list it" }, { id: "call_delegate" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Shown.")]),
+		]);
+		pf.setResponses([
+			fauxAssistantMessage([fauxToolCall("probe", {}, { id: "call_probe" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Here is the list."), fauxToolCall("show", { from: cardHandle("call_probe"), caption: "Shopping: 1 item" })], { stopReason: "toolUse" }),
+		]);
+		await central.sessions.submit(s.id, "ask the NAS agent");
+		await ev.until((e) => e.type === "run.finished", 30000);
+		const tool = ev.events.find((e) => e.type === "tool.finished" && e.name === "delegate");
+		assert.ok(tool?.type === "tool.finished" && /answered .*Here is the list\.\n\n\[Card: Shopping: 1 item\]$/s.test(tool.resultText), JSON.stringify(tool));
+	} finally {
+		await central.close();
+		await peer.close();
+		await peerCore.close();
+		await cleanup();
 	}
 });

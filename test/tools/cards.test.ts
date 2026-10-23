@@ -4,8 +4,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { cardHandle, findCardSource, narrowCardData } from "../../src/core/cards.ts";
+import { fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-durable";
+import { cardableLine, cardHandle, cardNotesOf, findCardSource, narrowCardData, withCardNotes } from "../../src/core/cards.ts";
 import type { SessionEvent } from "../../src/core/events.ts";
 import type { EntryRecord } from "../../src/engine/engine.ts";
 import { collect, fauxModels, mcpServerConfig, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -96,6 +97,14 @@ test("show with the reply puts a filtered card on screen and ends the run with n
 		assert.ok(finished.type === "item.finished" && finished.item.type === "card");
 		const { at: _at, ...liveCard } = finished.item;
 		assert.deepEqual(liveCard, card);
+		// The run's text carries the caption where cards are not drawn.
+		assert.equal(r.done.text, "Two things today.\n\n[Card: Today: 2 events]");
+		// The text of the answer (job summaries, group chats) and the transcript rows do too.
+		const conv = s.core.sessions.require(r.session.id).conversation_id;
+		const entries = await s.core.engine.entries(conv);
+		const answer = entries.find((e) => (e.model?.[0] as { role?: string; content?: { name?: string }[] } | undefined)?.content?.some?.((b) => b.name === "show"));
+		assert.equal(await s.core.engine.answerText(conv, answer!.id as number), "Two things today.\n\n[Card: Today: 2 events]");
+		assert.ok((await s.core.sessions.rows(r.session.id)).some((row) => row.role === "tool" && row.name === "show" && row.text === "[Card: Today: 2 events]"));
 	} finally {
 		await s.cleanup();
 	}
@@ -166,4 +175,46 @@ test("two results in a chat with the same handle are refused", () => {
 	const result = (id: string) => ({ id: 1, model: [{ role: "toolResult", toolCallId: id, details: { structured: { items: [] } } }] }) as unknown as EntryRecord;
 	assert.throws(() => findCardSource([result(pair[0]), result(pair[1])], cardHandle(pair[0])), /more than one result/);
 	assert.equal(findCardSource([result(pair[0])], cardHandle(pair[0])).source.item, pair[0]);
+});
+
+test("captions stand in for cards in a reply's text", () => {
+	const content = [{ type: "text", text: "Done." }, { type: "toolCall", id: "x", name: "show", arguments: { from: "c1", caption: " Groceries: 5 reminders " } }, { type: "toolCall", id: "y", name: "bash", arguments: { caption: "no" } }];
+	assert.deepEqual(cardNotesOf(content), ["[Card: Groceries: 5 reminders]"]);
+	assert.equal(withCardNotes("Done.", content), "Done.\n\n[Card: Groceries: 5 reminders]");
+	assert.equal(withCardNotes("Done.", [{ type: "text", text: "Done." }]), "Done.");
+});
+
+// A tool that keeps structured data and offers it as a card, for the chats below.
+const probe = defineTool({
+	name: "probe",
+	description: "returns a list",
+	parameters: Type.Object({}),
+	replay: "safe",
+	execute: async (_args, api) => ({ output: [{ type: "text" as const, text: `one item\n\n${cardableLine(api.callId)}` }], details: { structured: { items: [{ id: "i1", title: "Milk" }] } } }),
+});
+
+test("a delegated bot's card reaches the caller as its caption", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const config = testConfig(dir, [
+		{ name: "main", default: true, instructions: "main", tools: ["delegate"] },
+		{ name: "ops", instructions: "ops", tools: ["cards", "probe"] },
+	]);
+	const core = await testCore(dir, { models, config, features: () => [{ groups: new Map([["probe", [probe]]]) }] });
+	try {
+		const s = await core.sessions.create("main");
+		const c = collect(core.hub, s.id);
+		faux.setResponses([
+			fauxAssistantMessage([tool("delegate", { bot: "ops", task: "list it" }, "call_delegate")], { stopReason: "toolUse" }),
+			ask(tool("probe", {}, "call_probe")), // ops
+			fauxAssistantMessage([fauxText("Here is the list."), tool("show", { from: cardHandle("call_probe"), caption: "Shopping: 1 item" }, "call_show")], { stopReason: "toolUse" }), // ops, ends its run
+			fauxAssistantMessage([fauxText("Ops showed it.")]),
+		]);
+		await core.sessions.submit(s.id, "ask ops");
+		await c.until((e) => e.type === "run.finished", 10000);
+		assert.match(resultText(c.events, "call_delegate"), /ops answered .*:\n\nHere is the list\.\n\n\[Card: Shopping: 1 item\]$/s);
+	} finally {
+		await core.close();
+		await cleanup();
+	}
 });

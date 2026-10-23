@@ -113,7 +113,8 @@ Calendar, Reminders and Contacts results from MacBridge (or any MCP server that 
 appear in the app as cards. Which ones is the bot's choice: its `cards` tool group (on by default; a bot with an
 explicit `tools:` list needs `cards` added) gives it the `show` tool, and each result that can be a card ends
 with a line giving its handle. The owner sees the card with the bot's reply, and the bot is told what was shown,
-so it does not repeat it. Cards need an app that
+so it does not repeat it. Where the app cannot draw a card (a notification, a scheduled task's summary, another
+bot's report, a group chat), the card's caption stands in for it as `[Card: <caption>]`. Cards need an app that
 lists `cards` in the hello's `features` (`docs/API.md` "Cards").
 
 ### Group chats

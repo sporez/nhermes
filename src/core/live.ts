@@ -8,7 +8,7 @@
 import type { AgentEvent, ConvId, Engine, EngineWatch, EntryRecord } from "../engine/engine.ts";
 import { logger, redact } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
-import { type CardDetails, SHOW_TOOL } from "./cards.ts";
+import { type CardDetails, cardNote, SHOW_TOOL } from "./cards.ts";
 import { textOf, toolPreview, userDisplay } from "./transcript.ts";
 import { cardItem, type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
 
@@ -390,6 +390,7 @@ export class LiveSession {
 		const text = m ? textOf(m.content) : "";
 		if (pending && m && !m.isError && m.details?.card) {
 			const card = cardItem(callId, m.timestamp ?? Date.now(), JSON.parse(redact(JSON.stringify(m.details.card))) as CardDetails);
+			this.runParts.push(cardNote(card.caption));
 			this.emit({ type: "item.started", turnId: turn, item: card });
 			this.emit({ type: "item.finished", turnId: turn, item: card });
 			return;

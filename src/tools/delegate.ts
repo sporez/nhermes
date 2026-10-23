@@ -20,6 +20,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
+import { withCardNotes } from "../core/cards.ts";
 import type { Sessions } from "../core/sessions.ts";
 import type { Members } from "../federation/members.ts";
 import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
@@ -49,7 +50,7 @@ function peerTarget(deps: DelegateDeps, target: Bot): PeerTarget {
 }
 
 function textOf(message: AssistantMessage | undefined): string {
-	return (message?.content ?? []).flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
+	return withCardNotes((message?.content ?? []).flatMap((c) => (c.type === "text" ? [c.text] : [])).join(""), message?.content);
 }
 
 function depth(sessions: Sessions, sessionId: string): number {
