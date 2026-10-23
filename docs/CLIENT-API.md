@@ -247,7 +247,7 @@ with its docs.
   `cron.test.ts`, `test/mcp/vory.test.ts`.
 - [x] **A6 Group chats.** Rooms on the new API, with `room.event` pushed live. Tests port
   `test/hermes/groups.test.ts`.
-- [ ] **A7 Fixtures and docs.** `scripts/api-fixtures.ts` runs a throwaway faux-model gateway and records
+- [x] **A7 Fixtures and docs.** `scripts/api-fixtures.ts` runs a throwaway faux-model gateway and records
   real responses and event streams for the app's contract tests (nothing is written into the repo by
   `npm test`). `docs/OPERATIONS.md` (connecting a client), `ARCHITECTURE.md` (the boundary is
   `src/api/`), `docs/STATUS.md`.
@@ -350,3 +350,6 @@ Settled with the owner before A0.
   `/api/v1`; the app's chats with members' bots through `src/federation/chats.ts`. Members' bot settings move
   with A5 (through `/federation/manage/*`). The Hermes-only federation tests (Vory's proxy path, the member
   Hermes socket) stay until D.
+- A5 `68e5951` (two workers: bot settings and MCP; gateway upkeep), `c3ea182` (`bots.changed`).
+- A6 `056589b`: group chats with the log pushed live. A8 `49ddb7a`: replay on reconnect.
+- A7: `scripts/api-fixtures.ts`, the API reference complete in `docs/API.md`, `docs/OPERATIONS.md`.

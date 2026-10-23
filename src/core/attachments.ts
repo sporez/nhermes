@@ -182,7 +182,12 @@ export class Attachments {
 				this.record(sessionId, path, ref.kind, ref.kind === "image" ? (MIME[extname(path).toLowerCase()] ?? "application/octet-stream") : mimeOf(path), size, ref.pages ?? null, true);
 				row = this.rowByPath(sessionId, path);
 			}
-			if (row) ref.id = row.id;
+			if (row) {
+				ref.id = row.id;
+				ref.mime = row.mime;
+				ref.size = row.size;
+				if (row.pages !== null) ref.pages = row.pages;
+			}
 		}
 	}
 

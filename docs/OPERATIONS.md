@@ -1,6 +1,6 @@
 # Operations
 
-One process, `nhermes serve`, owns everything: the Hermes-compatible API, the scheduler, and two
+One process, `nhermes serve`, owns everything: the client API, the Hermes-compatible API, the scheduler, and two
 SQLite files. Tested on Debian 13 (the hermes VM) and macOS.
 
 ## Install with the script (Linux or macOS)
@@ -67,6 +67,15 @@ journalctl --user -u nhermes -f                  # JSON-lines logs, secrets reda
 Rootless Podman works the same way: run `node src/cli.ts serve` in a `node:24-bookworm` image with
 `~/.config/nhermes` and the data directory mounted as volumes, behind a Quadlet `.container` unit.
 The service is a single process; do not run two against one data directory.
+
+## Connect the nHermes app
+
+The nHermes app (Mac, iPhone, iPad) speaks the gateway's own client API at `/api/v1` (`docs/API.md`). In
+its first-run screen or Settings, give the gateway's address (`http://<host>:9119`, the Tailscale name, or an
+HTTPS reverse proxy) and the token (`NHERMES_TOKEN`). The token travels as `Authorization: Bearer`; a wrong
+one gets HTTP 401 / WebSocket close 4401. Keep the port off the internet: use Tailscale or a TLS proxy. Any
+other client can use the same API; `node scripts/api-fixtures.ts <folder>` records sample answers and event
+streams from a throwaway gateway, for a client's tests.
 
 ## Connect Vory
 

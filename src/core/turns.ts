@@ -17,6 +17,8 @@ export type AttachmentRef = {
 	id: string | null;
 	kind: "image" | "pdf" | "file";
 	name: string;
+	mime?: string;
+	size?: number;
 	pages?: number;
 	/** Where it is on the gateway (for looking the id up); never sent to clients. */
 	path?: string;
