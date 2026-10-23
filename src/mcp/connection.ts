@@ -13,6 +13,9 @@
 // - A call on a connection that has been idle is preceded by a ping. A pooled connection to a server that
 //   went away then fails on the ping, not on the call, so the call is not sent on a dead connection (where
 //   a reset would leave its outcome unknown) and is reported as "offline, not sent" instead.
+// - A server that does not declare `tools.listChanged` cannot say its list changed (a stateless server has no
+//   stream to say it on, and its list may follow the access it grants this client), so the idle health check
+//   lists its tools instead of pinging, about once every `healthCheckS`.
 import { type CallToolResult, McpClient, type Tool as McpTool, StreamableHttpTransport } from "@earendil-works/pi-mcp";
 import type { McpServerConfig } from "../config.ts";
 import { logger, redact } from "../log.ts";
@@ -129,6 +132,8 @@ export class McpConnection {
 	private failures = 0;
 	private misses = 0;
 	private lastOkAt = 0;
+	/** When the tool list was last taken from the current client. */
+	private lastListAt = 0;
 	private retryTimer: ReturnType<typeof setTimeout> | undefined;
 	private healthTimer: ReturnType<typeof setTimeout> | undefined;
 	private closed = false;
@@ -204,6 +209,7 @@ export class McpConnection {
 			const tools = await this.track(client, () => client.listTools({ timeoutMs: this.t.connectBudgetMs }));
 			if (this.client !== client || this.closed) return;
 			this.ok();
+			this.lastListAt = Date.now();
 			this.d.onTools(this, this.discovered(client, tools));
 		} catch (error) {
 			const c = classify(error);
@@ -380,6 +386,7 @@ export class McpConnection {
 			const wasOffline = this.stateValue !== "connecting" || this.failures > 0;
 			this.failures = 0;
 			this.ok();
+			this.lastListAt = Date.now();
 			this.lastConnectedAt = Date.now();
 			this.offlineSince = undefined;
 			this.lastError = undefined;
@@ -461,16 +468,28 @@ export class McpConnection {
 
 	/**
 	 * Pings when idle (any successful request counts as a check). `now` pings regardless (before a call, after a
-	 * timeout); a ping that fails outright then counts as the server being unreachable.
+	 * timeout); a ping that fails outright then counts as the server being unreachable. A server that cannot
+	 * announce tool changes has its tools listed instead, once per period, however busy it is.
 	 */
 	private async healthCheck(now: boolean, timeoutMs = this.t.pingTimeoutMs): Promise<void> {
 		const client = this.client;
 		if (!client || this.stateValue !== "online" || this.closed) return;
-		if (!now && Date.now() - this.lastOkAt < this.cfg.healthCheckS * 1000) return this.scheduleHealth();
+		const period = this.cfg.healthCheckS * 1000;
+		const tools = client.serverCapabilities?.tools;
+		const relist = !now && tools !== undefined && tools.listChanged !== true && Date.now() - this.lastListAt >= period;
+		if (!now && !relist && Date.now() - this.lastOkAt < period) return this.scheduleHealth();
 		try {
-			await this.track(client, () => client.ping({ timeoutMs }));
-			if (this.client !== client) return;
-			this.ok();
+			if (relist) {
+				const list = await this.track(client, () => client.listTools({ timeoutMs }));
+				if (this.client !== client || this.closed) return;
+				this.ok();
+				this.lastListAt = Date.now();
+				this.d.onTools(this, this.discovered(client, list));
+			} else {
+				await this.track(client, () => client.ping({ timeoutMs }));
+				if (this.client !== client) return;
+				this.ok();
+			}
 		} catch (error) {
 			if (this.client !== client) return;
 			const c = classify(error);

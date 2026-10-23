@@ -265,7 +265,11 @@ another, and a call waits only on its own server.
   - On every successful (re)connect, if the server declares the `tools` capability.
   - On `notifications/tools/list_changed`.
   - On the panel's Refresh.
-  - No periodic polling. 2026-07-28's `ttlMs` would replace this when we support it.
+  - At the health check, for a server that does not declare `tools.listChanged`: it cannot tell us its
+    list changed (a stateless server has no stream to say it on, and its list may follow the access it
+    grants this client), so its tools are listed instead of a `ping`, about every `healthCheckS`, busy or
+    idle. A server that declares `listChanged` is not polled. 2026-07-28's `ttlMs` would replace this when
+    we support it.
 - **Storage.** In `app.sqlite`, one row per server:
   - URL, time, server info, protocol version, tools as JSON;
   - plus a short change log (last 50 per server) of added, removed and changed tool names. A change
@@ -342,7 +346,7 @@ another, and a call waits only on its own server.
 | Owner interrupt | The Durable abort signal reaches the call. A cancel is sent if it was already sent |
 | Connect attempt | Initialize + list bounded at 10 s; on timeout the attempt's client is closed, which aborts its fetches |
 | On-demand probe | One attempt, 3 s budget, shared by concurrent calls, at most every 5 s |
-| Health check | `ping` every `healthCheckS` while idle and online; 10 s timeout; 2 misses → offline |
+| Health check | `ping` every `healthCheckS` while idle and online (`tools/list` instead, busy or idle, for a server without `tools.listChanged`); 10 s timeout; 2 misses → offline |
 | Before a call | On a connection idle for 1 s or more, one `ping` first (3 s): a pooled connection to a server that went away fails there, so the call is reported "offline, not sent" instead of "may have run" |
 | Backoff | 5 s doubling to 5 min, 50–100 % jitter; 30 min for `needs_key`/`failed`; a config or key change retries at once |
 | Gateway restart mid-call | Durable rule: `unsafe` tools are not rerun, and the model gets `interrupted`. Read-only tools (`replay: "safe"`) rerun |
@@ -420,7 +424,7 @@ mcp:
       exposure: direct              # direct | deferred
       timeoutS: 60
       maxTimeoutS: 300
-      healthCheckS: 60              # 0 turns the idle check off
+      healthCheckS: 60              # 0 turns the idle check (and tool-list polling) off
       tools:
         include: ["*"]              # patterns; default all
         exclude: []

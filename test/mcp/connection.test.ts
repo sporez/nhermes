@@ -227,6 +227,32 @@ test("tools/list_changed refreshes the list; the change log records added, remov
 	}
 });
 
+test("a server that cannot announce tool changes has its list taken again by the health check; one that can is only pinged", async () => {
+	const quiet = await FakeMcpServer.start([{ name: "list_events" }]);
+	quiet.listChanged = false;
+	const announcing = await FakeMcpServer.start([{ name: "a" }]);
+	const s = await setup([mcpServerConfig("cal", quiet.url, { healthCheckS: 0.05 }), mcpServerConfig("other", announcing.url, { healthCheckS: 0.05 })]);
+	try {
+		s.servers.start();
+		await Promise.all([reach(s.servers, "cal", "online"), reach(s.servers, "other", "online")]);
+		// The access the server grants changed, and it says nothing: the next health check finds the new tools.
+		const changed = new Promise<string>((resolve, reject) => {
+			const t = setTimeout(() => reject(new Error("the new tool list never arrived")), 5000);
+			s.servers.onToolsChanged((n) => n === "cal" && (clearTimeout(t), resolve(n)));
+		});
+		quiet.setTools([{ name: "list_events" }, { name: "add_event" }]);
+		assert.equal(await changed, "cal");
+		assert.deepEqual(s.servers.snapshot("cal")?.tools.map((t) => t.name), ["list_events", "add_event"]);
+		assert.deepEqual(s.servers.changes("cal")[0]?.added, ["add_event"]);
+		for (let i = 0; i < 3; i++) await announcing.next("ping");
+		assert.equal(announcing.lists, 1);
+	} finally {
+		await quiet.stop();
+		await announcing.stop();
+		await s.cleanup();
+	}
+});
+
 test("a changed URL is a different server: its old tool list is dropped", async () => {
 	const fake = await FakeMcpServer.start([{ name: "a" }]);
 	const s = await setup([mcpServerConfig("cal", fake.url)]);

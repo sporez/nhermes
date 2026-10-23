@@ -176,7 +176,8 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
   - Connections (`test/mcp/connection.test.ts`): discovery and the snapshot kept across a restart, down at
     startup and used once back (the call's quick reconnect), noticed by the health check and logged once,
     backoff recovery, a server that never answers not holding up another, missing and refused keys,
-    `tools/list_changed` and the change log, a changed URL, a 400 handshake (newer protocol) and the gateway's
+    `tools/list_changed` and the change log, a server without `listChanged` relisted by its health check
+    (2026-10-23), a changed URL, a 400 handshake (newer protocol) and the gateway's
     own URL refused, and call outcomes (expired session resent once; dropped, failed, rejected, timed-out and
     interrupted calls sent exactly once).
   - Config and Settings edits (`test/mcp/config.test.ts`), outcome classification (`test/mcp/outcome.test.ts`).

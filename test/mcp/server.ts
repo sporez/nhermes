@@ -51,6 +51,8 @@ export class FakeMcpServer {
 	/** Answer GET with an SSE stream (true) or 405. */
 	getStream = true;
 	protocolVersion = "2025-11-25";
+	/** Declares `tools.listChanged` and announces `setTools` on the GET stream (true), or neither. */
+	listChanged = true;
 	/** Headers of the last request (to check what the client sent). */
 	lastHeaders: Record<string, string | string[] | undefined> = {};
 	private server: Server | undefined;
@@ -117,10 +119,10 @@ export class FakeMcpServer {
 		this.sessions.clear();
 	}
 
-	/** Replaces the tool list and tells open GET streams (tools/list_changed). */
+	/** Replaces the tool list and tells open GET streams (tools/list_changed), unless `listChanged` is off. */
 	setTools(tools: FakeTool[]): void {
 		this.tools = tools;
-		for (const res of this.streams) res.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/tools/list_changed" })}\n\n`);
+		if (this.listChanged) for (const res of this.streams) res.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/tools/list_changed" })}\n\n`);
 	}
 
 	/** Resolves with the next request of this kind ("call", "cancel", "ping", "initialize", "list", "get"). */
@@ -183,7 +185,7 @@ export class FakeMcpServer {
 			const id = `session-${this.nextSession++}`;
 			this.sessions.add(id);
 			this.events.emit("initialize");
-			this.json(res, { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: this.protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo: { name: "fake-mcp", version: "1.0.0" }, instructions: "Fake server for tests." } }, { "mcp-session-id": id });
+			this.json(res, { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: this.protocolVersion, capabilities: { tools: { listChanged: this.listChanged } }, serverInfo: { name: "fake-mcp", version: "1.0.0" }, instructions: "Fake server for tests." } }, { "mcp-session-id": id });
 			return;
 		}
 		if (!session || !this.sessions.has(session)) {

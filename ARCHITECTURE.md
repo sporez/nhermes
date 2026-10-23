@@ -183,7 +183,8 @@ set up wrong).
   names its servers and the owner's descriptions, never live status.
 - **Tool snapshots**: the last tool list per server is kept in `app.sqlite` (`mcp_snapshots`), so its tools
   are known while it is offline and after a restart, with a log of what changed between lists
-  (`mcp_changes`). A list is taken at every (re)connect and on `notifications/tools/list_changed`. A changed
+  (`mcp_changes`). A list is taken at every (re)connect and on `notifications/tools/list_changed`; a server
+  that does not declare `tools.listChanged` is listed at its health check instead of pinged. A changed
   URL is a different server: its snapshot is dropped.
 - A server URL comes only from the owner's config, never from a model, and may not be this gateway itself;
   redirects are refused so headers never follow one; the client declares no capabilities (no sampling,
