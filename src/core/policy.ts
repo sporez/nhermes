@@ -16,7 +16,10 @@ export type Decision = {
 	onceOnly?: boolean;
 };
 
-/** `trustedAsks: true` patterns are the destructive group: they ask even trusted bots and are never left to a reviewer. */
+/**
+ * `trustedAsks: true` patterns ask even trusted bots. In SHELL_PATTERNS (the destructive group) they also never
+ * reach a reviewer; REVIEWED_PATTERNS are all the reviewer's to answer.
+ */
 type Pattern = { key: string; re: RegExp; description: string; trustedAsks: boolean };
 
 /**
