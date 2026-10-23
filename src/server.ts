@@ -1,9 +1,8 @@
-// The gateway's listeners. The main port serves the panel, the client API (`/api/v1`, src/api/), the
-// Hermes-compatible API Vory uses (src/hermes/) and the admin routes. The client API takes the gateway token
-// as `Authorization: Bearer` only; the Hermes API also takes `X-Hermes-Session-Token` and, on its socket,
-// `?token=`. Wrong or missing: 401 / close 4401. A second listener, the encrypted port, serves only network
-// members over TLS-PSK (src/federation/psk.ts): `/federation/*` and the member WebSockets, identified by the
-// handshake.
+// The gateway's listeners. The main port serves the panel, the client API (`/api/v1`, src/api/), the admin
+// routes the CLI uses, and `/api/health` (no token) for installers and service checks. Everything else takes
+// the gateway token as `Authorization: Bearer`. Wrong or missing: 401 / close 4401. A second listener, the
+// encrypted port, serves only network members over TLS-PSK (src/federation/psk.ts): `/federation/*` and the
+// client API's socket, identified by the handshake.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createTlsServer } from "node:https";
@@ -16,19 +15,15 @@ import { UnknownSession } from "./core/sessions.ts";
 import type { MemberRow } from "./federation/members.ts";
 import { loginRoutes } from "./federation/logins.ts";
 import { manageRoutes } from "./federation/manage.ts";
-import { forwardVory, voryMemberRoutes } from "./federation/vory.ts";
 import { PSK_TLS } from "./federation/psk.ts";
 import { federationRoutes, KEY_CHANGING_PATHS, KEY_CHANGING_PREFIXES, OPEN_FEDERATION_PATHS } from "./federation/routes.ts";
 import { Panel } from "./panel/panel.ts";
 import { API_PREFIX, ClientApi, type ClientApiOptions } from "./api/server.ts";
 import { logger } from "./log.ts";
 import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
-import { restRoutes } from "./hermes/rest.ts";
-import { Connection } from "./hermes/ws.ts";
+import { VERSION } from "./version.ts";
 
 const log = logger("http");
-
-const PUBLIC = new Set(["/api/status", "/api/health"]);
 
 function tokenMatches(given: string | null | undefined, expected: string): boolean {
 	if (!given) return false;
@@ -42,28 +37,20 @@ function bearerToken(req: IncomingMessage): string | null {
 	return typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7) : null;
 }
 
-function requestToken(req: IncomingMessage, url: URL): string | null {
-	const header = req.headers["x-hermes-session-token"];
-	if (typeof header === "string") return header;
-	const auth = req.headers.authorization;
-	if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);
-	return url.searchParams.get("token");
-}
-
 export type GatewayServer = { server: Server; port: number; pskPort: number | null; api: ClientApi; close(): Promise<void>; dropConnections(): void };
 
 /** How many ports up from the default the encrypted listener tries before giving up. */
 const PSK_PORT_TRIES = 10;
 
 /**
- * Extra route sets (the admin API) mounted before the Hermes routes. `federationPort`: the encrypted port
+ * Extra route sets (the admin API) take the gateway token. `federationPort`: the encrypted port
  * as configured (used as given); without it, main port + 1000 or the next free one; null turns it off.
  */
 export async function startServer(core: Core, opts: { host: string; port: number; federationPort?: number | null; extraRouters?: Router[]; api?: ClientApiOptions }): Promise<GatewayServer> {
-	const federation = [federationRoutes(core), manageRoutes(core), loginRoutes(core), voryMemberRoutes(core)];
+	const federation = [federationRoutes(core), manageRoutes(core), loginRoutes(core)];
 	const panel = new Panel(core);
 	const api = new ClientApi(core, opts.api);
-	const routers = [...(opts.extraRouters ?? []), restRoutes(core)];
+	const routers = opts.extraRouters ?? [];
 	const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 	// The handshake identity of each encrypted connection, for its requests.
 	const identities = new WeakMap<object, string>();
@@ -86,6 +73,7 @@ export async function startServer(core: Core, opts: { host: string; port: number
 				return void res.end();
 			}
 		}
+		if (!encrypted && url.pathname === "/api/health" && method === "GET") return sendJson(res, 200, { ok: true, version: VERSION });
 		if (!encrypted && ClientApi.owns(url.pathname)) {
 			if (!tokenMatches(bearerToken(req), core.config.token)) return sendJson(res, 401, { error: { code: "unauthorized", message: "This gateway needs its token (Authorization: Bearer)." } });
 			return api.handle(req, res, url, { kind: "owner" });
@@ -105,7 +93,7 @@ export async function startServer(core: Core, opts: { host: string; port: number
 					// The previous key only keeps links alive during the grace; it cannot change the pair.
 					if ((KEY_CHANGING_PATHS.has(url.pathname) || KEY_CHANGING_PREFIXES.some((p) => url.pathname.startsWith(p))) && core.members.usesReplacedKey(psk!)) throw new HttpError(403, "this connection uses a replaced key; reconnect");
 				}
-			} else if (!PUBLIC.has(url.pathname) && !tokenMatches(requestToken(req, url), core.config.token)) {
+			} else if (!tokenMatches(bearerToken(req), core.config.token)) {
 				throw new HttpError(401, "Unauthorized");
 			}
 			let matched: ReturnType<Router["match"]>;
@@ -116,9 +104,6 @@ export async function startServer(core: Core, opts: { host: string; port: number
 			if (matched === undefined) throw new HttpError(404, "Not Found");
 			if (matched === "method") throw new HttpError(405, "Method Not Allowed");
 			const body = await readJson(req);
-			// Settings of a member's bot are answered by the member that owns it.
-			const forwarded = isFederation ? undefined : await forwardVory(core, method, url, body);
-			if (forwarded !== undefined) return sendJson(res, 200, forwarded);
 			const result = await matched.handler({ method, path: url.pathname, query: url.searchParams, params: matched.params, body, raw: req, member, psk });
 			if (result instanceof RawBody) return sendRaw(res, result);
 			sendJson(res, 200, result ?? {});
@@ -146,23 +131,8 @@ export async function startServer(core: Core, opts: { host: string; port: number
 				api.connect(ws, { kind: "owner" });
 			});
 		}
-		if (url.pathname !== "/api/ws") {
-			socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-			socket.destroy();
-			return;
-		}
-		wss.handleUpgrade(req, socket, head, (ws) => {
-			// A network member drives this gateway's shareable bots, within the limits Connection sets for it.
-			if (psk !== undefined) {
-				const member = core.members.pskMember(psk);
-				if (!member) return void ws.close(4401, "not a member");
-				memberSockets.set(ws, psk);
-				ws.on("close", () => memberSockets.delete(ws));
-				return void new Connection(ws, core, member);
-			}
-			if (tokenMatches(requestToken(req, url), core.config.token)) return void new Connection(ws, core);
-			ws.close(4401, "invalid session token");
-		});
+		socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+		socket.destroy();
 	};
 
 	const server = createServer((req, res) => void handle(req, res));

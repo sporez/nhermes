@@ -115,7 +115,7 @@ function botEditor(bot, ctx) {
 	const recent = effective.recentChats !== undefined && h("input", { type: "number", min: 0, max: 20, step: 1, value: effective.recentChats });
 	const instr = h("textarea", { value: effective.instructions ?? "" });
 	const check = (box, text) => h("label", {}, box, text);
-	const sourceNote = { config: "config.yaml", default: "the built-in default", "soul file": "its SOUL.md file", override: "a change made in Vory" }[effective.instructionsFrom] ?? effective.instructionsFrom;
+	const sourceNote = { config: "config.yaml", default: "the built-in default", "soul file": "its SOUL.md file", override: "a change saved on this gateway" }[effective.instructionsFrom] ?? effective.instructionsFrom;
 
 	const save = () => run(async () => {
 		const patch = {};

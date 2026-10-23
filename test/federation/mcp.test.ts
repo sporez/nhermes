@@ -12,6 +12,7 @@ import { loadConfig } from "../../src/config.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
 import { collect, TOKEN, tempDir } from "../helpers.ts";
 import { FakeMcpServer } from "../mcp/server.ts";
+import { http as v1 } from "../api/client.ts";
 
 type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; url: string; path: string };
 
@@ -42,7 +43,7 @@ async function http(base: string, method: string, path: string, body?: unknown, 
 	return { status: res.status, text, json: JSON.parse(text) as Record<string, any> };
 }
 const panel = (g: Gw, method: string, path: string, body?: unknown) => http(g.url, method, `/panel/api${path}`, body, method === "GET" ? {} : { "x-nhermes-panel": "1" });
-const vory = (g: Gw, method: string, path: string, body?: unknown) => http(g.url, method, path, body, { "X-Hermes-Session-Token": TOKEN });
+const api = (g: Gw) => v1(g.server.port);
 
 async function network(root: string, fake: FakeMcpServer) {
 	process.env.NHERMES_TOKEN = TOKEN;
@@ -103,19 +104,20 @@ test("a member's MCP tools are used by delegating to its bot: the call goes out 
 	}
 });
 
-test("a member's MCP servers are managed from another panel and from Vory once that machine allows bot edits", async () => {
+test("a member's MCP servers are managed from another panel and from the client API once that machine allows bot edits", async () => {
 	const { dir, cleanup } = await tempDir();
 	const fake = await FakeMcpServer.start([{ name: "list_events" }, { name: "add_event" }], { token: "fed-mcp-key-0123456789" });
 	const { a, b } = await network(dir, fake);
 	try {
-		// Off by default: refused, and Vory's toggle for the member's bot too.
+		// Off by default: refused, and the client API's toggle for the member's bot too.
 		const refused = await panel(a, "GET", "/remote/beta/mcp");
 		assert.equal(refused.status, 403);
 		assert.match(refused.json.detail, /does not accept bot edits/);
-		assert.equal((await vory(a, "PUT", "/api/mcp/servers/cal/enabled?profile=nasbot-beta", { enabled: false })).status, 403);
-		const readOnly = await vory(a, "GET", "/api/mcp/servers?profile=nasbot-beta");
-		assert.equal(readOnly.status, 200, "Vory's list is a read, answered either way");
-		assert.deepEqual(readOnly.json.servers.map((s: { name: string; enabled: boolean }) => [s.name, s.enabled]), [["cal", true]]);
+		await assert.rejects(api(a)("PUT /mcp/servers/cal/bots/nasbot-beta", { enabled: false }), (e: { status: number }) => e.status === 403);
+		// Reading and testing need no switch (as Vory could): the client shows the member's servers either way.
+		const read = await api(a)<{ items: { name: string; enabledForBot: boolean }[] }>("GET /mcp/servers", { botId: "nasbot-beta" });
+		assert.deepEqual(read.items.map((x) => x.name), ["cal"]);
+		assert.equal((await api(a)<{ ok: boolean }>("POST /mcp/servers/cal/test", { botId: "nasbot-beta" })).ok, true);
 
 		assert.equal((await panel(b, "PATCH", "/network/settings", { acceptBotEdits: true })).status, 200);
 		const list = await panel(a, "GET", "/remote/beta/mcp");
@@ -138,11 +140,11 @@ test("a member's MCP servers are managed from another panel and from Vory once t
 		assert.equal((await panel(a, "DELETE", "/remote/beta/mcp/notes")).status, 200);
 		assert.deepEqual(b.core.config.mcp.servers.map((s) => s.name), ["cal"]);
 
-		// Vory with the member's bot selected: its toggle changes nasbot on beta.
-		assert.equal((await vory(a, "PUT", "/api/mcp/servers/cal/enabled?profile=nasbot-beta", { enabled: false })).status, 200);
+		// The client API with the member's bot selected: its toggle changes nasbot on beta.
+		await api(a)("PUT /mcp/servers/cal/bots/nasbot-beta", { enabled: false });
 		assert.deepEqual(b.core.bots.get("nasbot")?.toolGroups, []);
-		assert.equal((await vory(a, "GET", "/api/mcp/servers?profile=nasbot-beta")).json.servers[0].enabled, false);
-		assert.equal((await vory(a, "POST", "/api/mcp/servers/cal/test?profile=nasbot-beta")).json.tool_count, 2);
+		assert.equal((await api(a)<{ items: { enabledForBot: boolean }[] }>("GET /mcp/servers", { botId: "nasbot-beta" })).items[0]!.enabledForBot, false);
+		assert.equal((await api(a)<{ toolCount: number }>("POST /mcp/servers/cal/test", { botId: "nasbot-beta" })).toolCount, 2);
 	} finally {
 		await close(a, b);
 		await fake.stop();

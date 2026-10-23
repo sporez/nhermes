@@ -226,11 +226,6 @@ test("usage: totals after a chat, by day and model; one bot; a bot with no chats
 		assert.equal((await g.call<Obj>("GET /gateway/usage", { botId: "ops" })).totals.calls, 0);
 		await assert.rejects(g.call("GET /gateway/usage", { botId: "nobody" }), (e: { code: string }) => e.code === "bot_not_found");
 		await assert.rejects(g.call("GET /gateway/usage", { days: 0 }), (e: { code: string }) => e.code === "invalid_params");
-
-		// The Hermes analytics route answers from the same numbers.
-		const hermes = (await (await fetch(`http://127.0.0.1:${g.server.port}/api/analytics/usage?days=7&profile=main`, { headers: { "X-Hermes-Session-Token": TOKEN } })).json()) as Obj;
-		assert.equal(hermes.totals.total_api_calls, all.totals.calls);
-		assert.equal(hermes.totals.total_input, all.totals.input);
 	} finally {
 		await app.close();
 		await g.close();
@@ -345,8 +340,6 @@ test("software and actions: status, check, update and restart (running until a n
 		await assert.rejects(g.call("POST /actions", { kind: "rollback" }), (e: { code: string }) => e.code === "invalid_params");
 		await assert.rejects(g.call("POST /actions", {}), (e: { code: string }) => e.code === "invalid_params");
 		await assert.rejects(g.call("GET /actions/nope"), (e: { code: string }) => e.code === "not_found");
-		// The Hermes status of the same machinery is unchanged.
-		assert.equal(((await (await fetch(`http://127.0.0.1:${g.server.port}/api/actions/doctor/status`, { headers: { "X-Hermes-Session-Token": TOKEN } })).json()) as Obj).running, false);
 	} finally {
 		await g.close();
 	}

@@ -1,6 +1,8 @@
 // Uploads on the client API: bytes in, an id back; a message names what goes with it; one can be taken back
 // before sending; any of them opens later, from history, old chats included.
 import assert from "node:assert/strict";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
@@ -147,11 +149,12 @@ test("too large is refused before it is kept; a picture the gateway cannot read 
 test("a chat from before uploads had ids: its pictures get one when the history is read, and open", async () => {
 	const { c, sid } = await chat();
 	const png = pngBytes(9, 9);
-	await core.attachments.image(sid, png.toString("base64"), "old.png");
+	const old = join(realpathSync(core.bots.require("main").workspace), "uploads", "old.png");
+	mkdirSync(dirname(old), { recursive: true });
+	writeFileSync(old, png);
 	faux.setResponses([fauxAssistantMessage("ok")]);
-	await core.attachments.submit(sid, "", (content) => core.sessions.submit(sid, content));
+	await core.sessions.submit(sid, `[Image attached at: ${old}]`);
 	await c.waitEvent(finished(sid));
-	core.db.run("DELETE FROM attachments WHERE session_id = ?", sid);
 	const turn = (await http(server.port)<{ items: Turn[] }>(`GET /sessions/${sid}/turns`)).items.at(-1)!;
 	const a = turn.user.content.find((b) => b.type === "attachment")!.attachment!;
 	assert.match(a.id, /^a[0-9a-f]{16}$/);

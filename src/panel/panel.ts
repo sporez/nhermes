@@ -21,7 +21,7 @@ import { UpdateError } from "../core/updates.ts";
 import type { BotPatch, GatewayPatch } from "../core/settings.ts";
 import { loginCall, remoteLoginRoutes } from "../federation/logins.ts";
 import { manageCall } from "../federation/manage-client.ts";
-import { LinkError } from "../federation/link.ts";
+import { RemoteError } from "../remote/api-client.ts";
 import { FederationError } from "../federation/members.ts";
 import { HttpError, obj, readJson, Router, sendJson } from "../http.ts";
 import { logger } from "../log.ts";
@@ -288,7 +288,7 @@ export class Panel {
 		r.on("POST", "/panel/api/network/members/:name/rotate", async (q) => (await c.members.rotate(q.params.name!), { ok: true }));
 		r.on("POST", "/panel/api/network/refresh", async () => (await Promise.all([c.members.flush(), c.roster.sync()]), { ok: true }));
 
-		// Connecting a client (Vory): the addresses to use, and the gateway token shown on request.
+		// Connecting a client (the nHermes app): the addresses to use, and the gateway token shown on request.
 		r.on("GET", "/panel/api/connect", () => ({ addresses: clientAddresses(c), tokenEnv: c.config.tokenEnv }));
 		r.on("POST", "/panel/api/connect/token", () => ({
 			token: c.config.token,
@@ -383,7 +383,7 @@ export class Panel {
 		r.on("DELETE", "/panel/api/logins/:id", (q) => loginCall(() => c.logins.cancel(q.params.id!, "panel")));
 		remoteLoginRoutes(c, r, "/panel/api/remote");
 
-		// Sessions (minimal: list, rename, archive, stop, delete; reading chats stays in Vory)
+		// Sessions (minimal: list, rename, archive, stop, delete; reading chats is the app's)
 		r.on("GET", "/panel/api/sessions", async (q) => {
 			const name = q.query.get("bot");
 			const archived = (q.query.get("archived") ?? "exclude") as "exclude" | "only" | "include";
@@ -433,8 +433,8 @@ export class Panel {
 		});
 		r.on("POST", "/panel/api/sessions/:id/stop", async (q) => {
 			const id = q.params.id!;
-			c.sessions.require(id);
-			if (c.proxy.isProxy(id)) return { stopped: (await c.proxy.forward(id, "session.interrupt", { session_id: id })).interrupted === true };
+			const row = c.sessions.require(id);
+			if (row.remote_node) return { stopped: (await c.memberChats.forward(row, "sessions.interrupt", {})).interrupted === true };
 			return { stopped: await c.sessions.interrupt(id) };
 		});
 		r.on("DELETE", "/panel/api/sessions/:id", async (q) => {
@@ -542,7 +542,7 @@ function translate(error: unknown): { status: number; message: string } {
 	if (error instanceof HttpError) return { status: error.status, message: error.message };
 	if (error instanceof ConfigError) return { status: 400, message: error.message };
 	if (error instanceof FederationError) return { status: error.status, message: error.message };
-	if (error instanceof LinkError) return { status: 502, message: error.message };
+	if (error instanceof RemoteError) return { status: 502, message: error.message };
 	if (error instanceof MemoryAccessError) return { status: 403, message: error.message };
 	if (error instanceof SecretError) return { status: error.status, message: error.message };
 	if (error instanceof UpdateError) return { status: error.status, message: error.message };

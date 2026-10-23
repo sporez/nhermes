@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { http } from "../api/client.ts";
 import { startServer } from "../../src/server.ts";
 import { MemoryAccessError } from "../../src/memory/memory.ts";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -60,16 +61,14 @@ test("skills: per-bot and opted-in global skills are active; the skill tool load
 		const jobPrompt = (await Promise.all(core.deps.promptParts.map((p) => p(ops, job.id)))).join("\n");
 		assert.match(jobPrompt, /release-notes/);
 
-		// Vory's Skills screen: list per bot, toggle, and the change persists as a bot override.
-		const server = await startServer(core, { host: "127.0.0.1", port: 0 });
+		// The client API's skills list per bot and toggle; the change persists as a bot override.
+		const server = await startServer(core, { host: "127.0.0.1", port: 0, federationPort: null });
 		try {
-			const h = { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" };
-			const url = `http://127.0.0.1:${server.port}`;
-			const list = (await (await fetch(`${url}/api/skills?profile=ops`, { headers: h })).json()) as { name: string; enabled: boolean }[];
-			assert.deepEqual(list.map((x) => [x.name, x.enabled]).sort(), [["backup-check", false], ["proxmox-health", true], ["release-notes", false]]);
-			const r = await fetch(`${url}/api/skills/toggle`, { method: "PUT", headers: h, body: JSON.stringify({ name: "backup-check", enabled: true, profile: "ops" }) });
-			assert.equal(r.status, 200);
-			await fetch(`${url}/api/skills/toggle`, { method: "PUT", headers: h, body: JSON.stringify({ name: "proxmox-health", enabled: false, profile: "ops" }) });
+			const api = http(server.port);
+			const list = (await api<{ items: { name: string; active: boolean }[] }>("GET /bots/ops/skills")).items;
+			assert.deepEqual(list.map((x) => [x.name, x.active]).sort(), [["backup-check", false], ["proxmox-health", true], ["release-notes", false]]);
+			await api("PUT /bots/ops/skills/backup-check", { enabled: true });
+			await api("PUT /bots/ops/skills/proxmox-health", { enabled: false });
 			assert.deepEqual(core.skills.active(core.bots.require("ops")).map((x) => x.name), ["backup-check"]);
 			assert.deepEqual(core.bots.overrides("ops"), { disabledSkills: ["proxmox-health"], enabledSkills: ["backup-check"] });
 		} finally {

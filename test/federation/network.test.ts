@@ -6,13 +6,13 @@ import assert from "node:assert/strict";
 import { createConnection, createServer, type Socket as NetSocket } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
+import WebSocket from "ws";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
-import { setPeerHeartbeat } from "../../src/remote/api-client.ts";
-import { HermesClient } from "../hermes/client.ts";
+import { ApiClient, setPeerHeartbeat } from "../../src/remote/api-client.ts";
 import { collect, pngBytes, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number };
@@ -99,41 +99,40 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		{ name: "nasbot", default: true },
 		{ name: "vault", private: true },
 	]);
-	let ws: HermesClient | undefined;
+	let ws: ApiClient | undefined;
 	try {
 		await link(a, b);
 		const ownerChat = await b.core.sessions.create("nasbot");
 		const m = a.core.members.byName("beta")!;
 		// Member headers on the main port's WebSocket open nothing: members come in on the encrypted port only.
 		const memberHeaders = { "x-nhermes-node": a.core.members.self().id, "x-nhermes-member-secret": m.secret };
-		const plain = await HermesClient.connect(b.port, undefined, memberHeaders);
-		await new Promise((r) => plain.ws.once("close", r));
-		assert.equal(plain.closeCode, 4401);
+		const closeCodeOf = async (headers: Record<string, string>) => {
+			const plain = new WebSocket(`ws://127.0.0.1:${b.port}/api/v1/ws`, { headers });
+			plain.on("error", () => undefined);
+			return new Promise<number>((r) => plain.once("close", r));
+		};
+		assert.equal(await closeCodeOf(memberHeaders), 4401);
 		const t = a.core.members.target(m.node_id)!;
-		ws = await HermesClient.connect(b.server.pskPort!, undefined, {}, t.tls);
-		await ws.waitEvent("gateway.ready");
-		const profiles = await ws.call<{ profiles: { name: string }[] }>("profiles.list");
-		assert.deepEqual(profiles.profiles.map((p) => p.name), ["nasbot"]);
-		await assert.rejects(ws.call("session.create", { profile: "vault" }), /profile not found/);
-		await assert.rejects(ws.call("session.resume", { session_id: ownerChat.id }), /session not found/);
-		await assert.rejects(ws.call("session.list", {}), /unknown method/);
-		const mine = await ws.call<{ session_id: string }>("session.create", { profile: "nasbot" });
-		await assert.rejects(ws.call("config.set", { session_id: mine.session_id, key: "yolo", value: "on" }), /cannot switch approvals off/);
+		ws = await ApiClient.open(t, "beta");
+		const bots = await ws.call<{ items: { id: string }[] }>("bots.list", {});
+		assert.deepEqual(bots.items.map((p) => p.id), ["nasbot"]);
+		await assert.rejects(ws.call("sessions.create", { botId: "vault" }), (e: { code: string }) => e.code === "bot_not_found");
+		await assert.rejects(ws.call("sessions.get", { id: ownerChat.id }), (e: { code: string }) => e.code === "session_not_found");
+		await assert.rejects(ws.call("sessions.list", {}), (e: { code: string }) => e.code === "unknown_op");
+		const { session: mine } = await ws.call<{ session: { id: string } }>("sessions.create", { botId: "nasbot" });
+		await assert.rejects(ws.call("sessions.update", { id: mine.id, yolo: true }), (e: { code: string }) => e.code === "not_allowed");
 		// Uploads only into its own chats.
 		const png = pngBytes(2, 2).toString("base64");
-		await assert.rejects(ws.call("image.attach_bytes", { session_id: ownerChat.id, content_base64: png }), /session not found/);
-		await assert.rejects(ws.call("file.attach", { session_id: ownerChat.id, data_url: `data:text/plain;base64,${png}` }), /session not found/);
-		assert.equal(b.core.attachments.pending(ownerChat.id), 0);
-		assert.equal((await ws.call<{ count: number }>("image.attach_bytes", { session_id: mine.session_id, content_base64: png })).count, 1);
-		const resumed = await ws.call<{ session_id: string }>("session.resume", { session_id: mine.session_id });
-		assert.equal(resumed.session_id, mine.session_id);
-		await ws.close();
+		await assert.rejects(ws.call("sessions.attach", { id: ownerChat.id, data: png }), (e: { code: string }) => e.code === "session_not_found");
+		const up = await ws.call<{ attachment: { id: string } }>("sessions.attach", { id: mine.id, data: png, name: "a.png" });
+		assert.ok(b.core.attachments.get(mine.id, up.attachment.id), "kept in its own chat");
+		const resumed = await ws.call<{ session: { id: string } }>("sessions.get", { id: mine.id });
+		assert.equal(resumed.session.id, mine.id);
+		ws.close();
 		ws = undefined;
 		// A wrong secret is refused: in the handshake on the encrypted port, like a wrong token on the main one.
-		await assert.rejects(HermesClient.connect(b.server.pskPort!, undefined, {}, { ...t.tls, pskCallback: () => ({ identity: `m:${a.core.members.self().id}:000000000000`, psk: Buffer.alloc(32) }) }));
-		const bad = await HermesClient.connect(b.port, undefined, { ...memberHeaders, "x-nhermes-member-secret": "nope-nope-nope-nope" });
-		await new Promise((r) => bad.ws.once("close", r));
-		assert.equal(bad.closeCode, 4401);
+		await assert.rejects(ApiClient.open({ ...t, tls: { ...t.tls, pskCallback: () => ({ identity: `m:${a.core.members.self().id}:000000000000`, psk: Buffer.alloc(32) }) } }, "beta"));
+		assert.equal(await closeCodeOf({ ...memberHeaders, "x-nhermes-member-secret": "nope-nope-nope-nope" }), 4401);
 
 		// beta goes offline: its bots stay listed, marked offline, and delegating says so at once.
 		await b.server.close();
@@ -150,7 +149,7 @@ test("a member's WebSocket reaches only shareable bots and its own chats; offlin
 		const tool = ev.events.find((e) => e.type === "tool.finished");
 		assert.ok(tool?.type === "tool.finished" && tool.isError && /beta is offline/.test(tool.resultText), JSON.stringify(tool));
 	} finally {
-		await ws?.close();
+		ws?.close();
 		await a.server.close();
 		await a.core.close();
 		await b.core.close();
@@ -162,26 +161,24 @@ test("removing a member closes its open connections", async () => {
 	const { dir, cleanup } = await tempDir();
 	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
 	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
-	let ws: HermesClient | undefined;
+	let ws: ApiClient | undefined;
 	try {
 		await link(a, b);
 		const t = a.core.members.target(b.core.members.self().id)!;
-		ws = await HermesClient.connect(b.server.pskPort!, undefined, {}, t.tls);
-		await ws.waitEvent("gateway.ready");
-		const mine = await ws.call<{ session_id: string }>("session.create", { profile: "nasbot" });
-		assert.ok(mine.session_id);
+		ws = await ApiClient.open(t, "beta");
+		const { session: mine } = await ws.call<{ session: { id: string } }>("sessions.create", { botId: "nasbot" });
+		assert.ok(mine.id);
 
 		// beta removes alpha: the connection alpha already had open is closed, and nothing more is accepted on it.
-		const closed = new Promise<number>((r) => ws!.ws.once("close", r));
+		const closed = new Promise<number>((r) => ws!.onClose(r));
 		await b.core.members.remove("alpha");
 		assert.equal(await closed, 4401);
-		const sendError = await new Promise<Error | undefined>((r) => ws!.ws.send(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "prompt.submit", params: { session_id: mine.session_id, text: "hello" } }), r));
-		assert.match(String(sendError), /not open/);
-		assert.equal(b.core.sessions.isRunning(mine.session_id), false);
+		await assert.rejects(ws.call("sessions.submit", { id: mine.id, text: "hello" }), (e: { code: string }) => e.code === "offline");
+		assert.equal(b.core.sessions.isRunning(mine.id), false);
 		assert.deepEqual(b.core.members.list(), []);
 		ws = undefined;
 	} finally {
-		await ws?.close();
+		ws?.close();
 		for (const g of [a, b]) {
 			await g.server.close();
 			await g.core.close();

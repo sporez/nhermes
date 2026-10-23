@@ -1,6 +1,6 @@
 // The bots' workspace folders as something to browse (read-only): which paths lie inside one, with links
-// resolved so no link or `..` leads out, and the file types they are served as. Shared by the Hermes Files
-// screen and the client API; both answer an HttpError (403 anywhere else, 404 when missing).
+// resolved so no link or `..` leads out, and the file types they are served as. Used by the client API's
+// files operations; it answers an HttpError (403 anywhere else, 404 when missing).
 import { realpathSync } from "node:fs";
 import { extname, sep } from "node:path";
 import type { Core } from "../app.ts";

@@ -148,7 +148,7 @@ test("admin API: config view, bot edits, unknown settings refused", async () => 
 	const { core, cleanup } = await setup();
 	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const call = (method: string, path: string, body?: unknown) =>
-		fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+		fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 	try {
 		const view = (await (await call("GET", "/admin/config")).json()) as { bots: { name: string; effective: { instructionsFrom: string } }[]; toolGroups: string[] };
 		assert.deepEqual(view.bots.map((b) => b.name), ["main", "ops"]);

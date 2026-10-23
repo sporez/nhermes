@@ -369,7 +369,8 @@ gateway keeps it, `effective` what is in force (`displayName`, `description`, `m
 `instructionsFrom`), `editableKeys` what may be changed from here, and `choices` the models, tool groups and
 shared memory spaces to pick from. For a member's bot it comes from that machine, which shows only what members
 may change (never its host, workspace or keys), and changes need its "Let other machines edit this machine's
-bots" switch (`not_allowed` until it is on).
+bots" switch (`not_allowed` until it is on). Without the switch a client can still read a shared bot's skills
+(`bots.skills`) and prompt (`bots.prompt`), list that machine's MCP servers and test one.
 
 An MCP server: `{name, group, url, description, enabled, exposure, timeoutS, maxTimeoutS, healthCheckS, tools:
 {include, exclude, readOnly}, trustReadOnlyHint, headers: [{name, value}], secrets: [{name, set}], botIds,

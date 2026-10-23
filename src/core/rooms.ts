@@ -1,18 +1,18 @@
-// Group chats (Vory's Bot Mode): a room of 2-6 bots and one shared log of typed events, kept on the gateway
-// Vory created it on. The log is the state. After each change a room's driver replays it (planNextTurn,
+// Group chats: a room of 2-6 bots and one shared log of typed events, kept on the gateway it was created
+// on. The log is the state. After each change a room's driver replays it (planNextTurn,
 // src/core/room-plan.ts) and runs at most one member turn at a time: `turn.started`, the turn's prompt in
 // that member's own room session (kind "room", one per room thread), then its reply as `message.member`
 // with `turn.settled`, or `turn.failed`. A discussion ends with `room.activity` settled or bounded.
 //
 // A member's bot on another machine answers there, in a room session made on that machine (as work this
 // gateway started, so it is not trusted there and its approvals come back here), reached with runOnPeer like
-// a delegated task. Its session is catalogued here too, so Vory can open it through the member link.
+// a delegated task. Its session is catalogued here too, so a client opens it through this gateway.
 //
 // Restarts: each turn is submitted under the key `room:<room>:<turn>` and kept in room_turns (the local
 // submission, or the prompt sent to the other machine), so after a restart the driver waits for the turn
 // already running instead of sending it again. Approvals are asked in the member's room session as in any
-// chat (Jev reviews what it may for local bots); the room log says who is waiting, Vory's approval
-// notification opens that session, and while it waits the session is listed in Chats.
+// chat (Jev reviews what it may for local bots); the room log says who is waiting, and while it waits
+// the session is listed in the chat list.
 import { randomBytes } from "node:crypto";
 import type { Engine } from "../engine/engine.ts";
 import type { Members } from "../federation/members.ts";
@@ -372,7 +372,7 @@ export class Rooms {
 
 	/**
 	 * While a turn waits for the owner's approval: a line in the room saying who waits and where, and the
-	 * member's session listed at the top of Vory's chats (src/hermes/rest.ts) so its card can be reached
+	 * member's session listed at the top of the chat list (src/api/ops/sessions.ts) so its card can be reached
 	 * without the notification. Returns the unsubscribe.
 	 */
 	private watchApprovals(room: RoomInfo, member: RoomMember, session: SessionRow, coords: Coords): () => void {

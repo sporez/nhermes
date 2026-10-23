@@ -37,7 +37,7 @@ async function setup(extra = "") {
 		fake,
 		path,
 		panel: (method: string, p: string, body?: unknown) => send(`${base}/panel/api${p}`, method, body, method === "GET" ? {} : { "x-nhermes-panel": "1" }),
-		admin: (method: string, p: string, body?: unknown) => send(`${base}${p}`, method, body, { "X-Hermes-Session-Token": TOKEN }),
+		admin: (method: string, p: string, body?: unknown) => send(`${base}${p}`, method, body, { authorization: `Bearer ${TOKEN}` }),
 		cleanup: async () => {
 			await server.close();
 			await core.close();

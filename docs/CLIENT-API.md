@@ -1,6 +1,6 @@
 # nHermes client API (plan)
 
-Status: in progress (phase A).
+Status: in progress (phase E).
 
 ## Goal
 
@@ -283,14 +283,14 @@ step.
 
 ### D. Delete the Hermes layer and Vory
 
-- [ ] `src/hermes/` (all of it), `test/hermes/`, `src/federation/vory.ts`, the Vory Companion routes, the
+- [x] `src/hermes/` (all of it), `test/hermes/`, `src/federation/vory.ts`, the Vory Companion routes, the
   old socket for members, `scripts/vory-e2e.sh`, `docs/COMPATIBILITY.md` (replaced by `docs/API.md`).
-- [ ] Hermes and Vory pins out of `UPSTREAM.md` and `scripts/fetch-upstream.sh`. What we ported keeps its
+- [x] Hermes and Vory pins out of `UPSTREAM.md` and `scripts/fetch-upstream.sh`. What we ported keeps its
   credit: the room planner (`core/room-plan.ts`, MIT, a port of Hermes's `plan_next_task`) and anything
   else that still holds ported logic.
-- [ ] Wording: the bots' `about` section and ground rules (`tools/self.ts`), panel text, doctor and keys
+- [x] Wording: the bots' `about` section and ground rules (`tools/self.ts`), panel text, doctor and keys
   messages, comments that cite Hermes or Vory shapes, `README.md`, `ARCHITECTURE.md`, `AGENTS.md`.
-- [ ] `src/notify/vory.ts` stays (sender only) until E.
+- [x] `src/notify/vory.ts` stays (sender only) until E.
 
 ### E. Native push
 
@@ -361,3 +361,10 @@ Settled with the owner before A0.
   relaunch; on the iPhone simulator (screenshots) durations in an older chat, attachments from history, an approval
   answered on the Mac leaving the phone. Open: dark mode, iPad, split view and Quick Entry by eye; the owner's
   gateways, which need the new gateway deployed first.
+- D (this commit): `src/hermes/`, `test/hermes/`, the member Hermes socket, `src/federation/{vory,proxy,link}.ts`,
+  `docs/COMPATIBILITY.md`, `scripts/vory-e2e.sh` removed; the admin API on Bearer only; `/api/health` kept;
+  Vory's upload staging, the old snapshot and the canonical events only Hermes used removed;
+  `src/notify/vory.ts` cut to its sender. Tests ported to `/api/v1` by two workers, 251 of 251. Found on the
+  way: Vory could read a member bot's skills, prompt and MCP servers with that machine's edit switch off, and
+  the client API could not; `/federation/read/*` restores that for shared bots (a private one stays hidden).
+  The Vory pin stays in `UPSTREAM.md` for the push sender until E; Hermes stays as credit for ported code.

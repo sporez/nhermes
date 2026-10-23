@@ -2,19 +2,18 @@
 
 nHermes is a small, self-hosted personal agent platform. Pi Durable does the agent work; this
 project adds what Pi Durable deliberately leaves to its host (bots, sessions as products, approvals,
-memory, schedules, notifications, remote hosts) and a translation layer that lets the stock Vory app
-drive it as if it were a Hermes gateway.
+memory, schedules, notifications, remote hosts) and its own client API (`docs/API.md`), which the nHermes app
+for Mac, iPhone and iPad speaks.
 
 ```
- Vory (iPhone/iPad/Mac)            nhermes CLI           Pushover
+ nHermes app (Mac/iPhone/iPad)     nhermes CLI           Pushover
         │ HTTPS/WSS (Tailscale or TLS proxy)  │ (local HTTP)       ▲
         ▼                                      ▼                    │
  ┌──────────────────────────── nhermes serve (one Node process) ───────────────────────────┐
  │  api/           client API: /api/v1 HTTP + /api/v1/ws, one operation table (docs/API.md) │
- │  hermes/        Hermes-compatible REST + /api/ws JSON-RPC  (translation only)           │
  │  admin/         small JSON API used by the CLI                                          │
  │  panel/         web control panel at /panel (static page + /panel/api/*)                 │
- │  federation/    members: invite/join, roster, proxy chats, /federation/manage;          │
+ │  federation/    members: invite/join, roster, member chats, /federation/manage;         │
  │                 TLS-PSK between members on the encrypted port (federation/psk.ts)       │
  │──────────────────────────────────────────────────────────────────────────────────────── │
  │  core/          bots · sessions · runs/events hub · approvals · scheduler · notifier     │
@@ -40,10 +39,11 @@ drive it as if it were a Hermes gateway.
 - **One process owns each Durable database.** `nhermes serve` opens `durable.sqlite` once; the CLI never
   opens it. It talks to the running service over the local admin API, so there are never two owners.
   A peer agent has its own database on its own machine.
-- **The API layers only translate.** `src/api/` (the client API, `docs/API.md`) and `src/hermes/` (Vory's
-  REST/JSON-RPC) map requests onto `core/` calls and canonical events onto their own events. They hold no
-  agent state beyond per-socket bookkeeping (followed chats, pending request ids). `src/server.ts` owns the
-  listeners and authentication for both, the panel and the federation port.
+- **The API layer only translates.** `src/api/` (the client API, `docs/API.md`) maps operations onto `core/`
+  calls and canonical events onto its own events, from one operation table for HTTP and the socket. It holds no
+  agent state beyond per-socket bookkeeping (followed chats) and a short buffer of recent chat events for
+  clients that reconnect. `src/server.ts` owns the listeners and authentication for it, the admin API, the
+  panel and the federation port.
 - **Upstream before custom.** Providers, OAuth and `models.json` custom endpoints come from Pi's
   `ModelRuntime`; catalog providers (`src/models/`, a key fetches the provider's model list) are
   registered into it with Pi's own `registerProvider`; SKILL.md discovery from Pi's skills loader; SSH
@@ -54,23 +54,22 @@ drive it as if it were a Hermes gateway.
 | Concept | What it is | Where it lives |
 |---|---|---|
 | **Bot** | A persistent agent identity: name, display name, instructions (SOUL), default model + thinking level, tool groups, skills, execution target (local dir or SSH host), approval policy, memory scope, optional peer URL | `config.yaml` (`bots:`); per-bot skill toggles in `app.sqlite` |
-| **Session** | One conversation belonging to one bot. Kinds: `chat` (Vory, primary or named), `job` (scheduled runs), `delegate` (work another bot asked for), `room` (a bot's own session for a group chat thread); Vory's chat list leaves out `delegate` and `room` sessions (the panel lists them) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
+| **Session** | One conversation belonging to one bot. Kinds: `chat` (the owner's), `job` (scheduled runs), `delegate` (work another bot asked for), `room` (a bot's own session for a group chat thread); the app's chat list leaves out `delegate` and `room` sessions unless one waits for an approval (the panel lists them) | A Pi Durable conversation, plus an `app.sessions` row (bot, title, kind, timestamps, preview, archived/pinned) |
 | **Run** | One answered input: a Durable submission and the turns it took | Durable (`pi.inbox`, tasks, entries). We only keep ids |
 | **Job** | A schedule with a prompt, target bot, optional model/skills, notification policy | `app.jobs`, `app.job_runs` |
 | **Memory item** | A fact or Markdown note owned by one bot, or by a named shared space | `app.memories` + FTS5 index |
 | **Room** | A group chat of 2-6 bots (this gateway's or members'): its members and one ordered log of typed events | `app.rooms`, `app.room_events`, `app.room_sessions`, `app.room_turns` |
 
 A bot's identity is separate from all of its sessions. Resetting, compacting, archiving or deleting a
-session never touches the bot, its memory or its jobs. In Hermes terms, a **profile is a bot**; there is
-no other "worker/agent/profile" concept.
+session never touches the bot, its memory or its jobs. There is no other "worker/agent/profile" concept.
 
-Session ids are Durable conversation ids. The Hermes runtime id and stored id are the same string.
+A session id is a string mapped to its Durable conversation id (`app.sessions`).
 
 ## Engine boundary (`src/engine/`)
 
 The only module that opens and drives the Pi Durable Harness. (Tool and extension modules use
 Durable's extension API, `defineTool`/`hook`/`section`, since that is how tools plug in; `core/` and
-`hermes/` never import it.) It exposes a narrow interface:
+`api/` never import it.) It exposes a narrow interface:
 
 - `open()` / `close()`; `resume()` on start so interrupted runs continue.
 - `createConversation(botId, agentConfig)`, `configure(id, change)`, `submit(id, content, requestId, mode)`
@@ -88,16 +87,17 @@ Pi upgrade that changes it fails there first.
 ## Events
 
 `engine.watch()` turns Durable `AgentEvent` batches into canonical events:
-`run.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.output`, `tool.finished`,
+`run.started`, `text.delta`, `reasoning.delta`, `tool.output`, `tool.finished`,
 `run.finished {text, status, usage, error}`, `approval.requested/resolved`, `session.updated`, and the turn
 events the client API streams (`turn.started`, `item.started/updated/finished`, `turn.finished`). A chat's
 history as turns is a pure projection of its entries (`core/turns.ts`) that names turns and items as the
 live projection (`core/live.ts`) does; each run's end is written to the transcript as an `nh.run` entry the
 model never sees, so history knows when and how a turn ended.
-The hub fans them out to subscribers: Hermes sockets attached to the session, the scheduler waiting on
-a job run, a delegation waiting for its answer. A client that reconnects gets a snapshot from
-`session.resume` (transcript + `running` + `inflight` partial + open approvals); nothing is replayed
-frame by frame, which is also how Pi Durable's own watches work.
+The hub fans them out to subscribers: client sockets following the chat, the scheduler waiting on a job
+run, a delegation waiting for its answer. A client that reconnects to the same process soon gets the chat
+events it missed (each carries the chat's `seq`; `src/api/events.ts` keeps the latest 2,000 for 5 minutes
+after the last follower leaves); otherwise `sessions.subscribe` answers with a snapshot (the turns, the
+reply streaming now, open approvals).
 
 ## Approvals and permissions
 
@@ -107,8 +107,9 @@ records the call's intent:
 1. The bot's policy classifies the call: `allow`, `ask`, or `deny` (rules on tool name, and on shell
    command patterns for `bash`/remote shell; for example `rm -rf`, `mkfs`, `zfs destroy`, `dd of=`,
    credential files).
-2. `ask` creates an approval request, sends a Hermes `approval` server→client request to every socket
-   attached to the session, and waits (cancellable by interrupt, with a timeout that fails closed).
+2. `ask` creates an approval request, announces it to every owner socket (`approval.requested`, for every
+   chat, followed or not), and waits (cancellable by interrupt, with a timeout that fails closed). The
+   answer is an ordinary call from any device; every socket hears `approval.resolved`.
 3. `once` lets this call run; `session` adds the rule to the session's allow list; `always` adds it to
    the bot's allow list (in `app.sqlite`); `deny`/timeout blocks the call and the model is told so.
 
@@ -141,9 +142,9 @@ with only the high-impact patterns asking.
 | `web` | `web_fetch`, `http_request` | `fetch` with size/time limits; credentials as `{{secret:NAME}}` for env vars the bot lists under `secrets:`, scrubbed from results |
 | `memory` | `remember`, `recall`, `forget`, `memory_list`, `memory_update`, `chat_search`, `chat_read` | Scoped to the bot; shared spaces only when granted; chats are the bot's own with the owner |
 | `skills` | `skill` (load a SKILL.md by name) | The prompt lists names + descriptions only |
-| `schedule` | `schedule_create/list/update/delete/run/history` | Same service the Vory cron screens use |
+| `schedule` | `schedule_create/list/update/delete/run/history` | Same service the app's Scheduled section uses |
 | `delegate` | `delegate` (ask another bot, wait or not) | Durable child conversations / peer HTTP |
-| `notify` | `notify` (Vory and/or Pushover) | |
+| `notify` | `notify` (Pushover, and Vory devices registered before) | |
 | `openchamber` | `oc_sessions/read/waiting/diff`, `oc_approve/answer/stop/prompt/start` | OpenChamber's local server on the same Mac (`src/openchamber/`); control tools always ask the owner. The tool-less `openchamber_alerts` group turns on the event watcher that notifies about requests and failed threads |
 | `browser` | `browser_open/snapshot/click/type/select/press/scroll/back/wait/screenshot/tabs` | Playwright, persistent isolated profile per bot |
 | `desktop` | `desktop_screenshot/click/type/key/scroll/windows/focus/launch/accessibility` | X11 on the bot's host (gateway or SSH): `import`, `xdotool`, `wmctrl`, AT-SPI |
@@ -195,9 +196,9 @@ Standard `SKILL.md` directories, loaded with Pi's loader:
 - `skills/` (global; a bot opts in with `skills: ["*"]` or a list), `bots/<name>/skills/` (per bot),
   and `skills:` on a job (attached to that job's runs only).
 - The system prompt carries only the index (name, description); the `skill` tool returns the body when
-  the model decides it is relevant. `GET /api/skills?profile=` shows which are active for a bot, and
-  `PUT /api/skills/toggle` enables or disables one per bot; the panel's Skills section uses the same
-  path (`Skills.setEnabled`, stored as bot overrides).
+  the model decides it is relevant. `GET /api/v1/bots/:id/skills` shows which are active for a bot, and
+  `PUT /api/v1/bots/:id/skills/:name` enables or disables one; the panel's Skills section uses the same
+  service (`Skills.setEnabled`, stored as bot overrides).
 
 ## Memory
 
@@ -233,7 +234,7 @@ saved list under Sessions.
 - **Restarts:** an in-flight run continues because the Durable run does (`harness.resume()`); tools
   that were mid-execution are not replayed unless they are replay-safe (Pi Durable rule). The run
   record waits on the same submission after restart.
-- **Results:** each job has one session (kind `job`, listed in Vory); every run starts it from a fresh
+- **Results:** each job has one session (kind `job`, listed in the app); every run starts it from a fresh
   context (Durable reset), so runs are independent while their history stays readable. `context: continue`
   skips the reset so runs share one thread (Durable compacts it as it grows); switching a job to it
   continues from the last run. `deliver: chat`
@@ -262,28 +263,27 @@ run is not submitted twice.
   relayed to the owner's chat on the central gateway. `wait: false` works for bots on other machines
   too: a background task (`nh.delegate-remote`) starts the chat there, records its id, submits under a
   fixed key and waits (reconnecting, for up to a day), then posts the answer into the caller's chat; a
-  restart of either side resumes it without sending the task twice. Peers are not listed as Vory profiles; to chat
-  with one directly, add it to Vory as its own gateway.
+  restart of either side resumes it without sending the task twice. Peers are not listed as bots to chat
+  with; to chat with one directly, connect the app to it as its own gateway.
 - **The owner's chats with a member's bot (`src/federation/chats.ts`):** on the client API, the chat is
   catalogued here under the id its conversation has on the member, and every call about it goes to the
   member over its `/api/v1/ws` socket, with the member's events coming back (bot ids made local). The
   member's approval requests are asked here and answered there. A dropped link sends the app
-  `session.stale`, so it subscribes again. Vory's path for the same chats is `src/federation/proxy.ts`.
+  `session.stale`, so it subscribes again.
 - **Network of members (`src/federation/`, `docs/FEDERATION.md`):** gateways join one network of equals
   with `nhermes invite` / `join`; each pair shares a generated secret (`members`) that keys a TLS-PSK
-  link on the encrypted port; it never travels. Members reach only `/federation/*` and the WebSocket,
-  never `/api/*` or `/admin/*`. Each member publishes its shareable bots (`/federation/roster`); the
-  others list them as `<bot>-<node>` (`remote_bots`, kept while a member is offline) and delegate to them
-  over the WebSocket like a peer. On the owning gateway such a chat has source `member:<node id>`: a
+  link on the encrypted port; it never travels. Members reach only `/federation/*` and the client API's
+  socket (the operations marked for members), never its HTTP routes or `/admin/*`. Each member publishes its
+  shareable bots (`/federation/roster`); the others list them as `<bot>-<node>` (`remote_bots`, kept while a
+  member is offline) and delegate to them over that socket like a peer. On the owning gateway such a chat has source `member:<node id>`: a
   member's connection sees only those chats and shareable bots, cannot turn approvals off, and the work
   is never trusted.
 - **Editing members' bots (`src/federation/manage.ts`, `docs/REMOTE-BOT-EDITS.md`):** when a gateway's
   owner allows it (panel, Network), the other members' panels list its bots, private ones included, with
   the same editor as local bots. The panel calls `/federation/manage/*` on the owning gateway with the
   pair secret, which applies the edit through its own `Settings` and skills; host, workspace, keys and
-  gateway settings stay editable only on that machine. Vory's settings requests for a `<bot>-<node>`
-  profile follow the same path (`src/federation/vory.ts`): reads always, changes under the same switch.
-  The same switch covers its MCP servers (`/federation/manage/mcp/*`); key values never travel.
+  gateway settings stay editable only on that machine. The client API's bot settings for a `<bot>-<node>`
+  follow the same path (`src/federation/manage-client.ts`), under the same switch. The same switch covers its MCP servers (`/federation/manage/mcp/*`); key values never travel.
 - **MCP servers belong to the machine that configures them**: only its bots call them, and the calls go
   out from that machine. Another machine reaches them by delegating to such a bot, so the work stays
   untrusted there and its approvals come back to the chat that started it; there is no second path.
@@ -292,13 +292,13 @@ run is not submitted twice.
   pair secret. The login runs in that gateway's `core/logins.ts`; codes and prompts travel, credentials do not.
 - **Private bots:** `private: true` leaves a bot out of the other bots' roster and makes `delegate`
   answer as if it did not exist; it is not shared with members either. It can still delegate to others
-  and is still a Vory profile on its own gateway.
+  and is still listed on its own gateway.
 - **Privileges never escalate through delegation:** a delegated task is trusted only if every bot in the
   chain is, and runs under the strictest approval mode in the chain.
 
 ## Group chats (`src/core/rooms.ts`)
 
-Vory's Bot Mode rooms, in Hermes' `groups.*` shapes. The room log is the state: after every change the
+A room of 2-6 bots and its log (`rooms.*` on the client API). The room log is the state: after every change the
 room's driver replays it with `planNextTurn` (`src/core/room-plan.ts`, a port of Hermes'
 `plan_next_task`) and runs at most one member turn at a time. Round 0 is the bots the owner's message
 @mentions (everyone when it mentions none); rounds 1-2 are bots another bot @mentioned and that have not
@@ -311,40 +311,28 @@ bot messages bound it.
 - **Restarts:** the submission uses the request id `room:<room>:<turn>` and is kept in `room_turns`; a
   restart waits for that submission instead of sending the turn again. A turn left open that a newer
   message has overtaken is still finished from its submission.
-- **Approvals** are the guard's, unchanged: asked in the member's room session (Vory's approval
-  notification opens it), with a `room.activity` line saying who waits. Jev reads the owner's words from
+- **Approvals** are the guard's, unchanged: asked in the member's room session (listed in the chat list
+  while it waits), with a `room.activity` line saying who waits. Jev reads the owner's words from
   the room log, since a turn's prompt also carries other bots' words; later lines of a message are
   indented in prompts so a bot cannot write a line that reads as the owner's.
 - **Notifications:** one when an exchange settles or is bounded with new bot replies.
 - **Members' bots** answer on their own machine: their room session is made there with `sessions.create
   {kind: "room"}` (as work this gateway started, so untrusted there and its approvals come back here),
-  catalogued here under the same id so Vory opens it through the member link, and each turn runs with
+  catalogued here under the same id so the app opens it through the member, and each turn runs with
   `runOnPeer` keyed by the turn. Its prompt is kept in `room_turns`, so a restart sends it again under the
   same key and the member drops the repeat. An offline member's turn fails at once.
-- The room lives on the gateway Vory created it on. Vory polls `groups.log`; nothing is pushed over the socket.
-
-## Hermes compatibility layer (`src/hermes/`)
-
-- REST: `/api/status`, `/api/profiles` (+ `active`, `soul`), `/api/sessions` (list/get/messages/patch/
-  delete/search), `/api/model/options`, `/api/skills` (+ toggle), `/api/cron/jobs` (+ runs, pause,
-  resume, trigger, update, delete), `/api/config` + `/api/config/schema`, `/api/env` (redacted),
-  `/api/tools/toolsets`. Vory's settings and maintenance screens (`hermes/manage.ts`): config and tool
-  group writes, the default model, keys, creating and removing bots, update/restart/doctor with
-  `/api/actions/{name}/status`, logs, usage analytics, and a read-only Files browser over the bots'
-  workspaces. Unknown routes answer 404; nothing is stubbed to look functional.
-- WebSocket `/api/ws`: JSON-RPC 2.0, newline-delimited, `gateway.ready` first, `ping`, server→client
-  `approval` requests, events with the Hermes envelope. Methods: see `docs/COMPATIBILITY.md`.
-- Auth: session token (`X-Hermes-Session-Token` header, `?token=` on the socket); a wrong token is HTTP
-  401 / WebSocket close 4401.
+- The room lives on the gateway it was created on. Every new log event is pushed to owner sockets
+  (`room.event`), and `rooms.events` reads the log from any point.
 
 ## Persistence and operations
 
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and
 forward-only migrations; it also keeps MCP servers' last tool lists), `workspaces/<bot>/`, `browser/<bot>/` (Playwright profiles), `ssh/known_hosts`,
-`vory/` (Vory push registrations); logs go to stderr (journal / launchd log), with the last 500 lines
-kept in memory for `/api/logs`. Files and pictures sent from a client are written to the bot's workspace
-`uploads/` folder, never over another file; `src/core/attachments.ts` holds what waits for a session's next
-prompt (in memory, as Hermes does) and the `@file:` references it handed out, the only ones it expands.
+`vory/` (devices Vory registered for notifications, until phase E of `docs/CLIENT-API.md`); logs go to stderr
+(journal / launchd log), with the last 500 lines kept in memory for `gateway.logs`. Files and pictures sent
+from a client are written to the bot's workspace `uploads/` folder, never over another file, and recorded
+with an id (`attachments`); a message names them by id, and `src/core/attachments.ts` expands only the
+`@file:` references of the session's own uploads.
 Secrets come from `secrets.env` (provider keys, Pushover, gateway token) or Pi's `auth.json`;
 they are never in prompts, transcripts or logs (the logger redacts known secret values).
 Provider sign-ins (`src/core/logins.ts`) run Pi's own login flows inside the gateway, which is the only writer of
@@ -359,5 +347,6 @@ restore <file>`, start. Deployment: one systemd unit (or a rootless Podman quadl
 
 No Postgres, Redis, broker or orchestrator: one owner, one process, two SQLite files. No vector store:
 FTS5 is enough until a concrete recall failure shows otherwise. The web panel (`src/panel/`) is static
-HTML, CSS and JavaScript with no framework or build step. No messaging-platform integrations: Vory for conversation and its own notifications (through the
-Vory push relay, `src/notify/vory.ts`), Pushover as an optional second channel.
+HTML, CSS and JavaScript with no framework or build step. No messaging-platform integrations: the nHermes app
+for conversation, Pushover for notifications (and, until the app has its own, Vory devices registered
+before, through the Vory push relay, `src/notify/vory.ts`).

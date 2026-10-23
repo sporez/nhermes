@@ -12,7 +12,7 @@ import * as membersModule from "../../src/federation/members.ts";
 import { clientTls, inviteId, inviteKey, keyId, memberIdentity, pairKey, pskRequest } from "../../src/federation/psk.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
-import { HermesClient } from "../hermes/client.ts";
+import { ApiClient } from "../../src/remote/api-client.ts";
 import { fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Gw = { core: Core; server: GatewayServer; url: string };
@@ -74,7 +74,7 @@ test("joining is encrypted, and the main port serves no member routes", async ()
 		const tls = clientTls(`m:${b.core.members.self().id}:${"0".repeat(12)}`, Buffer.alloc(32));
 		await assert.rejects(pskRequest(`https://127.0.0.1:${a.server.pskPort}`, tls, "GET", "/federation/ping", undefined, 5000), /unknown psk identity/);
 		const good = clientTls(`m:${b.core.members.self().id}:${(await import("../../src/federation/psk.ts")).keyId(alpha.secret)}`, pairKey(alpha.secret));
-		assert.equal((await pskRequest(`https://127.0.0.1:${a.server.pskPort}`, good, "GET", "/api/profiles", undefined, 5000)).status, 404);
+		assert.equal((await pskRequest(`https://127.0.0.1:${a.server.pskPort}`, good, "GET", "/api/v1/sessions", undefined, 5000)).status, 404);
 		assert.equal((await pskRequest(`https://127.0.0.1:${a.server.pskPort}`, good, "GET", "/panel/api/state", undefined, 5000)).status, 404);
 
 		// A spent code is refused in the handshake, and said so plainly.
@@ -122,11 +122,11 @@ test("pair secrets are replaced over the encrypted link; the old one stops worki
 		assert.equal(a.core.members.byName("beta")!.secret, after, "nothing changed");
 		assert.equal(a.core.members.byName("beta")!.prev_secret, before);
 		// A WebSocket opened with the old key stays up during the grace and is closed once it has passed.
-		const stale = await HermesClient.connect(a.server.pskPort!, undefined, {}, clientTls(memberIdentity(b.core.members.self().id, before), pairKey(before)));
-		await stale.waitEvent("gateway.ready");
-		const staleClosed = new Promise<number>((r) => stale.ws.once("close", r));
+		const stale = await ApiClient.open({ url: `https://127.0.0.1:${a.server.pskPort}`, tls: clientTls(memberIdentity(b.core.members.self().id, before), pairKey(before)) }, "alpha");
+		let staleCode: number | undefined;
+		const staleClosed = new Promise<number>((r) => stale.onClose((c) => ((staleCode = c), r(c))));
 		await a.core.members.maintain();
-		assert.equal(stale.closeCode, undefined, "still open within the grace");
+		assert.equal(staleCode, undefined, "still open within the grace");
 		clock += 11 * 60_000;
 		await a.core.members.maintain();
 		assert.equal(await staleClosed, 4401);

@@ -6,21 +6,22 @@ Guidance for coding agents working on nHermes.
 
 nHermes is a small, self-hosted personal agent platform. Pi Durable runs the agents; this project adds
 what Pi Durable leaves to its host (bots, sessions, approvals, memory, schedules, notifications, remote
-hosts, federation, the web panel). It also adds a translation layer, so the stock Vory app can drive it
-as a Hermes gateway.
+hosts, federation, the web panel) and its own client API (`docs/API.md`), which the nHermes app for Mac,
+iPhone and iPad speaks.
 
 Keep it small. `ARCHITECTURE.md` ends with "Why not more"; read it before adding a subsystem.
 
 ## References
 
 - Design and trade-offs: `ARCHITECTURE.md`. Read the relevant section before cross-layer work.
-- Install, service, Vory, backup, upgrade: `docs/OPERATIONS.md`.
-- Hermes/Vory feature matrix: `docs/COMPATIBILITY.md`.
+- Install, service, connecting the app, backup, upgrade: `docs/OPERATIONS.md`.
+- The client API (the contract clients build on): `docs/API.md`; how it came to replace the Hermes layer:
+  `docs/CLIENT-API.md`.
 - What is verified, and how: `docs/STATUS.md`. Phases and what is next: `docs/BACKLOG.md`.
 - Feature plans: `docs/FEDERATION.md`, `docs/REMOTE-BOT-EDITS.md`, `docs/SECRETS-AND-REVIEW.md`.
 - Upstream pins and the contracts we consume: `UPSTREAM.md`. Read-only upstream clones live in
   `reference/` (gitignored; recreate them with `scripts/fetch-upstream.sh`). Read them instead of guessing
-  how Pi Durable, Hermes or Vory behave. Never edit them.
+  how Pi Durable (or, for the push sender, Vory) behaves. Never edit them.
 - Optional maintainer guidance: a gitignored `CLAUDE.local.md` / `AGENTS.local.md` may supplement this
   file. Machine names, deployment paths and personal workflow belong there, not here. A missing overlay
   must not block an ordinary task.
@@ -60,9 +61,10 @@ Keep it small. `ARCHITECTURE.md` ends with "Why not more"; read it before adding
   Harness.
 - **One process owns each Durable database.** `nhermes serve` opens `data/durable.sqlite`; the CLI and
   scripts never open it. They use the running service's admin API.
-- **The Hermes layer only translates.** `src/hermes/` maps Vory's REST/JSON-RPC onto `core/` calls and
-  canonical events back to Hermes events. No agent state lives there beyond per-socket bookkeeping. The
-  same goes for `src/panel/` and `src/federation/` routes: put behavior in `core/` and call it.
+- **The client API only translates.** `src/api/` maps operations onto `core/` calls and canonical events
+  onto its own events, from one operation table for HTTP and the socket. No agent state lives there beyond
+  per-socket bookkeeping. The same goes for `src/panel/` and `src/federation/` routes: put behavior in
+  `core/` and call it. The API only grows within v1 (`docs/API.md` "Evolution").
 - **Upstream before custom.** Providers, OAuth and `models.json` come from Pi's `ModelRuntime`; SKILL.md
   discovery from Pi's skills loader; SSH from `pi-env`; file and shell tools from `pi-durable/tools`;
   browser control from Playwright. Check `reference/` before writing something Pi already has.
@@ -115,7 +117,7 @@ changes to these areas as security-relevant:
 - A file opens with a short comment saying what it owns and any invariant that is not obvious. Other
   comments explain a real invariant, compatibility fact or upstream behavior, briefly. Do not present an
   unconfirmed diagnosis as an invariant.
-- User-facing text (panel, Vory messages, notifications, tool descriptions, errors) is plain and
+- User-facing text (panel, API error messages, notifications, tool descriptions, errors) is plain and
   concrete: say what happened and what to do, without internal terms.
 - The panel (`src/panel/static/`) is plain HTML, CSS and JS with no build step. It runs in embedded
   browsers and Safari: no `window.confirm`/`alert`/`prompt`; ask in the page.
@@ -138,14 +140,13 @@ changes to these areas as security-relevant:
 - `npm test`: the whole suite, about 150 tests in under a minute, faux model, no network. Run it before
   handing off any code change. A single file: `node --test test/core/schedule.test.ts`.
 - `npm run test:upstream`: the Pi Durable contract tests. Run them after any Pi bump or engine change.
-- Tests live under `test/<area>/` and mirror `src/`. Shared setup is `test/helpers.ts`; the Hermes test
-  client is `test/hermes/client.ts`. A new behavior, state transition or security rule gets a test in
+- Tests live under `test/<area>/` and mirror `src/`. Shared setup is `test/helpers.ts`; the client API's test
+  client is `test/api/client.ts`. A new behavior, state transition or security rule gets a test in
   the matching area.
 - Wait for real events (`waitEvent`, completions, fakes' own signals). Do not add sleeps or polling loops
   to make a test pass, and do not weaken assertions or raise timeouts to get green.
-- Live checks are opt-in and cost real model calls: `scripts/smoke.ts`, `scripts/approval-smoke.ts`,
-  `scripts/vory-e2e.sh` (stock Vory's own E2E suite). Run them only when asked, against a gateway the user
-  names.
+- Live checks are opt-in and cost real model calls: `scripts/smoke.ts`, `scripts/approval-smoke.ts`. Run
+  them only when asked, against a gateway the user names.
 - Panel work: `node scripts/panel-dev.ts` starts two throwaway local gateways with a fake model. Open
   the panel and look at the change, light and dark, before handing off a UI change.
 - Reuse a passing result when its inputs have not changed. Documentation-only edits need no test run.
@@ -154,7 +155,8 @@ changes to these areas as security-relevant:
 
 Each change lands as a tested commit, with its docs updated in the same commit:
 
-- `docs/COMPATIBILITY.md` when a Hermes or Vory endpoint, method or screen changes.
+- `docs/API.md` when an operation, event, field or error code is added (never removed or changed within
+  v1), and `scripts/api-fixtures.ts` when a client's contract tests should see it.
 - `docs/STATUS.md` when something is newly verified, automated or live. Say which, and against what.
 - `docs/BACKLOG.md` when a phase item finishes or new work is deferred.
 - `docs/OPERATIONS.md` when install, config, CLI or panel use changes.
@@ -168,12 +170,12 @@ When review turns up work that should be deferred, report it and ask before addi
 Conventional Commits with a scope, one logical change each:
 
 ```text
-fix(vory): notifications about no chat carry no session_id, so tapping one no longer opens an empty chat
+fix(api): a chat deleted on another device leaves every client's list at once
 feat(federation): members with no notification transport forward to one that has it
 docs(openchamber): oc_approve verified on a live permission card
 ```
 
-- Scopes name the area: `hermes`, `vory`, `panel`, `federation`, `rooms`, `sessions`, `openchamber`,
+- Scopes name the area: `api`, `panel`, `federation`, `rooms`, `sessions`, `openchamber`,
   `scheduler`, `memory`, `skills`, `tools`, `engine`, `models`, `install`, and so on.
 - The subject says what is now true for the user, in plain words, not the mechanism. Put mechanism and
   reasoning in the body when it helps.

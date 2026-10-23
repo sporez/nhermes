@@ -1,6 +1,10 @@
 # MCP servers (plan)
 
-Status: implemented (M0–M5); not yet verified live against a real MCP server or on Vory's screen in the app.
+Status: implemented (M0–M5); not yet verified live against a real MCP server or on the MCP screen in the nHermes app.
+
+Note (2026-10-23): the Hermes/Vory paths described in older sections (`/api/mcp/servers`, `src/federation/vory.ts`, the
+Vory screen) were replaced by the client API (`docs/CLIENT-API.md`): the nHermes app uses the `mcp.*` operations in
+`docs/API.md`. Older sections and the M4 record keep what was built then.
 
 ## Steps
 
@@ -8,8 +12,8 @@ Status: implemented (M0–M5); not yet verified live against a real MCP server o
 - [x] M1. Connections: config, per-server lifecycle, health checks, backoff, tool snapshots (18b0ec6)
 - [x] M2. Tools: MCP tools in bots' tool groups, calls, outcomes, approvals, deferred exposure (ca9fda1)
 - [x] M3. Management: MCP tab in the panel, `nhermes mcp`, admin API, keys, doctor (56525ee)
-- [x] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove) (f8f4633)
-- [x] M5. Network: manage a member's MCP servers from any panel and from Vory
+- [x] M4. Vory: `/api/mcp/servers` (list, per-bot toggle, test, remove) (f8f4633); replaced by the client API's `mcp.*` operations (2026-10-23)
+- [x] M5. Network: manage a member's MCP servers from any panel and from the app
 - [ ] Later: OAuth sign-in, stdio servers, the stateless 2026-07-28 protocol, resources
 
 ## Goal
@@ -60,13 +64,14 @@ successful when it was not.
   - a 60 s default call timeout;
   - per-tool exposure patterns;
   - tool calls are never retried; only read-only requests are retried, once.
-- **Vory** has an MCP Servers screen (`HermesSettingsViews.swift`): `GET /api/mcp/servers?profile=`,
-  `PUT …/{name}/enabled`, `POST …/{name}/test`, `DELETE …/{name}`. It cannot add a server. nHermes
-  answers 404 today (`docs/COMPATIBILITY.md`).
+- **Vory** had an MCP Servers screen (`HermesSettingsViews.swift`): `GET /api/mcp/servers?profile=`,
+  `PUT …/{name}/enabled`, `POST …/{name}/test`, `DELETE …/{name}`, with no way to add a server. That was
+  what M4 answered. The nHermes app uses `mcp.list`, `mcp.get`, `mcp.create`, `mcp.update`, `mcp.delete`,
+  `mcp.action` and `mcp.setForBot` (`docs/API.md`), which also add and edit servers.
 - **Approvals.** `decide()` (`src/core/policy.ts`) classifies calls, and the `guard` hook
   (`src/agent/extensions.ts`) enforces them. Work a network member started (session source
   `member:<node>`) is never trusted and is not reviewed by Jev. Its asks are relayed to the owner
-  through the member (`fromMachine` in `src/tools/delegate.ts` and `src/federation/proxy.ts`), and
+  through the member (`fromMachine` in `src/core/approvals.ts`, used by `src/tools/delegate.ts` and the member chat link, `src/federation/chats.ts`), and
   configuration changes are refused. Otherwise it runs under normal policy at the strictest mode in
   the chain.
 
@@ -112,7 +117,7 @@ Everything else below is an nHermes design choice.
 2. **Streamable HTTP first. stdio later.** The connection layer takes a pi-mcp `McpTransport`, so
    stdio is a later phase with its own process and environment rules, not a redesign.
 3. **A server is a tool group.** Server `calendar` is group `mcp:calendar`. A bot gets it by listing
-   it under `tools:`, exactly like `web` or `browser`, so the panel's bot editor, Vory's Tools page and
+   it under `tools:`, exactly like `web` or `browser`, so the panel's bot editor, the app's tool groups (`toolGroups.list`, `bots.update`) and
    members' bot edits work unchanged. No bot gets a server by default.
 4. **Approvals.** An MCP call asks (Jev may answer in smart mode) unless the tool is read-only.
    - **Read-only comes from the owner:** a per-server `tools.readOnly` pattern list. Setting
@@ -132,13 +137,15 @@ Everything else below is an nHermes design choice.
    - A server belongs to the gateway that configures it. Only that gateway connects to it, and only
      its bots call it.
    - Other machines reach it by delegating to such a bot, the path that exists today.
-   - Any panel (and Vory, for a member's profile) can manage a member's servers under that member's
-     "Let other machines edit this machine's bots" switch. Key values never travel that way.
+   - Any panel (and the app, with `botId` set to a member's bot) can manage a member's servers under that member's
+     "Let other machines edit this machine's bots" switch. Listing, reading and testing a member's servers
+     needs no switch (`/federation/read/mcp`). Key values never travel that way.
 9. **Work another machine started** uses MCP tools exactly like other tools on that path, as
    described in "Where we start": never trusted, no Jev, asks relayed to the owner through the
    member. Nothing MCP-specific is added.
-10. **Vory's screen:** the toggle grants or removes the selected bot's `mcp:<server>` group. Test
-    runs a live check. Remove deletes the server from the gateway (Vory asks first).
+10. **The app's screen:** `mcp.setForBot` grants or removes the bot's `mcp:<server>` group. `mcp.action` with
+    `test` runs a live check. `mcp.delete` removes the server from the gateway and its group from every bot
+    (the app should ask first). (Vory's screen did the same through `/api/mcp/servers`.)
 11. **Exposure per server:**
     - `exposure: direct` (default): the tools are declared to the model.
     - `exposure: deferred`: the model finds them with `tool_search`, which loads them for that chat.
@@ -194,7 +201,7 @@ config.yaml mcp.servers ──► McpServers (src/mcp/servers.ts) ── one Mcp
                                │     the "mcp" Durable extension (re-installed on change),
                                │     tool_search when a granted server is deferred, the prompt part
                                ├─► core/policy.ts: read-only lookup for MCP tools
-                               └─► panel / admin / hermes (Vory) / federation/manage routes (translate only)
+                               └─► panel / admin / client API (`mcp.*`) / federation/manage and /read routes (translate only)
 McpConnection (src/mcp/connection.ts): one server's state machine over pi-mcp McpClient +
                                StreamableHttpTransport; backoff, health check, on-demand probe, discovery
 src/mcp/outcome.ts: classifies every failure into an outcome (pure, unit-tested)
@@ -351,7 +358,7 @@ the server gives an idempotency key.
     (managed write-only in the Keys tab and `nhermes secret`).
   - Secrets (`src/core/secrets.ts`) lists the name as "used by mcp:calendar".
   - Values are registered for log redaction at load and on change. A change reconnects the server.
-  - Values are never returned by the panel, admin API, Vory routes or `/federation/*`. Only names are.
+  - Values are never returned by the panel, admin API, client API or `/federation/*`. Only names are.
   - Bot shells never inherit them (`secretEnvNames`).
 - **Transport.** `https`, or `http` with a warning when it goes to another machine (decision 6).
   - The server URL comes only from the owner (config, panel, CLI, or a member under the edit
@@ -393,8 +400,9 @@ the server gives an idempotency key.
   - Granting a bot a server already works remotely, since `tools` is in `MEMBER_BOT_KEYS`.
   - Header values never travel. A member sets the secret name. The value is set on the owning
     machine, or copied with the existing key copy, under its own "accept keys" switch.
-- **Vory with a member's profile** (`src/federation/vory.ts`): reads always, changes under the same
-  switch, as for its other settings screens.
+- **The app with a member's bot** (`mcp.*` with `botId`, `src/api/ops/bots.ts`): reads and tests always
+  (`/federation/read/mcp`), changes under the same switch (`/federation/manage/mcp`), as for its other
+  settings screens.
 - **Not in scope:** calling a member's MCP tools without delegation. It would be a second execution
   path past the owner's approvals on that machine.
 
@@ -433,7 +441,7 @@ bots:
   error at edit time. At startup it is a warning and is ignored, so MCP can never stop the gateway
   from starting.
 
-## Panel, CLI, admin API, Vory
+## Panel, CLI, admin API, client API
 
 - **Panel: a new MCP tab** (`src/panel/static/mcp.js`, routes in `src/panel/panel.ts`).
   - The server list shows state badge, since when, URL, which bots have it, and tool count
@@ -447,13 +455,14 @@ bots:
 - **CLI:** `nhermes mcp list | show <name> | add <name> --url … [--header K=V] [--description …] |
   edit <name> … | remove <name> | enable <name> | disable <name> | test <name> | refresh <name> |
   tools <name>`, over `/admin/mcp/*`. Secret values use the existing `nhermes secret set`.
-- **Vory:** `/api/mcp/servers` for a profile.
-  - List: `name`, `transport: "http"`, `url`, `enabled` (= this bot has the group), plus `state` and
-    `tool_count` (Vory ignores fields it doesn't know).
-  - Toggle → `Settings.editBot` adds or removes the group.
-  - Test → a live check `{ ok, status, tool_count, tools, error }`.
-  - Remove → deletes the server.
-  - Recorded in `docs/COMPATIBILITY.md`.
+- **Client API:** the `mcp.*` operations (`docs/API.md`), for the gateway's servers or, with `botId`, for that
+  bot's machine.
+  - `mcp.list` / `mcp.get`: the servers, each with `enabledForBot` when a `botId` is given; `mcp.get` adds the
+    tools, the server's instructions and recent changes.
+  - `mcp.setForBot` adds or removes the group (`Settings.editBot`).
+  - `mcp.action` `test` → a live check `{ok, error?, state, toolCount, tools}`.
+  - `mcp.delete` → deletes the server.
+  - M4 first built this as Vory's `/api/mcp/servers` (`{ ok, status, tool_count, tools, error }`), since removed.
 - **Doctor:** each server's state and last error.
 
 ## Testing
@@ -492,7 +501,7 @@ bots:
   - Settings writes (remove strips groups);
   - restart mid-call (unsafe → `interrupted`, safe → rerun);
   - deferred exposure with `tool_search`;
-  - Vory routes in `test/hermes/`.
+  - the client API's `mcp.*` operations in `test/api/bots.test.ts` (M4's Vory routes were in `test/hermes/`, since removed).
 - **Upstream contract tests** in `test/upstream/mcp-contract.test.ts`:
   - pi-mcp error types for refused, reset and timed-out requests;
   - no retry on POST;
@@ -528,9 +537,9 @@ Each item is one or more tested commits with their docs.
   - MCP tab, `nhermes mcp`, `/admin/mcp/*`, the Secrets catalogue, doctor.
   - Panel checked light and dark with panel-dev.
   - Docs: `docs/OPERATIONS.md`.
-- **M4. Vory.** `/api/mcp/servers`, tests, `docs/COMPATIBILITY.md`.
+- **M4. Vory.** `/api/mcp/servers`, tests, `docs/COMPATIBILITY.md` (all since replaced by `mcp.*` in `docs/API.md`).
 - **M5. Network.**
-  - `/federation/manage/mcp/*`, the panel's members' section, Vory for members' profiles.
+  - `/federation/manage/mcp/*`, the panel's members' section, Vory for members' profiles (now the app, through `mcp.*` with a member's `botId`).
   - Test 10.
   - Docs: `docs/FEDERATION.md` or `docs/REMOTE-BOT-EDITS.md`.
 - **Later.** Deferred until asked:
@@ -539,8 +548,8 @@ Each item is one or more tested commits with their docs.
   - 2026-07-28 once Pi supports it;
   - `resources/*` tools.
 
-Size check: no touched file is near 800 lines today (largest: `src/hermes/ws.ts` at 615, not
-touched). New code goes in new files at its own seam.
+Size check: no touched file was near 800 lines then (largest: `src/hermes/ws.ts` at 615, not
+touched; that layer is since removed). New code goes in new files at its own seam.
 
 ## Risks and trade-offs
 
@@ -551,7 +560,7 @@ touched). New code goes in new files at its own seam.
   - The spec says a broken response stream loses the request and the client MUST re-issue it with a
     new id. For tools that are not read-only that conflicts with "no automatic retries of uncertain
     writes". Plan then: re-issue only read-only requests, report the rest as `lost` and record the
-    deviation in `docs/COMPATIBILITY.md`.
+    deviation in `docs/STATUS.md`.
 - **Cached tools while offline** cost an occasional failed call and up to 3 s of probing (see the
   section above).
 - **Tool descriptions are untrusted text in the model's tool list** (tool poisoning).
@@ -564,8 +573,8 @@ touched). New code goes in new files at its own seam.
 - **Arbitrary JSON Schema.** pi-ai validates and coerces, but unusual schemas may be stricter or
   looser than the server expects. M0 tests the common shapes, and a server's schema error shows in
   the panel.
-- **Vory's Remove sits on a per-profile screen but removes the server for the whole gateway.** Vory
-  asks first, and the panel and the docs say so.
+- **Removing a server (`mcp.delete`) removes it for the whole gateway, though a client may show it on a
+  per-bot screen.** The client should ask first, and the panel and the docs say so.
 - **The gateway's own network position decides reachability.** A bot on an SSH host still calls MCP
   from the gateway.
 

@@ -327,7 +327,7 @@ export class Scheduler {
 		this.d.db.run("INSERT OR IGNORE INTO job_runs (job_id, occurrence, trigger, status, started_at, finished_at, error) VALUES (?, ?, ?, ?, ?, ?, ?)", jobId, occurrence, trigger, status, now, now, error);
 	}
 
-	/** Run now (Vory's "Run now", the schedule_run tool, the CLI). Resolves when the run has started. */
+	/** Run now (the client API's jobs.run, the schedule_run tool, the CLI). Resolves when the run has started. */
 	async trigger(id: string): Promise<RunRow> {
 		const job = this.require(id);
 		if (this.isRunning(job.id)) throw new JobError(409, "Job is already running");

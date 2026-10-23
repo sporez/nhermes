@@ -106,7 +106,7 @@ export class Secrets {
 			e.usedBy.add(usedBy);
 			out.set(name, e);
 		};
-		add(c.tokenEnv, "Gateway session token: Vory and the nhermes command use it", "gateway", true);
+		add(c.tokenEnv, "Gateway token: the nHermes app and the nhermes command use it", "gateway", true);
 		add("PUSHOVER_USER_KEY", "Pushover user key (notifications)", "notifications", true);
 		add("PUSHOVER_APP_TOKEN", "Pushover application token (notifications)", "notifications", true);
 		add(c.review.keyEnv, "OpenRouter API key: Jev permission review", "permission review");
@@ -204,7 +204,7 @@ export class Secrets {
 		return { restartNeeded: info.restartOnly };
 	}
 
-	/** A new gateway token, returned once. Vory and the CLI need it; the running gateway keeps the old one until restart. */
+	/** A new gateway token, returned once. Clients and the CLI need it; the running gateway keeps the old one until restart. */
 	newToken(): { name: string; value: string } {
 		const value = randomBytes(24).toString("base64url");
 		this.set(this.config.tokenEnv, value);

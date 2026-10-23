@@ -30,7 +30,7 @@ git clone https://github.com/sporez/nhermes ~/nhermes && cd ~/nhermes && npm ci 
 # Optional features
 sudo apt-get install -y google-chrome-stable      # or: npx playwright-core install --with-deps chromium
 sudo apt-get install -y xdotool imagemagick wmctrl python3-pyatspi at-spi2-core   # desktop control
-sudo apt-get install -y poppler-utils             # PDFs sent from Vory reach the model as page pictures (doctor warns without it)
+sudo apt-get install -y poppler-utils             # PDFs sent from the app reach the model as page pictures (doctor warns without it)
 
 # Config
 mkdir -p ~/.config/nhermes && ~/nhermes/bin/nhermes init ~/.config/nhermes
@@ -42,7 +42,7 @@ Model credentials: put provider keys in `secrets.env` (`CEREBRAS_API_KEY=…`, `
 point `pi.authPath` / `pi.modelsPath` at a Pi `auth.json` / `models.json` (subscriptions and custom
 OpenAI-compatible endpoints such as a local server).
 
-Catalog providers need only their key. Set `NEURALWATT_API_KEY` (Keys tab, Vory or
+Catalog providers need only their key. Set `NEURALWATT_API_KEY` (Keys tab, the client API or
 `nhermes secret set NEURALWATT_API_KEY`) and the gateway fetches Neuralwatt's model list at once, offers
 it in the pickers as `neuralwatt/<model>`, refreshes it every 12 hours and keeps the last list for starts
 without the network; removing the key withdraws the models. No restart, no `models.json`. A provider
@@ -50,7 +50,7 @@ that `models.json` defines itself is left to that file, so delete its entry ther
 automatic list. Adding another such provider is one adapter in `src/models/` (see `neuralwatt.ts`), listed
 in `CATALOGS` in `src/models/catalogs.ts`. `scripts/neuralwatt-models.ts` still prints a `models.json`
 for the Pi CLI. A bot's `model:` in config is its default;
-its chats follow it unless one was switched in Vory. Sharing them with a running Pi CLI is
+its chats follow it unless one was switched in the app. Sharing them with a running Pi CLI is
 safe: Pi's credential store locks the file during OAuth refresh.
 
 ## Run as a service
@@ -77,35 +77,28 @@ one gets HTTP 401 / WebSocket close 4401. Keep the port off the internet: use Ta
 other client can use the same API; `node scripts/api-fixtures.ts <folder>` records sample answers and event
 streams from a throwaway gateway, for a client's tests.
 
-## Connect Vory
+### Notifications
 
-Vory → Settings → Gateways → Add: URL `http://<host>:9119` (or the Tailscale name / an HTTPS reverse
-proxy), authentication **Session token**, token = `NHERMES_TOKEN`. Keep the port off the internet: use
-Tailscale or a TLS proxy. Wrong tokens get HTTP 401 / WebSocket close 4401.
+Set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `secrets.env` (or Keys in the panel) for push
+notifications: approvals, finished and failed turns, scheduled-task results, the `notify` tool and
+OpenChamber alerts. In a network, a machine with no transport of its own forwards its notifications to a
+member that has one, so one setup is enough; the gateway the app is connected to notifies for chats with
+other machines' bots, and the machine running the bot stays quiet for them. The nHermes app's own push
+notifications come later (`docs/CLIENT-API.md`, phase E). Until then, phones that had Vory notifications set
+up still get them, through the Vory push relay (registrations in `<data>/vory/`); Vory itself can no longer
+connect, so answer an approval in the nHermes app rather than from that notification.
 
-### Notifications in Vory
+### Group chats
 
-Vory → Settings → Notifications: allow notifications, then set up the Companion and install it on the
-gateway. No gateway restart is needed. The gateway doesn't run the Companion's Python; it sends the same
-notifications itself through the Vory push relay, which only sees encrypted payloads. You get approvals
-with Approve once / Deny, finished and failed turns, scheduled-task results and the `notify` tool, and the
-turn's Live Activity is finished. The test button in the setup sends a real push. The device registrations
-and the Companion's files are kept in `<data>/vory/`. Pushover keeps working alongside it when its keys are
-set. In a network, set it up on the gateway Vory connects to: that gateway notifies for chats with other machines' bots too, and the machine running the bot stays quiet for them. Scheduled tasks, the `notify` tool and OpenChamber alerts notify from the machine they run on; a machine with no transport of its own forwards them to a member that has one, so one setup is enough. Removing the Companion in Vory stops the notifications. This needs a Vory build with the push relay
-built in. A build without it asks for your own APNs key instead, and the gateway doesn't support that setup.
-
-### Group chats in Vory
-
-In Vory, start a new chat and add two to six bots: they share one group chat. Each message goes to the
-bots it @mentions (`@ops`), or to all of them when it mentions none (`@all` and `@everyone` work too).
-They answer one at a time, may pull each other in with `@name`, and stay quiet when they have nothing
-to add. You get one notification when they are done. A bot that needs your approval shows "<bot> is
-waiting for your approval" in the room; the approval notification opens that bot's own room session
-with the card, and while the approval waits that session ("Group: <name>") is also at the top of Chats. Deleting the group in Vory disbands it (a running turn is stopped; the log stays in
-`app.sqlite`). Other machines' bots in the network can join too (`Media (media)`, mentioned as
-`@media-media`): they answer on their own machine, and their approvals come to you here. A machine that
-is offline makes its bot's turn fail; the others carry on. The group's message box has no @ suggestions
-(Vory's own limit); type the handle.
+A group chat is two to six bots sharing one log (`rooms.*` in `docs/API.md`; the app has no screen for it
+yet). Each message goes to the bots it @mentions (`@ops`), or to all of them when it mentions none (`@all`
+and `@everyone` work too). They answer one at a time, may pull each other in with `@name`, and stay quiet
+when they have nothing to add. You get one notification when they are done. A bot that needs your approval
+shows "<bot> is waiting for your approval" in the room; the approval is asked in that bot's own room
+session, which is listed at the top of the chat list while it waits. Disbanding a group stops a running
+turn; the log stays in `app.sqlite`. Other machines' bots in the network can join too (`@media-media`):
+they answer on their own machine, and their approvals come to you here. A machine that is offline makes its
+bot's turn fail; the others carry on.
 
 ## Administration
 
@@ -123,10 +116,12 @@ chats on their next message; `reload` lists anything that still needs a restart 
 directory, time zone, approval timeout). A file that does not load is refused and the running
 configuration stays. The admin API (`/admin/config`, `/admin/bots`, `/admin/gateway`) makes the same edits
 and keeps the file's comments.
-From Vory you can edit a bot's instructions, description, default model, reasoning, approval mode, "always
-allowed" rules, tool groups, skills and scheduled tasks; create and remove bots; set and clear keys (not
-the gateway token); check for updates, update and restart the gateway; run the doctor and read recent
-logs; see usage analytics; and browse the bots' workspaces read-only (`docs/COMPATIBILITY.md`).
+Through the client API (`docs/API.md`) a client can edit a bot's instructions, description, default model,
+reasoning, approval mode, "always allowed" rules, tool groups, skills and scheduled tasks; create and
+remove bots; manage MCP servers; set and clear keys (not the gateway token); check for updates, update and
+restart the gateway; run the doctor and read recent logs; see usage analytics; and browse the bots'
+workspaces read-only. The nHermes app has screens for some of these so far (scheduled tasks, MCP servers);
+the panel covers most of the rest.
 
 Bots with the `self` tool group can make these edits too, each one shown to you as an approval card with
 the change as a diff. Any such bot can change its own description, instructions, model, thinking, global
@@ -146,7 +141,7 @@ pending approvals and the Jev review log, scheduled jobs, gateway settings and s
 open to anyone on the LAN until you set a password with `nhermes panel password` (or on its Gateway
 screen); `nhermes panel password --clear` removes it. Set `panel: { enabled: false }` to turn it off, or
 `server.host: 127.0.0.1` to keep the whole gateway on the machine. The panel never needs the gateway
-token; Gateway → Connect a client shows the addresses to enter in Vory and the token on request.
+token; Gateway → Connect a client shows the addresses to enter in the nHermes app and the token on request.
 
 ## Keys and tokens
 
@@ -155,7 +150,7 @@ token; Gateway → Connect a client shows the addresses to enter in Vory and the
 `nhermes secret rm NAME`. Values are never shown again; changes apply at once except the gateway token
 and Pushover keys, which need a restart. A variable set by the service's own environment (for example in
 the systemd unit) wins over the file and is read-only here. "Generate new token" shows a new gateway
-token once: update Vory and restart the gateway. A key can also be set on other machines in the network,
+token once: enter it in the app and restart the gateway. A key can also be set on other machines in the network,
 on those whose panel allows "Accept keys from other machines" (off by default).
 
 ## Signing in to model providers
@@ -203,7 +198,7 @@ a confident allow (default 80%) runs without a card; otherwise the card shows Je
 the guard also asks about more everyday commands (deleting files, git writes, ssh/rsync, inline scripts,
 containers, services), which Jev mostly answers. Never left to Jev: the destructive group (disk wipes and
 checks, power, credentials…), your own `approvals.ask` rules, manual mode, scheduled jobs set to ask,
-and work another machine's bot started (your own chat relayed from Vory on another member is reviewed
+and work another machine's bot started (your own chat relayed from the app on another member is reviewed
 like a local one). Commands and your recent messages in that chat go to
 OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
 allowThreshold, timeoutMs, keyEnv } }` in config.yaml. Every review is listed in the panel's Status tab.
@@ -226,7 +221,7 @@ at each start, so changing the default there is enough; `openchamber.model` (`pr
 The **OpenChamber Alerts** tool group (`openchamber_alerts`, no tools of its own) makes the gateway keep
 one event subscription to OpenChamber and notify the owner when a thread asks for permission, asks a
 question, or fails (not when it simply finishes, which would be every turn; delegated sub-threads are
-skipped; at most one notification per thread and kind per minute). Switch it like any tool group, on Vory's Tools page or in the panel; it starts
+skipped; at most one notification per thread and kind per minute). Switch it like any tool group, in the client API (`bots.update` tool groups) or in the panel; it starts
 or stops at once, no restart. It reconnects quietly while OpenChamber is closed. It only listens: Jev
 and the second-opinion reviewer decide before a permission card exists, and the watcher sees a card
 only once they have passed it to the owner.
@@ -284,7 +279,7 @@ bots:
 - **CLI:** `nhermes mcp` lists the servers; `nhermes mcp show <name>` shows one with its tools and changes;
   `nhermes mcp add <name> --url … [--header 'Authorization=Bearer {{secret:NAME}}'] [--read-only 'list_*']
   [--description …] [--exposure deferred]`, `edit`, `test`, `refresh`, `enable`, `disable` and `rm` do the rest.
-  The doctor (Vory's Run doctor) lists each server; one that is away is a warning, never a failure.
+  The doctor (the client API's `actions.start` with kind `doctor`) lists each server; one that is away is a warning, never a failure.
 
 ## Network of gateways
 
@@ -304,7 +299,7 @@ Every machine runs the same gateway; together they form one network of equals (`
   a member the panel marks "No encrypted link" must be removed and joined again.
 - A gateway that moves (another port or IP) tells the other members by itself on its next tick.
 - "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
-  panels, and Vory connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`) and its MCP
+  panels, and the app connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`) and its MCP
   servers (the MCP tab's "Other machines"; key values stay here, see `docs/MCP.md`).
 - "Let other machines sign this machine in to model providers" (Network tab, off by default) lets the other
   members' panels and `nhermes auth --machine` start, answer and cancel provider sign-ins here, and sign
@@ -318,10 +313,10 @@ Every machine runs the same gateway; together they form one network of equals (`
 |---|---|
 | `durable.sqlite` | Pi Durable: conversations, runs, tool tasks (owned by Pi Durable) |
 | `app.sqlite` | sessions catalogue, memory (FTS5), jobs and run history, approval rules, audit log |
-| `workspaces/<bot>/` | each local bot's working directory; `uploads/` in it holds what was sent from Vory (kept until removed by hand) |
+| `workspaces/<bot>/` | each local bot's working directory; `uploads/` in it holds what was sent from a client, each upload with its id (kept until removed by hand) |
 | `browser/<bot>/` | browser profile (cookies, logins) and screenshots — treat as sensitive |
 | `ssh/known_hosts` | pinned host keys for remote bots |
-| `vory/` | Vory push device registrations and the Companion's stored files |
+| `vory/` | devices Vory registered for notifications, until the app's own (phase E of `docs/CLIENT-API.md`) |
 
 ## Backup, restore, upgrade
 
@@ -343,6 +338,6 @@ Every machine runs the same gateway; together they form one network of equals (`
 
 ## Health
 
-`GET /api/health` (no auth) answers `{ok:true}`; `GET /api/status` adds running sessions. The service
+`GET /api/health` (no auth) answers `{ok: true, version}`; `nhermes status` adds running sessions and jobs. The service
 restarts on failure (`Restart=on-failure`). If Pi Durable's store fails, the process logs
 `durable session failed` and should be restarted.

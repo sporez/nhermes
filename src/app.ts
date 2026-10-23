@@ -20,7 +20,6 @@ import { Updates, type UpdatesOptions } from "./core/updates.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
 import { MemberChats } from "./federation/chats.ts";
-import { ProxySessions } from "./federation/proxy.ts";
 import { Roster } from "./federation/roster.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
@@ -72,18 +71,17 @@ export type Core = {
 	memory: MemoryStore;
 	skills: Skills;
 	scheduler: Scheduler;
-	/** Group chats between this gateway's bots (Vory's Bot Mode). */
+	/** Group chats between this gateway's bots. */
 	rooms: Rooms;
 	notifier: Notifier;
 	/** Only this gateway's own transports (no forwarding to a member). */
 	localNotifier: Notifier;
-	/** Vory's own notifications through its push relay (what its Companion plugin does on Hermes). */
+	/** Vory's notifications to devices it registered before, through its push relay (until the app has its own). */
 	vory: VoryPush;
 	browsers: Browsers;
 	settings: Settings;
 	members: Members;
 	roster: Roster;
-	proxy: ProxySessions;
 	/** The owner's chats with members' bots on the client API. */
 	memberChats: MemberChats;
 	secrets: Secrets;
@@ -340,13 +338,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	mcpTools.attach(engine.registry);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
 	const attachments = new Attachments({ db, bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
-	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
 	const memberChats = new MemberChats({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, t) => vory.remoteFinished(id, t) });
-	members.onRevoke(() => {
-		proxy.dropGone();
-		memberChats.dropGone();
-	});
-	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id) || memberChats.isRunning(id), deleted: (row) => memberChats.deleted(row) });
+	members.onRevoke(() => memberChats.dropGone());
+	sessions.setRemoteHooks({ running: (id) => memberChats.isRunning(id), deleted: (row) => memberChats.deleted(row) });
 	scheduler = new Scheduler({
 		db,
 		engine,
@@ -371,7 +365,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		bots,
 		toolGroups: () => [...toolGroups.keys()],
 		botChanged: (name) => hosts.reset(name),
-		// The openchamber_alerts group turned on or off (Vory's Tools page, the panel) takes effect without a restart.
+		// The openchamber_alerts group turned on or off (the client API, the panel) takes effect without a restart.
 		applied: () => {
 			void chamberWatcher.sync();
 			hub.publishGlobal({ type: "bots.changed" });
@@ -419,7 +413,6 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		settings,
 		members,
 		roster,
-		proxy,
 		memberChats,
 		secrets,
 		catalogs,
@@ -436,7 +429,6 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			catalogs.stop();
 			vory.stop();
 			await chamberWatcher.stop();
-			proxy.close();
 			memberChats.close();
 			await scheduler!.stop();
 			await rooms!.stop();

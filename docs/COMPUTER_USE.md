@@ -45,6 +45,6 @@ the accessibility tree (5 model calls with `cerebras/gpt-oss-120b`).
 
 ## Safety
 
-Desktop and browser actions are ordinary tool calls: they show in Vory as tool cards, can be stopped
+Desktop and browser actions are ordinary tool calls: they show in the nHermes app as tool calls (turn items, `docs/API.md`), can be stopped
 with Stop, and pass the approval policy. `approvals: manual` on a bot asks before every click/type.
 Content read from pages and screens is untrusted: it never changes policy.

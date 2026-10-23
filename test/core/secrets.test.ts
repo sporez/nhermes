@@ -22,7 +22,7 @@ test("set, replace and remove keys; nothing ever hands a value back", async () =
 	const core = await createCore(loadConfig(join(dir, "config.yaml")), { models: fauxModels().models });
 	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const call = (method: string, path: string, body?: unknown) =>
-		fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+		fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 	try {
 		const byName = () => new Map(core.secrets.list().map((s) => [s.name, s]));
 		const before = byName();
@@ -70,12 +70,6 @@ test("set, replace and remove keys; nothing ever hands a value back", async () =
 		assert.equal(fresh.name, "NHERMES_TOKEN");
 		assert.ok(fresh.value.length >= 24 && fresh.value !== TOKEN);
 		assert.match(readFileSync(secretsPath, "utf8"), new RegExp(`^NHERMES_TOKEN=${fresh.value}$`, "m"));
-
-		// Vory's env screen lists the same names, redacted.
-		const env = (await (await call("GET", "/api/env")).json()) as Record<string, { is_set: boolean; redacted_value: string | null; provider: string | null }>;
-		assert.equal(env.NEURALWATT_API_KEY?.provider, "neuralwatt");
-		assert.equal(env.WEATHER_KEY?.is_set, true);
-		assert.match(env.WEATHER_KEY!.redacted_value!, /^«redacted:…hash»$/);
 	} finally {
 		await server.close();
 		await core.close();

@@ -1,7 +1,9 @@
-// Editing this gateway's bots from another member's panel. Only when this gateway's owner allowed it
-// (Network: "Let other machines edit this machine's bots"). The member's panel sends the same edits this
-// gateway's own panel would, and they run through the same services here: this machine's config.yaml is
-// written by this machine. Settings that point at this machine's files, hosts or credentials stay local.
+// Editing this gateway's bots from another member's panel or client. Only when this gateway's owner allowed it
+// (Network: "Let other machines edit this machine's bots"). The member sends the same edits this gateway's own
+// panel would, and they run through the same services here: this machine's config.yaml is written by this
+// machine. Settings that point at this machine's files, hosts or credentials stay local. A member's client
+// may read a shared bot's skills and prompt, and this machine's MCP servers, without that switch
+// (`/federation/read/*`).
 import type { Core } from "../app.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
@@ -11,6 +13,7 @@ import { logger } from "../log.ts";
 import { mcpAction, mcpCall, mcpDetail, mcpEdit, mcpList, mcpPatch } from "../mcp/manage.ts";
 import { editorView, ownBots, promptView, skillsView } from "../panel/views.ts";
 import type { MemberRow } from "./members.ts";
+import { shareable } from "./roster.ts";
 
 const log = logger("manage");
 
@@ -124,5 +127,22 @@ export function manageRoutes(core: Core): Router {
 		return result;
 	});
 	r.on("POST", "/federation/manage/mcp/:name/:action", (q) => (allowed(q), mcpCall(() => mcpAction(core, q.params.name!, q.params.action!))));
+
+	// Reads for a member's client: a bot it can chat with (a shared one; any, when edits are allowed) and this
+	// machine's MCP servers. A test of a server changes nothing.
+	const readable = (q: Req, name: string): Bot => {
+		if (!q.member) throw new HttpError(401, "Unauthorized");
+		const b = bot(name);
+		if (!core.members.acceptsBotEdits() && shareable([b]).length === 0) throw new HttpError(404, `no bot named "${name}" on ${core.members.self().name}`);
+		return b;
+	};
+	const anyMember = (q: Req) => {
+		if (!q.member) throw new HttpError(401, "Unauthorized");
+	};
+	r.on("GET", "/federation/read/bots/:name/skills", (q) => skillsView(core, readable(q, q.params.name!)));
+	r.on("GET", "/federation/read/bots/:name/prompt", (q) => promptView(core, readable(q, q.params.name!)));
+	r.on("GET", "/federation/read/mcp", (q) => (anyMember(q), { node: core.members.self().name, ...mcpList(core) }));
+	r.on("GET", "/federation/read/mcp/:name", (q) => (anyMember(q), mcpCall(() => mcpDetail(core, q.params.name!))));
+	r.on("POST", "/federation/read/mcp/:name/test", (q) => (anyMember(q), mcpCall(() => mcpAction(core, q.params.name!, "test"))));
 	return r;
 }

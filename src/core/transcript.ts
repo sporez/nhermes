@@ -1,5 +1,6 @@
-// Projects Durable transcript entries into the row shape Hermes clients render
-// (`session_history._project_history`: role, text, timestamp, row_id, name, context, reasoning).
+// Projects Durable transcript entries into rows (role, text, timestamp, row id, tool name, context,
+// reasoning): what the bots' own chat tools read (chat_search, chat_read) and what sets a chat's title and
+// preview. Clients get turns instead (core/turns.ts).
 import { basename } from "node:path";
 import type { EntryRecord } from "../engine/engine.ts";
 import { redact } from "../log.ts";
@@ -45,7 +46,7 @@ function thinkingOf(content: string | Block[]): string {
 /**
  * A user message as clients show it. A prompt with attachments (src/core/attachments.ts) is the words with
  * a line per picture or PDF, then the attached files' text for the model only: shown are the first block,
- * with each picture as Vory's `[User attached image: <name>]` and each PDF as `📎 <name>`.
+ * with each picture as `[User attached image: <name>]` and each PDF as `📎 <name>`.
  */
 export function userDisplay(content: string | Block[] | undefined): string {
 	if (content === undefined || typeof content === "string") return content ?? "";

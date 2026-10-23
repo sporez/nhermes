@@ -1,12 +1,9 @@
 // Files and pictures a client uploads for a prompt. Every upload is written to the bot's workspace
 // `uploads/` folder as a new file, never over another, and gets an id (the `attachments` table), so the
 // client API names what goes with a message, can take one back before sending, and can open any of them
-// later. The Hermes methods (Vory's image.attach_bytes, pdf.attach and file.attach, as Hermes'
-// tui_gateway/prompt_attachments.py does them) keep their own model: pictures and rendered PDF pages wait
-// here, in memory, until the session's next prompt takes them. Either way, uploaded files are remembered by
-// their `@file:` reference, and a prompt naming one gets its text, as Hermes' agent/context_references.py
-// expands them. Only references this session was given are expanded, so typed text never pulls another
-// file into the prompt.
+// later. A file that goes with a message is named by its `@file:` reference, and the prompt carries its text
+// (as Hermes' agent/context_references.py expands them). Only references this session was given are
+// expanded, so typed text never pulls another file into the prompt.
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,13 +21,14 @@ import type { AttachmentRef } from "./turns.ts";
 const log = logger("attachments");
 
 export const IMAGE_MAX_BYTES = 25 * 1024 * 1024;
-/** Its base64 must fit one WebSocket frame (64 MB, src/hermes/server.ts). */
+/** Its base64 must fit one WebSocket frame (64 MB, src/server.ts), as a member machine sends it. */
 export const FILE_MAX_BYTES = 40 * 1024 * 1024;
 export const PDF_MAX_PAGES = 25;
-const MAX_STAGED_IMAGES = 32;
+/** Pictures (a PDF's pages count) one message can carry. */
+const MAX_IMAGES = 32;
 const MAX_FILE_REFS = 16;
-/** Staged pictures nobody sent (the prompt never came) are dropped after this long. */
-const STAGED_TTL_MS = 15 * 60_000;
+/** Pictures prepared at upload are kept this long for the message that sends them. */
+const PREPARED_TTL_MS = 15 * 60_000;
 const FALLBACK_CONTEXT = 128_000;
 const CHARS_PER_TOKEN = 4;
 
@@ -50,7 +48,6 @@ type Staged =
 	| { kind: "image"; path: string; name: string; picture: Picture }
 	| { kind: "pdf"; path: string; name: string; pages: Picture[] };
 type Uploaded = { path: string; name: string };
-type SessionUploads = { staged: Staged[]; stagedAt: number; files: Map<string, Uploaded> };
 
 export type AttachmentKind = "image" | "pdf" | "file";
 
@@ -69,37 +66,13 @@ export type AttachmentsDeps = {
 
 export class Attachments {
 	private readonly d: AttachmentsDeps;
-	private readonly bySession = new Map<string, SessionUploads>();
+	/** Each session's `@file:` references, the files they name. */
+	private readonly refs = new Map<string, Map<string, Uploaded>>();
 	/** Pictures and PDF pages prepared at upload, by id, so sending them soon after does not prepare them again. */
 	private readonly prepared = new Map<string, { at: number; staged: Staged }>();
 
 	constructor(deps: AttachmentsDeps) {
 		this.d = deps;
-	}
-
-	/** A picture for the next prompt: saved to uploads/, shrunk to the model limits. */
-	async image(sessionId: string, base64: string, filename?: string): Promise<{ path: string; name: string; count: number; bytes: number }> {
-		const bytes = decode(base64, IMAGE_MAX_BYTES, "picture");
-		const s = this.uploads(sessionId);
-		if (this.imageCount(s) >= MAX_STAGED_IMAGES) throw new AttachmentError(4017, `At most ${MAX_STAGED_IMAGES} pictures can go with one message.`);
-		const { path, picture } = await this.storeImage(sessionId, bytes, filename);
-		this.stage(s, { kind: "image", path, name: basename(path), picture });
-		return { path, name: basename(path), count: this.imageCount(s), bytes: bytes.length };
-	}
-
-	/** A PDF for the next prompt: saved to uploads/, its first pages shown to the model as pictures when they can be rendered. */
-	async pdf(sessionId: string, base64: string, filename?: string): Promise<{ path: string; name: string; pages: number; count: number }> {
-		const bytes = decode(base64, FILE_MAX_BYTES, "PDF");
-		const s = this.uploads(sessionId);
-		const { path, pages } = await this.storePdf(sessionId, bytes, filename, MAX_STAGED_IMAGES - this.imageCount(s));
-		this.stage(s, { kind: "pdf", path, name: basename(path), pages });
-		return { path, name: basename(path), pages: pages.length, count: this.imageCount(s) };
-	}
-
-	/** Any other file: saved to uploads/; the reference names it in a prompt, which then carries its text. */
-	file(sessionId: string, base64: string, name?: string): { path: string; name: string; ref: string; refPath: string } {
-		const bytes = decode(base64, FILE_MAX_BYTES, "file");
-		return this.storeFile(sessionId, bytes, name);
 	}
 
 	/**
@@ -117,11 +90,11 @@ export class Attachments {
 			path = r.path;
 			this.prepared.set(this.rowByPath(sessionId, path)!.id, { at: Date.now(), staged: { kind: "image", path, name: basename(path), picture: r.picture } });
 		} else if (detected === "pdf") {
-			const r = await this.storePdf(sessionId, bytes, name, MAX_STAGED_IMAGES);
+			const r = await this.storePdf(sessionId, bytes, name, MAX_IMAGES);
 			path = r.path;
 			this.prepared.set(this.rowByPath(sessionId, path)!.id, { at: Date.now(), staged: { kind: "pdf", path, name: basename(path), pages: r.pages } });
 		} else {
-			path = this.storeFile(sessionId, bytes, name).path;
+			path = this.storeFile(sessionId, bytes, name);
 		}
 		return info(this.rowByPath(sessionId, path)!);
 	}
@@ -198,20 +171,20 @@ export class Attachments {
 	async submitWith<R>(sessionId: string, text: string, ids: readonly string[], send: (content: UserInput) => Promise<R>): Promise<R> {
 		const staged: Staged[] = [];
 		const refs: string[] = [];
-		const s = this.uploads(sessionId);
+		const known = this.refsOf(sessionId);
 		for (const id of ids) {
 			const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND session_id = ? AND withdrawn = 0", id, sessionId);
 			if (!row) throw new AttachmentError(4006, `No upload ${id} in this chat (it was taken back, or belongs to another chat).`);
 			if (row.kind === "file") {
 				const rel = relative(this.workspace(sessionId), row.path).split("\\").join("/");
 				const ref = `@file:${refValue(rel)}`;
-				s.files.set(ref, { path: row.path, name: row.name });
+				known.set(ref, { path: row.path, name: row.name });
 				if (!text.includes(ref)) refs.push(ref);
 				continue;
 			}
 			staged.push(await this.preparedOf(row));
 		}
-		if (staged.reduce((n, a) => n + (a.kind === "image" ? 1 : a.pages.length), 0) > MAX_STAGED_IMAGES) throw new AttachmentError(4017, `At most ${MAX_STAGED_IMAGES} pictures can go with one message.`);
+		if (staged.reduce((n, a) => n + (a.kind === "image" ? 1 : a.pages.length), 0) > MAX_IMAGES) throw new AttachmentError(4017, `At most ${MAX_IMAGES} pictures can go with one message.`);
 		const words = [text.trim(), ...refs].filter(Boolean).join("\n");
 		const content = staged.length === 0 && !this.namesUpload(sessionId, words) ? words : await this.compose(sessionId, words, staged);
 		const r = await send(content);
@@ -225,7 +198,7 @@ export class Attachments {
 
 	private async preparedOf(row: AttachmentRow): Promise<Staged> {
 		const hit = this.prepared.get(row.id);
-		if (hit && Date.now() - hit.at < STAGED_TTL_MS) return hit.staged;
+		if (hit && Date.now() - hit.at < PREPARED_TTL_MS) return hit.staged;
 		const bytes = readFileSync(row.path);
 		if (row.kind === "image") {
 			const type = imageType(bytes);
@@ -233,7 +206,7 @@ export class Attachments {
 			if (!picture) throw new AttachmentError(4016, `${row.name} could not be read as a picture.`);
 			return { kind: "image", path: row.path, name: row.name, picture: { data: picture.data, mimeType: picture.mimeType } };
 		}
-		return { kind: "pdf", path: row.path, name: row.name, pages: await this.renderPages(row.path, MAX_STAGED_IMAGES) };
+		return { kind: "pdf", path: row.path, name: row.name, pages: await this.renderPages(row.path, MAX_IMAGES) };
 	}
 
 	private async storeImage(sessionId: string, bytes: Buffer, filename: string | undefined): Promise<{ path: string; picture: Picture }> {
@@ -257,15 +230,10 @@ export class Attachments {
 		return { path, pages };
 	}
 
-	private storeFile(sessionId: string, bytes: Buffer, name: string | undefined): { path: string; name: string; ref: string; refPath: string } {
+	private storeFile(sessionId: string, bytes: Buffer, name: string | undefined): string {
 		const path = this.save(sessionId, bytes, cleanName(name) || "attachment");
 		this.record(sessionId, path, "file", mimeOf(path), bytes.length, null);
-		const refPath = relative(this.workspace(sessionId), path).split("\\").join("/");
-		const ref = `@file:${refValue(refPath)}`;
-		const s = this.uploads(sessionId);
-		s.files.set(ref, { path, name: basename(path) });
-		while (s.files.size > 50) s.files.delete(s.files.keys().next().value!);
-		return { path, name: basename(path), ref, refPath };
+		return path;
 	}
 
 	/** A PDF's first pages as pictures for the model, at most `room` of them; none when they cannot be rendered. */
@@ -313,31 +281,6 @@ export class Attachments {
 		return this.d.renderPdf ? Promise.resolve(true) : pdftoppmInstalled();
 	}
 
-	/** Pictures and PDFs waiting for this session's next prompt. */
-	pending(sessionId: string): number {
-		const s = this.bySession.get(sessionId);
-		if (s && Date.now() - s.stagedAt > STAGED_TTL_MS) s.staged = [];
-		return s?.staged.length ?? 0;
-	}
-
-	/**
-	 * Sends a prompt with what is waiting: the words and a line per picture or PDF (Hermes' `[Image attached
-	 * at: <path>]`), the text of uploaded files it names, and the pictures. What was taken is put back if
-	 * `send` fails.
-	 */
-	async submit<R>(sessionId: string, text: string, send: (content: UserInput) => Promise<R>): Promise<R> {
-		if (this.pending(sessionId) === 0 && !this.namesUpload(sessionId, text)) return send(text);
-		const s = this.uploads(sessionId);
-		const staged = s.staged;
-		s.staged = [];
-		try {
-			return await send(await this.compose(sessionId, text, staged));
-		} catch (error) {
-			s.staged = [...staged, ...s.staged];
-			throw error;
-		}
-	}
-
 	private async compose(sessionId: string, text: string, staged: Staged[]): Promise<UserInput> {
 		const hints = staged.map((a) =>
 			a.kind === "image"
@@ -356,7 +299,7 @@ export class Attachments {
 
 	/** Hermes' "--- Attached Context ---" block for the uploads the text names, or undefined. */
 	private async attachedContext(sessionId: string, text: string): Promise<string | undefined> {
-		const files = [...(this.bySession.get(sessionId)?.files ?? [])].filter(([ref]) => text.includes(ref)).slice(0, MAX_FILE_REFS);
+		const files = [...(this.refs.get(sessionId) ?? [])].filter(([ref]) => text.includes(ref)).slice(0, MAX_FILE_REFS);
 		if (files.length === 0) return undefined;
 		const row = this.d.sessions().require(sessionId);
 		const bot = this.d.bots.require(row.bot);
@@ -385,27 +328,15 @@ export class Attachments {
 	}
 
 	private namesUpload(sessionId: string, text: string): boolean {
-		for (const ref of this.bySession.get(sessionId)?.files.keys() ?? []) if (text.includes(ref)) return true;
+		for (const ref of this.refs.get(sessionId)?.keys() ?? []) if (text.includes(ref)) return true;
 		return false;
 	}
 
-	private uploads(sessionId: string): SessionUploads {
-		let s = this.bySession.get(sessionId);
-		if (!s) {
-			s = { staged: [], stagedAt: Date.now(), files: new Map() };
-			this.bySession.set(sessionId, s);
-		}
-		return s;
-	}
-
-	private stage(s: SessionUploads, a: Staged): void {
-		if (Date.now() - s.stagedAt > STAGED_TTL_MS) s.staged = [];
-		s.staged.push(a);
-		s.stagedAt = Date.now();
-	}
-
-	private imageCount(s: SessionUploads): number {
-		return s.staged.reduce((n, a) => n + (a.kind === "image" ? 1 : a.pages.length), 0);
+	private refsOf(sessionId: string): Map<string, Uploaded> {
+		let known = this.refs.get(sessionId);
+		if (!known) this.refs.set(sessionId, (known = new Map()));
+		while (known.size > 50) known.delete(known.keys().next().value!);
+		return known;
 	}
 
 	private workspace(sessionId: string): string {
@@ -475,7 +406,7 @@ function isHeic(b: Buffer): boolean {
 }
 
 /**
- * A file name safe to keep: the last path part, no control characters, no square brackets (Vory reads
+ * A file name safe to keep: the last path part, no control characters, no square brackets (clients read
  * `[User attached image: <name>]`), no leading dots.
  */
 export function cleanName(name: string | undefined): string {

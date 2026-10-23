@@ -18,7 +18,7 @@ async function gateway(dir: string, name: string, now?: () => number): Promise<G
 	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [federationAdminRoutes(core)] });
 	const url = `http://127.0.0.1:${server.port}`;
 	const admin = (method: string, path: string, body?: unknown) =>
-		fetch(`${url}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+		fetch(`${url}${path}`, { method, headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 	return { core, server, url, admin };
 }
 
@@ -72,7 +72,7 @@ test("joining any member joins the whole network; removal and leaving reach ever
 		const memberHeaders = { "x-nhermes-node": c.core.members.self().id, "x-nhermes-member-secret": secret };
 		const ping = (headers: Record<string, string>) => fetch(`${a.url}/federation/ping`, { headers }).then((r) => r.status);
 		assert.equal(await ping(memberHeaders), 404);
-		assert.equal(await ping({ "X-Hermes-Session-Token": TOKEN }), 404);
+		assert.equal(await ping({ authorization: `Bearer ${TOKEN}` }), 404);
 		assert.equal(await ping({}), 404);
 		// ...and a member secret does not open the owner's API.
 		assert.equal((await fetch(`${a.url}/api/profiles`, { headers: memberHeaders })).status, 401);

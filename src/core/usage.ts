@@ -1,7 +1,7 @@
 // Usage analytics from the chats' model calls: tokens and cost per day and per model, over a number of days.
 // A chat's calls are read from its history once and again only when the chat changed (the cache). A member's
-// bot keeps its chats on its own machine, so only local bots count. Shared by the Hermes analytics route and
-// the client API.
+// bot keeps its chats on its own machine, so only local bots count. Used by the client API's
+// gateway.usage.
 import type { Core } from "../app.ts";
 import type { UsageEvent } from "./sessions.ts";
 

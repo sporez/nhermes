@@ -1,4 +1,4 @@
-// Sessions: conversations that belong to a bot. A session id is a Hermes-style string mapped to a
+// Sessions: conversations that belong to a bot. A session id is a string (`<date>_<time>_<hex>`) mapped to a
 // Durable conversation id; the catalogue row (title, preview, counts, flags) is ours. Deleting a
 // session never touches its bot.
 import { randomBytes } from "node:crypto";
@@ -53,13 +53,6 @@ const OWNER_CHAT =
 
 export type ListOptions = { limit: number; offset: number; archived: "exclude" | "only" | "include"; order: "recent" | "created"; kinds?: SessionKind[]; exceptKinds?: SessionKind[]; exceptUnless?: string[]; search?: string };
 
-export type Snapshot = {
-	session: SessionRow;
-	rows: TranscriptRow[];
-	running: boolean;
-	turnStartedAt: number;
-	inflight?: { user: string; assistant: string; streaming: boolean };
-};
 
 type Block = { type: string };
 type Msg = { role: string; content: string | Block[]; usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens: number; cost?: { total: number } } };
@@ -334,8 +327,8 @@ export class Sessions {
 
 	/**
 	 * Brings a session's model, reasoning level and tools in line with its bot, unless the chat chose its
-	 * own model or level (Vory's per-chat switch). Called before each prompt, so changing a bot in config,
-	 * the panel or Vory reaches its existing sessions.
+	 * own model or level (the per-chat switch). Called before each prompt, so changing a bot in config,
+	 * the panel or the client API reaches its existing sessions.
 	 */
 	async followBot(id: string): Promise<void> {
 		const row = this.require(id);
@@ -375,18 +368,6 @@ export class Sessions {
 		return busy;
 	}
 
-	async snapshot(id: string): Promise<Snapshot> {
-		const session = this.require(id);
-		const live = await this.live(id);
-		const rows = projectTranscript(await this.engine.entries(session.conversation_id));
-		const running = live.running;
-		const snap: Snapshot = { session, rows, running, turnStartedAt: running ? live.turnStartedAt : 0 };
-		if (running) {
-			const partial = live.partialText;
-			snap.inflight = { user: live.prompt, assistant: partial, streaming: live.isStreaming };
-		}
-		return snap;
-	}
 
 	/** The chat as turns (core/turns.ts), the running one with what is streaming now. */
 	async turns(id: string): Promise<{ turns: Turn[]; running: boolean }> {

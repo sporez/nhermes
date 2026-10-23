@@ -289,7 +289,7 @@ test("the admin API starts, answers, reads, cancels and logs out", async () => {
 	const core = await testCore(dir, { models });
 	const server = await startServer(core, { host: "127.0.0.1", port: 0, extraRouters: [adminRoutes(core)] });
 	const call = async (method: string, path: string, body?: unknown) => {
-		const res = await fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+		const res = await fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 		return { status: res.status, json: (await res.json()) as Record<string, any> };
 	};
 	try {

@@ -1,5 +1,5 @@
-// Gateway upkeep actions (check, update, restart, doctor) and the record of their progress, shared by the
-// Hermes screens and the client API. A record lives in app.sqlite under a key; one that restarts the
+// Gateway upkeep actions (check, update, restart, doctor) and the record of their progress, for the client
+// API. A record lives in app.sqlite under a key; one that restarts the
 // gateway stays "running" while the process that started it lives and is done once a new process answers.
 import { randomUUID } from "node:crypto";
 import type { Core } from "../app.ts";
@@ -11,7 +11,7 @@ const BOOT = randomUUID();
 
 export type ActionRecord = {
 	boot: string;
-	/** "check" | "update" | "restart" | "doctor"; absent on the records Hermes keeps by name. */
+	/** "check" | "update" | "restart" | "doctor" */
 	kind?: string;
 	/** Unix seconds. */
 	startedAt: number;

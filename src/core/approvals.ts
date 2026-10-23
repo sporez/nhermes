@@ -16,7 +16,7 @@ export class Approvals {
 	private readonly hub: Hub;
 	private readonly db: AppDb;
 	private readonly timeoutMs: number;
-	/** Sessions with per-session YOLO on (memory only; Vory re-sends it). */
+	/** Sessions with per-session YOLO on (memory only: it resets when the gateway restarts). */
 	private readonly yolo = new Set<string>();
 
 	constructor(hub: Hub, db: AppDb, timeoutMs: number) {

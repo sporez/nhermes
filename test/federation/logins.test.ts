@@ -67,7 +67,7 @@ async function panel(g: Gw, method: string, path: string, body?: unknown): Promi
 }
 
 async function admin(g: Gw, method: string, path: string, body?: unknown): Promise<Res> {
-	const res = await fetch(`${g.url}${path}`, { method, headers: { "x-hermes-session-token": TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+	const res = await fetch(`${g.url}${path}`, { method, headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 	return { status: res.status, json: (await res.json()) as Res["json"] };
 }
 

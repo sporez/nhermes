@@ -1,4 +1,4 @@
-// Tools for scheduled tasks and notifications: the same Scheduler the Vory cron screens use.
+// Tools for scheduled tasks and notifications: the same Scheduler the client API's jobs use.
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
@@ -132,10 +132,10 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 	});
 	const notify = defineTool({
 		name: "notify",
-		description: "Send the owner a push notification (Vory and/or Pushover). For things that matter now; keep it short.",
+		description: "Send the owner a push notification. For things that matter now; keep it short.",
 		parameters: Type.Object({ title: Type.String(), message: Type.String(), priority: Type.Optional(Type.Union([Type.Literal(-1), Type.Literal(0), Type.Literal(1)])) }),
 		execute: async (args, api) => {
-			// The chat it came from, so tapping it in Vory opens that chat.
+			// The chat it came from, so tapping it opens that chat.
 			const row = late.sessions().byConversation(api.conversationId as number);
 			await notifier().send({ title: args.title, message: args.message, priority: args.priority, sessionId: row?.id, bot: row?.bot });
 			return text(notifier().name === "none" ? "No notification transport is configured; the message was not delivered." : "Notification sent.");

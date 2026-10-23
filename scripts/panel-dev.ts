@@ -10,7 +10,7 @@ import { adminRoutes } from "../src/admin.ts";
 import { createCore } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { federationAdminRoutes } from "../src/federation/routes.ts";
-import { startHermesServer } from "../src/hermes/server.ts";
+import { startServer } from "../src/server.ts";
 import { setLogLevel } from "../src/log.ts";
 import { closedPort, FakeMcpServer } from "../test/mcp/server.ts";
 
@@ -101,7 +101,7 @@ async function gateway(name: string, port: number, bots: string, extra = "") {
 	const models = withFakeLogins(createModels());
 	models.setProvider(faux.provider);
 	const core = await createCore(loadConfig(path), { models, reviewFetch: fakeJev });
-	const server = await startHermesServer(core, { host: "127.0.0.1", port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
+	const server = await startServer(core, { host: "127.0.0.1", port, extraRouters: [adminRoutes(core), federationAdminRoutes(core)] });
 	await core.scheduler.start();
 	core.members.start(() => core.roster.sync(), 15_000);
 	return { core, server, faux };

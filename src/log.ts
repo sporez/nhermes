@@ -32,7 +32,7 @@ export function setLogSink(next: (line: string) => void): void {
 	sink = next;
 }
 
-// The last lines written, for Vory's System screen (the journal or launchd log keeps the rest).
+// The last lines written, for the client API's gateway.logs (the journal or launchd log keeps the rest).
 const RECENT_MAX = 500;
 const recent: string[] = [];
 

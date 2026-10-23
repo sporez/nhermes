@@ -196,7 +196,7 @@ export class Updates {
 		return this.managed && this.restartFn !== undefined;
 	}
 
-	/** Restarts the gateway (Vory's "Restart gateway"); refused when nothing would start it again. */
+	/** Restarts the gateway (the client API's and panel's restart); refused when nothing would start it again. */
 	restart(): void {
 		if (!this.canRestart) throw new UpdateError(409, "this gateway is not run by systemd or launchd, so it cannot restart itself; restart it on its machine");
 		log.info("restart requested");

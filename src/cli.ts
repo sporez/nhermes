@@ -64,7 +64,7 @@ type InitOptions = { name?: string; port?: number; dataDir?: string };
 
 const sampleConfig = (o: InitOptions) => `# nHermes configuration. Secrets go in secrets.env, not here.
 server:
-  host: 0.0.0.0          # all interfaces (Vory, other machines, the panel); 127.0.0.1 keeps it on this machine
+  host: 0.0.0.0          # all interfaces (the app, other machines, the panel); 127.0.0.1 keeps it on this machine
   port: ${o.port ?? 9119}
   name: nHermes
 ${o.name ? `node:\n  name: ${o.name}            # this machine in the network (nhermes invite / join)\n` : ""}dataDir: ${o.dataDir ?? "data"}
@@ -139,7 +139,7 @@ function init(dir: string, o: InitOptions = {}): void {
 	if (existsSync(cfg)) throw new ConfigError(`${cfg} already exists; not overwriting`);
 	writeFileSync(cfg, sampleConfig(o));
 	if (!existsSync(secrets)) {
-		writeFileSync(secrets, `# Gateway session token: paste into Vory (Session token mode)\nNHERMES_TOKEN=${randomBytes(24).toString("base64url")}\n# PUSHOVER_USER_KEY=\n# PUSHOVER_APP_TOKEN=\n`, { mode: 0o600 });
+		writeFileSync(secrets, `# Gateway token: enter it in the nHermes app (and nhermes uses it)\nNHERMES_TOKEN=${randomBytes(24).toString("base64url")}\n# PUSHOVER_USER_KEY=\n# PUSHOVER_APP_TOKEN=\n`, { mode: 0o600 });
 	}
 	process.stdout.write(`Wrote ${cfg} and ${secrets}\n`);
 }
@@ -151,7 +151,7 @@ async function admin(configPath: string, method: string, path: string, body?: un
 	try {
 		res = await fetch(`http://${host}:${config.server.port}${path}`, {
 			method,
-			headers: { "X-Hermes-Session-Token": config.token, "content-type": "application/json" },
+			headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
 	} catch {

@@ -1,7 +1,7 @@
 # Backlog
 
-Phases follow the brief. Each item lands as a tested commit; `docs/COMPATIBILITY.md` and `docs/STATUS.md`
-are updated with it.
+Phases follow the brief. Each item lands as a tested commit; `docs/API.md` and `docs/STATUS.md`
+are updated with it. Items before 12 describe the Hermes/Vory era as it was then.
 
 ## Findings that shaped the plan (Phase 0)
 
@@ -59,7 +59,8 @@ Status per phase: see `docs/STATUS.md`.
   `docs/MCP.md` (open: live checks against a real server and in the Vory app).
 - [ ] **12. nHermes's own client API**: `/api/v1` designed for the native app (turn-structured history
   with whole tool and MCP results, attachments with ids, approvals on every device, typed settings), the
-  app's engine moved onto it, the Hermes layer and Vory removed, native push. Plan: `docs/CLIENT-API.md`.
+  app's engine moved onto it, the Hermes layer and Vory removed, native push. Plan: `docs/CLIENT-API.md`
+  (done through D: the API, the app on it, the Hermes layer removed; open: E, native push).
 
 ## Future
 

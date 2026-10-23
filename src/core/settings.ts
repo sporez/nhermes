@@ -137,8 +137,8 @@ export class Settings {
 	}
 
 	/**
-	 * Moves settings older versions kept as overrides in app.sqlite (Vory's model, thinking, description,
-	 * instructions) into config.yaml, so each bot's settings live in one place. Returns the bots moved.
+	 * Moves settings older versions kept as overrides in app.sqlite (model, thinking, description,
+	 * instructions changed from a client) into config.yaml, so each bot's settings live in one place. Returns the bots moved.
 	 */
 	foldOverrides(): string[] {
 		const moved: string[] = [];

@@ -3,8 +3,7 @@
 // everything else is the member's: this gateway passes the app's calls on over the member's /api/v1 socket
 // (TLS-PSK) and its events back, with the member's bot ids turned into the `<bot>-<node>` ids used here. The
 // member's approval requests for these chats are asked here through this gateway's own approvals, so they
-// reach the owner the same way a local bot's do, and the answer goes back. (Vory's path for the same chats is
-// src/federation/proxy.ts, until the Hermes API goes.)
+// reach the owner the same way a local bot's do, and the answer goes back.
 import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import type { Hub } from "../core/events.ts";

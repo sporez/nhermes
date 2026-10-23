@@ -37,9 +37,9 @@ test("a run interrupted by a restart continues and completes after reopening", a
 		if (done.type !== "run.finished") return;
 		assert.equal(done.status, "complete");
 		assert.match(done.text, /Recovered answer\./);
-		const snap = await core.sessions.snapshot(s.id);
+		const snap = await core.sessions.turns(s.id);
 		assert.equal(snap.running, false);
-		assert.equal(snap.rows.filter((r) => r.role === "user").length, 1, "the prompt is not duplicated");
+		assert.equal(snap.turns.filter((t) => t.user).length, 1, "the prompt is not duplicated");
 		await core.close();
 	} finally {
 		await cleanup();

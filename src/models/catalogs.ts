@@ -1,4 +1,4 @@
-// Providers whose models come from the provider itself: set the provider's key (panel Keys, Vory,
+// Providers whose models come from the provider itself: set the provider's key (panel Keys, the client API,
 // `nhermes secret set`) and its models appear in the pickers, with nothing to write in models.json.
 // Each provider is a small adapter (neuralwatt.ts is the model; add new ones to CATALOGS). Its list is
 // fetched when the key is set, at start and every 12 hours, kept in app.sqlite so a start without the

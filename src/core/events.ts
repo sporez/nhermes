@@ -38,7 +38,6 @@ export type RunStatus = "complete" | "error" | "interrupted";
 
 export type SessionEvent =
 	| { type: "run.started"; at: number; prompt: string }
-	| { type: "message.started" }
 	// The turn events (ids as core/turns.ts names them): what the client API streams.
 	| { type: "turn.started"; turn: Turn }
 	| { type: "item.started"; turnId: string; item: TurnItem }
@@ -47,7 +46,6 @@ export type SessionEvent =
 	| { type: "turn.finished"; turnId: string; status: RunStatus; endedAt: number; error?: string; usage?: TurnUsage }
 	| { type: "text.delta"; text: string; turnId: string; itemId: string }
 	| { type: "reasoning.delta"; text: string; turnId: string; itemId: string }
-	| { type: "tool.started"; callId: string; name: string; args: Record<string, unknown>; preview: string }
 	| { type: "tool.output"; callId: string; name: string; text: string; turnId: string }
 	| { type: "tool.finished"; callId: string; name: string; resultText: string; isError: boolean; durationS: number }
 	| { type: "run.finished"; text: string; reasoning: string; status: RunStatus; error?: string; usage: UsageSummary }
@@ -99,10 +97,6 @@ export class Hub {
 	onGlobal(listener: GlobalListener): () => void {
 		this.globals.add(listener);
 		return () => this.globals.delete(listener);
-	}
-
-	subscriberCount(sessionId: string): number {
-		return this.bySession.get(sessionId)?.size ?? 0;
 	}
 
 	publish(sessionId: string, event: SessionEvent): void {

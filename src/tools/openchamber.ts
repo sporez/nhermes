@@ -323,7 +323,7 @@ export function openchamberFeature(late: LateServices, options: OpenChamberToolO
 		groups: new Map([
 			["openchamber", [sessions, read, waiting, diff, approve, answer, stop, prompt, start] as ToolRegistration[]],
 			// No tools: a bot with this group has the gateway watch OpenChamber and notify the owner
-			// (src/openchamber/watcher.ts). A group, so Vory's Tools page and the panel can switch it.
+			// (src/openchamber/watcher.ts). A group, so the client API and the panel can switch it.
 			["openchamber_alerts", []],
 		]),
 	};

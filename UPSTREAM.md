@@ -6,8 +6,8 @@ Reference clones live in `reference/` (git-ignored, read-only). Re-create them w
 | Project | Repository | Pinned commit | Commit date | Recorded | License |
 |---|---|---|---|---|---|
 | Pi (incl. Pi Durable) | https://github.com/earendil-works/pi | `06a466935536f8c9bcacb2d5efc0fc021be1bdff` (tag `v1.2.0`) | 2026-10-13 | 2026-10-14 | MIT (Mario Zechner) |
-| Hermes Agent | https://github.com/NousResearch/hermes-agent | `300228d24c593f779055204753921fbe9a2163c5` | 2026-10-14 | 2026-10-14 | MIT (Nous Research) |
 | Vory | https://github.com/matt0975/vory | `d99369bfdb64a29cae5aa7776fc13fd6ee5c152e` | 2026-10-09 | 2026-10-14 | MIT (Matthew Wagner) |
+| Hermes Agent (credit for ported code; not cloned) | https://github.com/NousResearch/hermes-agent | `300228d24c593f779055204753921fbe9a2163c5` | 2026-10-14 | 2026-10-14 | MIT (Nous Research) |
 
 `src/core/review.ts` adapts the permission-review rules and Jev request handling of the owner's
 OpenChamber plugin `opencode-auto-permissions` (0.2.15-openchamber.jev.3, local), itself based on
@@ -55,21 +55,13 @@ regression tests that pin the parts of their API we rely on; run them first afte
 - `packages/coding-agent/src/core/skills.ts`: `loadSkillsFromDir`, `formatSkillsForPrompt` (Agent Skills spec).
 - `packages/env/README.md`: `connectSsh` / `sshConnection`, host-key pinning (`scanHostKey`, `acceptHostKey`), daemon deployment.
 
-### Hermes (reference server)
-- `apps/shared/src/gateway-contract.generated.ts` and `gateway-contract.openrpc.json`: generated wire contract (every RPC `Params`/`Result`, server requests, event payloads). This is the authority for payload shapes.
-- `tui_gateway/ws.py`: `gateway.ready` first frame, newline-delimited JSON-RPC, token coalescing.
-- `tui_gateway/server.py` (`_event_frame`, `write_json`): event envelope `{"method":"event","params":{"type","session_id","payload"}}`.
-- `tui_gateway/server_requests.py`: server→client requests (`approval`, ...), `request.cancel`, `open_requests` replay on resume.
-- `hermes_cli/web_routers/{status,profiles,sessions,models,skills,cron,chat_ws}.py`: REST shapes.
+### Hermes Agent (ported logic, MIT)
+nHermes once spoke the Hermes gateway protocol so the Vory app could drive it; that layer is gone
+(`docs/CLIENT-API.md`). What remains from Hermes is ported code, credited where it lives:
+- `gateway/hosted_room_discussion.py` `plan_next_task` → `src/core/room-plan.ts` (group chat turn planning).
+- `agent/context_references.py` (`@file:` expansion, `format_reference_value`, the on-disk note) and
+  `tui_gateway/prompt_attachments.py` (attachment lines) → `src/core/attachments.ts`.
 
-### Vory (primary client)
-- `Packages/VoryCore/Sources/VoryCore/Networking/{GatewaySocket,HermesAPI,RequestSigner,ConnectionTester,JSONRPC}.swift`: transport, auth headers, 4401 handling, heartbeat (`ping` every 15 s).
-- `Packages/VoryCore/Sources/VoryCore/Models/WireTypes.swift`: the fields Vory decodes (snake_case → camelCase).
-- `Packages/VoryCore/Sources/VoryCore/Runtime/GatewayRuntime.swift`, `Chat/ChatSession.swift`: method usage, event handling, approval cards, resume snapshot (`running`, `inflight`, `open_requests`).
-- `VoryTests/GatewayIntegrationTests.swift`: E2E suite we run against our gateway (`HERMES_E2E_URL`, `HERMES_E2E_TOKEN`).
-- `Tools/mock-gateway/mock_gateway.py`: Vory's own mock; a compact description of what the app expects.
-
-## Intentional deviations from Hermes
-Recorded in `docs/COMPATIBILITY.md` (column "Notes"). The main ones:
-- The runtime session id **equals** the stored session id (Hermes uses two). Vory accepts this (`stored_session_id ?? session_id`), and it makes multi-device fan-out trivial.
-- Auth is the session-token mode only (`X-Hermes-Session-Token`, `?token=`), over Tailscale or TLS. The OAuth/password native flow is not implemented and `/api/status` reports `auth_required: false`.
+### Vory (push relay contract, until phase E of `docs/CLIENT-API.md`)
+- `server/hermes-push/hermes_push.py`: the device file and the relay request (AES-256-GCM payload, Live
+  Activity updates) that `src/notify/vory.ts` sends to devices Vory registered before. Removed with that file.

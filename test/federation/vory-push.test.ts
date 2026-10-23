@@ -3,14 +3,15 @@
 // registered with Vory notifications on both gets each notification once.
 import assert from "node:assert/strict";
 import { createDecipheriv, randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
-import { HermesClient } from "../hermes/client.ts";
-import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
+import { tempDir, testConfig, testCore } from "../helpers.ts";
+import { ApiSocketClient } from "../api/client.ts";
 
 type Push = { kind: string; title: string; body: string; hermes: Record<string, string> };
 type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number; pushes: Push[]; live: string[] };
@@ -46,8 +47,10 @@ async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw
 
 /** The phone, set up with Vory notifications on this gateway (one relay registration, as on a real phone). */
 function registerPhone(g: Gw, sessionForActivity?: string): void {
-	const home = g.core.bots.defaultBot().workspace;
-	g.core.vory.write(`${home}/plugins/vory-push/plugin.yaml`, Buffer.from('version: "1.0.37"\n'));
+	const home = join(g.core.config.dataDir, "vory");
+	mkdirSync(join(home, "plugins", "vory-push"), { recursive: true });
+	mkdirSync(join(home, "push", "devices"), { recursive: true });
+	writeFileSync(join(home, "plugins", "vory-push", "plugin.yaml"), 'version: "1.0.37"\n');
 	const device = {
 		device_id: "phone",
 		platform: "ios",
@@ -57,7 +60,7 @@ function registerPhone(g: Gw, sessionForActivity?: string): void {
 		payload_key: KEY,
 		...(sessionForActivity ? { live_activities: [{ session_id: sessionForActivity, token: "la", started_at: Date.now() / 1000 }] } : {}),
 	};
-	g.core.vory.write(`${home}/push/devices/phone.json`, Buffer.from(JSON.stringify(device)));
+	writeFileSync(join(home, "push", "devices", "phone.json"), JSON.stringify(device));
 }
 
 async function until<T>(fn: () => T | undefined, ms = 5000): Promise<T> {
@@ -74,27 +77,28 @@ test("a member's bot: the connected gateway notifies, the member does not", asyn
 	const { dir, cleanup } = await tempDir();
 	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
 	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
-	let vory: HermesClient | undefined;
-	let local: HermesClient | undefined;
+	let vory: ApiSocketClient | undefined;
+	let local: ApiSocketClient | undefined;
 	try {
 		const { code } = a.core.members.invite();
 		await b.core.members.join(code);
 		await a.core.roster.sync();
 		registerPhone(b);
 
-		vory = await HermesClient.connect(a.port, TOKEN);
-		await vory.waitEvent("gateway.ready");
-		await vory.call("client.capabilities", { server_requests: true });
-		const { session_id: sid } = await vory.call<{ session_id: string }>("session.create", { profile: "nasbot-beta" });
+		vory = await ApiSocketClient.connect(a.port);
+		const { session } = await vory.call<{ session: { id: string } }>("sessions.create", { botId: "nasbot-beta" });
+		const sid = session.id;
+		await vory.call("sessions.subscribe", { id: sid });
 		registerPhone(a, sid);
 
 		b.faux.setResponses([
 			fauxAssistantMessage([fauxToolCall("bash", { command: "sudo apt-get install -y cowsay" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Skipped cowsay. The pool is healthy.")]),
 		]);
-		vory.onRequest = () => ({ choice: "deny" });
-		await vory.call("prompt.submit", { session_id: sid, text: "Install cowsay and check the pool" });
-		await vory.waitEvent("message.complete", sid, 20000);
+		await vory.call("sessions.submit", { id: sid, text: "Install cowsay and check the pool" });
+		const asked = await vory.waitEvent("approval.requested", 20000);
+		await vory.call("approvals.answer", { id: (asked.data.approval as { id: string }).id, choice: "deny" });
+		await vory.waitEvent((e) => e.event === "turn.finished" && e.sessionId === sid, 20000);
 
 		// alpha: the approval and the reply, both opening the chat with beta's bot, and the Live Activity finished.
 		const ask = await until(() => a.pushes.find((p) => p.kind === "approval"));
@@ -114,12 +118,13 @@ test("a member's bot: the connected gateway notifies, the member does not", asyn
 		assert.equal(a.pushes.filter((p) => p.kind === "turn").length, 1);
 
 		// A chat beta's own client starts is still beta's to notify.
-		local = await HermesClient.connect(b.port, TOKEN);
-		await local.waitEvent("gateway.ready");
-		const { session_id: own } = await local.call<{ session_id: string }>("session.create", {});
+		local = await ApiSocketClient.connect(b.port);
+		const { session: ownSession } = await local.call<{ session: { id: string } }>("sessions.create", {});
+		const own = ownSession.id;
+		await local.call("sessions.subscribe", { id: own });
 		b.faux.setResponses([fauxAssistantMessage([fauxText("Local answer.")])]);
-		await local.call("prompt.submit", { session_id: own, text: "hello" });
-		await local.waitEvent("message.complete", own);
+		await local.call("sessions.submit", { id: own, text: "hello" });
+		await local.waitEvent((e) => e.event === "turn.finished" && e.sessionId === own);
 		const mine = await until(() => b.pushes.find((p) => p.kind === "turn"));
 		assert.equal(mine.hermes.session_id, own);
 	} finally {

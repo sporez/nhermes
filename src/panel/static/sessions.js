@@ -52,7 +52,7 @@ async function sessionsScreen() {
 					await sessionsScreen();
 				}) } }, "Delete")))));
 
-	show(h("h1", {}, "Sessions"), h("p", { class: "muted" }, "Read and continue chats in Vory."),
+	show(h("h1", {}, "Sessions"), h("p", { class: "muted" }, "Read and continue chats in the nHermes app."),
 		h("div", { class: "row" }, botSel, archSel),
 		h("div", { class: "field" }),
 		rows.length ? rows : h("div", { class: "notice" }, "No sessions match."));

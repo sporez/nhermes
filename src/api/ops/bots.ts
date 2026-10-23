@@ -23,6 +23,8 @@ const MAX_RULE = 1000;
 
 const member = (bot: Bot) => bot.remote!;
 const botPath = (bot: Bot, tail = "") => `/federation/manage/bots/${encodeURIComponent(member(bot).bot)}${tail}`;
+/** Reads the member answers without its edit switch (src/federation/manage.ts `/federation/read/*`). */
+const readPath = (bot: Bot, tail: string) => `/federation/read/bots/${encodeURIComponent(member(bot).bot)}${tail}`;
 
 /** The bot an `id` names, owner only (a network member never reaches these). */
 function target(p: Params, cx: OpContext, key = "id"): Bot {
@@ -123,7 +125,7 @@ async function settings(p: Params, cx: OpContext) {
 
 async function skills(p: Params, cx: OpContext) {
 	const bot = target(p, cx);
-	const v = bot.remote ? await manageCall<ReturnType<typeof skillsView>>(cx.core, bot.remote.node, "GET", botPath(bot, "/skills")) : skillsView(cx.core, bot);
+	const v = bot.remote ? await manageCall<ReturnType<typeof skillsView>>(cx.core, bot.remote.node, "GET", readPath(bot, "/skills")) : skillsView(cx.core, bot);
 	return { items: v.skills, toolGroupOn: v.toolGroupOn, allGlobal: v.allGlobal };
 }
 
@@ -135,7 +137,7 @@ async function setSkill(p: Params, cx: OpContext) {
 	let items: ReturnType<typeof skillsView>["skills"];
 	if (bot.remote) {
 		await manageCall(cx.core, bot.remote.node, "PUT", botPath(bot, `/skills/${encodeURIComponent(name)}`), { enabled });
-		items = (await manageCall<ReturnType<typeof skillsView>>(cx.core, bot.remote.node, "GET", botPath(bot, "/skills"))).skills;
+		items = (await manageCall<ReturnType<typeof skillsView>>(cx.core, bot.remote.node, "GET", readPath(bot, "/skills"))).skills;
 	} else {
 		cx.core.skills.setEnabled(cx.core.bots, bot, name, enabled);
 		items = skillsView(cx.core, bot).skills;
@@ -147,7 +149,7 @@ async function setSkill(p: Params, cx: OpContext) {
 
 async function prompt(p: Params, cx: OpContext) {
 	const bot = target(p, cx);
-	const v = bot.remote ? await manageCall<Awaited<ReturnType<typeof promptView>>>(cx.core, bot.remote.node, "GET", botPath(bot, "/prompt")) : await promptView(cx.core, bot);
+	const v = bot.remote ? await manageCall<Awaited<ReturnType<typeof promptView>>>(cx.core, bot.remote.node, "GET", readPath(bot, "/prompt")) : await promptView(cx.core, bot);
 	return { prompt: v };
 }
 
@@ -182,8 +184,10 @@ function mcpFields(p: Params): Record<string, unknown> {
 	return rest;
 }
 
+/** A member's MCP servers: reads and tests need no edit switch there (`/federation/read/mcp`), changes do. */
 async function mcpOn<T>(cx: OpContext, bot: Bot, method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
-	return manageCall<T>(cx.core, member(bot).node, method, `/federation/manage/mcp${path}`, body, timeoutMs);
+	const read = method === "GET" || (method === "POST" && path.endsWith("/test"));
+	return manageCall<T>(cx.core, member(bot).node, method, `/federation/${read ? "read" : "manage"}/mcp${path}`, body, timeoutMs);
 }
 
 /** An MCP server's answer from a member, in this API's shape. */

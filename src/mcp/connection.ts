@@ -189,7 +189,7 @@ export class McpConnection {
 		await this.connect();
 	}
 
-	/** A live check for the panel and Vory: a fresh initialize and tool list (calls in flight finish on the old client). */
+	/** A live check for the panel and the client API: a fresh initialize and tool list (calls in flight finish on the old client). */
 	async test(): Promise<{ ok: boolean; error?: string }> {
 		if (!this.cfg.enabled) return { ok: false, error: "the server is turned off" };
 		await this.reconnect();

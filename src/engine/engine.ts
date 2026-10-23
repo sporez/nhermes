@@ -214,12 +214,6 @@ export class Engine {
 		return live?.run !== undefined;
 	}
 
-	/** Text of the in-flight partial assistant message, if a generation is streaming. */
-	async livePartialText(id: ConvId): Promise<string> {
-		const live = await this.harness.snapshot(LiveDoc, cid(id), ctx);
-		const msg = live?.generation?.message as { content?: { type: string; text?: string }[] } | undefined;
-		return (msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
-	}
 
 	/**
 	 * Rough token estimate of what the next request would carry, by part: text at chars / 4, images by

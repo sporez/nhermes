@@ -40,7 +40,7 @@ export type Bot = {
 	isPeer: boolean;
 	/** A network member's bot, discovered from its roster (named `<bot>-<node>` here). */
 	remote?: { nodeId: string; node: string; bot: string; reachable: boolean };
-	/** Local working directory (also the Hermes "profile home"). */
+	/** Local working directory . */
 	workspace: string;
 	/** Per-bot skills directory. */
 	skillsDir: string;

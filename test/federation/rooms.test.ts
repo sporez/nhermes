@@ -10,8 +10,8 @@ import type { BotConfig } from "../../src/config.ts";
 import type { RoomEvent } from "../../src/core/room-plan.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
 import type { Notification, Notifier } from "../../src/notify/notifier.ts";
-import { HermesClient } from "../hermes/client.ts";
-import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
+import { tempDir, testConfig, testCore } from "../helpers.ts";
+import { ApiSocketClient, http } from "../api/client.ts";
 
 type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
@@ -129,8 +129,7 @@ test("a member's bot takes its turns in a group chat on its own machine", async 
 		assert.deepEqual([there.bot, there.kind, there.source, there.title], ["nasbot", "room", `member:${alphaId}`, "Group: Main, Nasbot"]);
 		const here = a.core.sessions.get(sid)!;
 		assert.deepEqual([here.bot, here.kind, here.remote_node], ["nasbot-beta", "room", betaId]);
-		const rest = (path: string) => fetch(`http://127.0.0.1:${a.port}${path}`, { headers: { "X-Hermes-Session-Token": TOKEN } });
-		const listed = async () => ((await (await rest("/api/sessions?profile=nasbot-beta")).json()) as { sessions: { id: string }[] }).sessions.map((s) => s.id);
+		const listed = async () => (await http(a.port)<{ items: { id: string }[] }>("GET /sessions", { botId: "nasbot-beta" })).items.map((s) => s.id);
 		assert.deepEqual(await listed(), []);
 
 		// Work alpha started is not trusted on beta: sudo is asked, and the card is alpha's.
@@ -146,17 +145,15 @@ test("a member's bot takes its turns in a group chat on its own machine", async 
 		const waiting = await until(() => a.core.rooms.log({ room_id: "net-1" }).events.find((e) => e.kind === "room.activity" && String(e.payload.status).includes("waiting")));
 		assert.equal(waiting.payload.status, 'Nasbot (beta) is waiting for your approval: open "Group: Main, Nasbot" in Chats');
 		assert.deepEqual(await listed(), [sid], "listed while its approval waits");
-		// Vory opens it from Chats (through alpha's member link) and finds one card, alpha's.
-		const vory = await HermesClient.connect(a.port, TOKEN);
+		// The app opens it from Chats (through alpha's member link) and finds one card, alpha's.
+		const app = await ApiSocketClient.connect(a.port);
 		try {
-			await vory.waitEvent("gateway.ready");
-			await vory.call("client.capabilities", { server_requests: true });
-			const resumed = await vory.call<{ open_requests: { params: { request_id?: string } }[]; messages: unknown[] }>("session.resume", { session_id: sid, profile: "nasbot-beta" });
-			assert.equal(resumed.open_requests.length, 1);
+			const snap = await app.call<{ approvals: { id: string }[] }>("sessions.subscribe", { id: sid });
+			assert.deepEqual(snap.approvals.map((x) => x.id), [request.requestId]);
 			await new Promise((r) => setTimeout(r, 200));
 			assert.equal(a.core.approvals.pendingFor(sid).length, 1, "still one card after the member link attached");
 		} finally {
-			await vory.close();
+			await app.close();
 		}
 		a.core.approvals.answer(request.requestId, "once");
 		await a.core.rooms.idle("net-1");

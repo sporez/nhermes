@@ -1,4 +1,4 @@
-// What the panel, the admin API (CLI), members' panels and Vory see of the MCP servers, and the input they
+// What the panel, the admin API (CLI), members' panels and the client API see of the MCP servers, and the input they
 // may send. Routes only translate; edits go through Settings, live actions through McpServers. Key values
 // never leave: headers show their `{{secret:NAME}}` references (and whether each key is set), and a header
 // that carries a credential must reference a key instead of holding the value itself.
@@ -183,7 +183,7 @@ export async function mcpAction(core: Core, name: string, action: string) {
 	return mcpServerView(core, server(core, name));
 }
 
-/** Gives a bot an MCP server's tool group, or takes it away (the per-bot switch in Vory and the client API). */
+/** Gives a bot an MCP server's tool group, or takes it away (the client API's per-bot switch). */
 export function setBotMcp(core: Core, botName: string, toolGroups: string[], server: string, enabled: boolean): void {
 	const group = `mcp:${server}`;
 	const tools = toolGroups.filter((g) => g !== group);

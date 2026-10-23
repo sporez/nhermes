@@ -25,16 +25,18 @@ test("a chat turn streams, finishes, and is listed with a title", async () => {
 		const row = core.sessions.require(s.id);
 		assert.equal(row.title, "What is the answer to everything?");
 		assert.equal(row.message_count, 2);
-		const snap = await core.sessions.snapshot(s.id);
+		const snap = await core.sessions.turns(s.id);
 		assert.equal(snap.running, false);
+		assert.equal(snap.turns.length, 1);
+		const turn = snap.turns[0]!;
+		assert.equal(turn.user?.content.map((b) => (b.type === "text" ? b.text : "")).join(""), "What is the answer to everything?");
 		assert.deepEqual(
-			snap.rows.map((r) => [r.role, r.text]),
+			turn.items.map((i) => [i.type, "text" in i ? i.text : ""]),
 			[
-				["user", "What is the answer to everything?"],
-				["assistant", "The answer is 42."],
+				["reasoning", "thinking about it"],
+				["text", "The answer is 42."],
 			],
 		);
-		assert.equal(snap.rows[1]!.reasoning, "thinking about it");
 		const listed = core.sessions.list("main", { limit: 10, offset: 0, archived: "exclude", order: "recent" });
 		assert.equal(listed.total, 1);
 		assert.equal(core.sessions.list("ops", { limit: 10, offset: 0, archived: "exclude", order: "recent" }).total, 0);

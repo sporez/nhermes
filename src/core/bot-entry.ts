@@ -1,5 +1,5 @@
-// What a new bot's config entry is made of: the name rule, and a copy of another bot's settings. Shared by
-// Vory's "new profile" and the client API's bots.create so both clone the same way.
+// What a new bot's config entry is made of: the name rule, and a copy of another bot's settings. Used by the
+// client API's bots.create.
 import type { BotConfig } from "../config.ts";
 import type { Bot } from "./bots.ts";
 

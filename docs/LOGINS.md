@@ -86,7 +86,7 @@ machine.
    `nhermes auth logout <provider> [--machine <member>]`, through the admin API like every CLI command.
    The terminal prints the code and link, and reads prompts (secrets without echo, `readHidden`).
 9. **After a login or logout the models follow.** The provider's models appear in or leave the model
-   pickers at once (the panel, and Vory's existing model lists, unchanged), as setting a catalog key does today. A bot whose model needs that login
+   pickers at once (the panel, and the app's `models.list`), as setting a catalog key does today. A bot whose model needs that login
    says so in the panel.
 10. **No bot tool.** Bots never start, answer or cancel a login (no `self_*` or `gateway_*` tool). The
     panel guard against bots reaching their own panel already covers the HTTP routes.
@@ -187,7 +187,7 @@ L4 notes:
   notification. Signing in, logging out, or a working call removes it.
 - The bot mark is `signIn: { provider, name, reason }` on the panel state's own bots (reason "needs
   signing in again" or "not signed in"). Members' bots are not marked: the roster carries only the model
-  name. Hermes/Vory responses are unchanged.
+  name. The client API's `bots.list` and `models.list` (`docs/API.md`) are unchanged by it.
 
 ### Acceptance
 
@@ -217,7 +217,9 @@ L4 notes:
 
 1. Remote logins get their own switch, separate from "Let other machines edit this machine's bots".
 2. Logins get a tab of their own in the panel.
-3. Vory is left alone: the owner runs stock Vory, and nothing here changes what Vory sees or calls.
+3. Vory is left alone: the owner ran stock Vory then, and nothing here changed what Vory saw or called. (Vory
+   and the Hermes API are since gone; the nHermes app uses the client API in `docs/API.md`, which these logins do
+   not change. Logins have no client API operation: they are the panel's and the CLI's.)
 
 ## Progress
 

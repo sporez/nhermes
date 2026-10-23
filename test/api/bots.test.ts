@@ -180,18 +180,24 @@ test("a member's bot is edited on its own machine, once that machine allows it",
 	const fake = await FakeMcpServer.start([{ name: "ping" }]);
 	const { dir, cleanup } = await tempDir();
 	const a = await gateway(dir, "alpha", "  - name: main\n    default: true\n");
-	const b = await gateway(dir, "beta", "  - name: nasbot\n    default: true\n    description: Runs on the NAS\n    tools: [memory, skills]\n    workspace: nas-space\n", `mcp:\n  servers:\n    cal:\n      url: ${fake.url}\n`);
+	const b = await gateway(dir, "beta", "  - name: nasbot\n    default: true\n    description: Runs on the NAS\n    tools: [memory, skills]\n    workspace: nas-space\n  - name: secret\n    private: true\n", `mcp:\n  servers:\n    cal:\n      url: ${fake.url}\n`);
 	try {
 		await b.core.members.join(a.core.members.invite().code);
 		await Promise.all([a.core.roster.sync(), b.core.roster.sync()]);
 		const id = "nasbot-beta";
 
-		// Off by default on beta: every edit and every look is refused with beta's own message.
+		// Off by default on beta: every edit and the editor's settings are refused with beta's own message. What a
+		// client shows for a bot it chats with (skills, prompt, MCP servers) can still be read.
 		await fails(a.api(`PATCH /bots/${id}`, { description: "Changed" }), "not_allowed", /beta does not accept bot edits/);
 		await fails(a.api(`GET /bots/${id}/settings`), "not_allowed");
-		await fails(a.api(`GET /bots/${id}/skills`), "not_allowed");
-		await fails(a.api(`GET /bots/${id}/prompt`), "not_allowed");
-		await fails(a.api("GET /mcp/servers", { botId: id }), "not_allowed");
+		await fails(a.api(`PUT /bots/${id}/skills/anything`, { enabled: true }), "not_allowed");
+		assert.ok(Array.isArray((await a.api<{ items: unknown[] }>(`GET /bots/${id}/skills`)).items));
+		assert.ok((await a.api<{ prompt: { full: string } }>(`GET /bots/${id}/prompt`)).prompt.full.length > 0);
+		assert.deepEqual((await a.api<{ items: { name: string }[] }>("GET /mcp/servers", { botId: id })).items.map((x) => x.name), ["cal"]);
+		// A private bot is not shared: with edits off, a member cannot read it either.
+		const beta = a.core.members.byName("beta")!;
+		await assert.rejects(a.core.members.call(beta, "/federation/read/bots/secret/skills", undefined, "GET"), (e: { status: number }) => e.status === 404);
+		await assert.rejects(a.core.members.call(beta, "/federation/read/bots/secret/prompt", undefined, "GET"), (e: { status: number }) => e.status === 404);
 		assert.equal(b.core.bots.get("nasbot")!.description, "Runs on the NAS");
 
 		b.core.members.setAcceptsBotEdits(true);

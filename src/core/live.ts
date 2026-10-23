@@ -66,14 +66,6 @@ export class LiveSession {
 		this.hooks = hooks;
 	}
 
-	get partialText(): string {
-		return this.blocks.join("");
-	}
-
-	get isStreaming(): boolean {
-		return this.streaming;
-	}
-
 	get attached(): boolean {
 		return this.watch !== undefined;
 	}
@@ -148,7 +140,6 @@ export class LiveSession {
 					if (e.parentToolCallId !== undefined) break;
 					const now = Date.now();
 					this.toolStarts.set(e.toolCallId, now);
-					this.emit({ type: "tool.started", callId: e.toolCallId, name: e.toolName, args: e.args as Record<string, unknown>, preview: toolPreview(e.args as Record<string, unknown>) });
 					const item = this.tools.get(e.toolCallId);
 					if (item && this.turn) {
 						item.startedAt = now;
@@ -234,7 +225,6 @@ export class LiveSession {
 		this.streaming = true;
 		this.ordinal++;
 		this.opened = { text: false, reasoning: false };
-		this.emit({ type: "message.started" });
 	}
 
 	/** A whole (partial) message: emit whatever extends what was already shown. */

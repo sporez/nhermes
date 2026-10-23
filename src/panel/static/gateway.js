@@ -82,7 +82,7 @@ async function gatewayScreen() {
 		softwareCard());
 }
 
-/** Which providers' models appear in the model pickers here and in Vory. */
+/** Which providers' models appear in the model pickers here and in the app. */
 function modelListsCard() {
 	const boxes = (state.modelProviders ?? []).map((p) => ({ p, box: h("input", { type: "checkbox", checked: p.shown }) }));
 	const save = () => run(async () => {
@@ -91,14 +91,14 @@ function modelListsCard() {
 		await loadState();
 	});
 	return h("div", { class: "card" }, h("h3", {}, "Model lists"),
-		h("p", { class: "muted small" }, "Providers whose models appear in model pickers (this panel and Vory). A model already in use stays listed."),
+		h("p", { class: "muted small" }, "Providers whose models appear in model pickers (this panel and the app). A model already in use stays listed."),
 		boxes.length
 			? h("div", { class: "checks" }, boxes.map(({ p, box }) => h("label", {}, box, ` ${p.name} (${p.models})`)))
 			: h("div", { class: "muted" }, "No model providers are connected."),
 		h("div", { class: "field" }), h("button", { class: "primary", on: { click: save } }, "Save"));
 }
 
-/** What a client such as Vory needs: an address and the gateway token (shown only when asked). */
+/** What a client (the nHermes app) needs: an address and the gateway token (shown only when asked). */
 function connectCard() {
 	const addresses = h("div", {}, h("div", { class: "muted small" }, "Loading…"));
 	const tokenBox = h("div");
@@ -122,7 +122,7 @@ function connectCard() {
 			: [h("div", { class: "muted" }, "No network address found.")]));
 	});
 	return h("div", { class: "card" }, h("h3", {}, "Connect a client"),
-		h("p", { class: "muted small" }, "In Vory: Settings → Gateways → Add. Use one of these addresses, choose Session token, and paste the token."),
+		h("p", { class: "muted small" }, "In the nHermes app (its first-run screen, or Settings): enter one of these addresses and the token."),
 		h("div", { class: "field" }, h("span", {}, "Address"), addresses),
 		h("div", { class: "field" }, h("span", {}, "Token"), tokenBox,
 			h("div", { class: "hint" }, "Every device uses this same token. To cut all devices off, generate a new one in Keys and enter it again on the ones you keep.")));

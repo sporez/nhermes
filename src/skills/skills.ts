@@ -128,7 +128,7 @@ export class Skills {
 	}
 
 	/**
-	 * Switches one skill on or off for a bot (Vory's Skills screen and the panel), as bot overrides: off
+	 * Switches one skill on or off for a bot (the client API and the panel), as bot overrides: off
 	 * always wins; on clears that and opts into a global skill beyond config.
 	 */
 	setEnabled(bots: Bots, bot: Bot, name: string, enabled: boolean): SkillEntry {

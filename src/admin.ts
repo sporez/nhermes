@@ -1,4 +1,4 @@
-// Admin API for the CLI (same token as Vory). The CLI never opens the databases itself: the running
+// Admin API for the CLI (the gateway token, as Bearer). The CLI never opens the databases itself: the running
 // gateway is their only owner, so backups are made here with consistent online copies.
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, renameSync, rmSync } from "node:fs";

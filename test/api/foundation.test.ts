@@ -100,8 +100,21 @@ test("a network member may call only operations marked for members", async () =>
 	assert.equal(e.code, "unknown_op");
 });
 
-test("the Hermes API answers beside it", async () => {
-	const status = await (await fetch(`http://127.0.0.1:${server.port}/api/status`)).json();
-	assert.equal(typeof (status as { version: string }).version, "string");
-	assert.equal((await fetch(`http://127.0.0.1:${server.port}/api/health`)).status, 200);
+test("/api/health answers without a token; the old Hermes paths are gone", async () => {
+	const base = `http://127.0.0.1:${server.port}`;
+	const health = await fetch(`${base}/api/health`);
+	assert.equal(health.status, 200);
+	const body = (await health.json()) as { ok: boolean; version: string };
+	assert.equal(body.ok, true);
+	assert.equal(typeof body.version, "string");
+	for (const path of ["/api/status", "/api/sessions"]) {
+		assert.equal((await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } })).status, 404, path);
+	}
+	const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/ws?token=${TOKEN}`);
+	const outcome = await new Promise<string>((resolve) => {
+		ws.addEventListener("open", () => resolve("open"));
+		ws.addEventListener("error", () => resolve("refused"));
+		ws.addEventListener("close", () => resolve("refused"));
+	});
+	assert.equal(outcome, "refused");
 });

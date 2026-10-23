@@ -22,7 +22,9 @@ Status: implemented (S1–S6); decisions recorded at the end.
   `models.json` as `$NAME` and catalog provider keys such as `NEURALWATT_API_KEY` (read when Pi
   resolves the provider; setting or removing a catalog key also adds or withdraws its models), a bot's `secrets:` list for
   `http_request` (`{{secret:NAME}}`, at call time), a configured peer's `tokenEnv` (at call time).
-- `GET /api/env` lists a fixed set of names for Vory with redacted values; nothing can change them.
+- `GET /api/env` listed a fixed set of names for Vory with redacted values; nothing could change them. It went
+  with the Hermes layer; the nHermes app uses `keys.list`, `keys.set` and `keys.delete` (`docs/API.md`), which
+  never return a value.
 - The approval guard (`src/core/policy.ts`, `guardExtension`) asks for about 20 high-impact command
   patterns and lets everything else run. Tonight's two incidents (ops reading `app.sqlite`, a disk
   check that froze the Mac) were commands outside that list.
@@ -52,7 +54,7 @@ Status: implemented (S1–S6); decisions recorded at the end.
 - Each entry shows: set or not, set in `secrets.env` or by the process environment (then read-only
   here), last changed, and the last four characters only when the owner asks to identify a key.
 - `NHERMES_TOKEN` gets a "generate a new token" action: the new value is shown once, with a warning
-  that Vory and the CLI need it.
+  that every client (the nHermes app, the CLI) needs it.
 - CLI: `nhermes secret list`, `nhermes secret set NAME` (reads the value without echoing it),
   `nhermes secret rm NAME`. Admin API under `/admin/secrets`.
 - Backups keep excluding `secrets.env` unless `--secrets`.
@@ -66,7 +68,8 @@ Status: implemented (S1–S6); decisions recorded at the end.
   value (the identify action returns the last four characters).
 - A bot's editor links to the keys its `secrets:` list names; the Gateway screen links to the review
   key (S4).
-- `/api/env` for Vory reads the same catalogue (still read-only and redacted).
+- `keys.list` on the client API reads the same catalogue (read-only: names, whether set, what uses them, a hint,
+  never a value). `keys.set` and `keys.delete` write to it; `keys.set` refuses the gateway's own token.
 - Access: decision for the owner (open question 1).
 
 ### S3. Optional: set a key on other members too

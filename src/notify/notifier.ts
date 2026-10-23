@@ -4,7 +4,7 @@ import { logger, redact } from "../log.ts";
 
 const log = logger("notify");
 
-/** `sessionId` and `bot` let a transport that can open a chat (Vory) open the one this is about. */
+/** `sessionId` and `bot` let a transport that can open a chat open the one this is about. */
 export type Notification = { title: string; message: string; priority?: -1 | 0 | 1; url?: string; urlTitle?: string; sessionId?: string; bot?: string };
 
 export interface Notifier {
@@ -12,7 +12,7 @@ export interface Notifier {
 	send(n: Notification): Promise<void>;
 }
 
-/** A transport that may have nowhere to send right now (Vory with no device registered). */
+/** A transport that may have nowhere to send right now (Vory push, with no device registered). */
 export interface OptionalNotifier extends Notifier {
 	ready(): boolean;
 }
@@ -95,6 +95,6 @@ export class NullNotifier implements Notifier {
 	readonly sent: Notification[] = [];
 	async send(n: Notification): Promise<void> {
 		this.sent.push(n);
-		log.warn("notification not sent: no transport configured (set PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN, or set up notifications in Vory)", { title: n.title.slice(0, 80) });
+		log.warn("notification not sent: no transport configured (set PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN)", { title: n.title.slice(0, 80) });
 	}
 }

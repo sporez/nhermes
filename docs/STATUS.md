@@ -42,8 +42,19 @@ Delegation, `peer:` agents and member bots' group chat turns run over the client
 (`test/remote/peer.test.ts`, `test/core/delegate.test.ts`, `test/federation/rooms.test.ts`,
 `test/federation/network.test.ts`); group chats with their log pushed live (`test/api/rooms.test.ts`); bot settings, skills, rules, tool
 groups and MCP servers, a member's bot edited on its machine (`test/api/bots.test.ts`); gateway settings,
-keys (never returned), scheduled tasks, logs, usage, files, software and actions (`test/api/manage.test.ts`). Not yet
-used by a client.
+keys (never returned), scheduled tasks, logs, usage, files, software and actions (`test/api/manage.test.ts`); a
+member's client reads a shared bot's skills, prompt and MCP servers without the edit switch, never a private
+bot's (`test/api/bots.test.ts`, `test/federation/mcp.test.ts`).
+
+The nHermes app uses it (app repository): against the isolated test gateways, with recorded fixtures from
+`scripts/api-fixtures.ts`. Not yet live against a deployed gateway: deployed gateways still run the Hermes
+API until this work is pushed and they update.
+
+Since 2026-10-23 (`docs/CLIENT-API.md` phase D) the Hermes API is gone: no `/api/*` routes but
+`/api/health`, no `/api/ws`, the admin API on Bearer only. The Vory rows in the table above (2, 4, 11, 12)
+record that earlier client; their checks now run through the client API (`test/api/`, `test/federation/`).
+Vory's push relay still serves devices it registered before (`test/federation/vory-push.test.ts`), until
+phase E.
 
 ## Security findings fixed during live testing
 

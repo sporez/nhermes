@@ -68,24 +68,31 @@ management.
   not mark it unreachable, panel 401 mapping.
 - [x] Docs: `docs/FEDERATION.md` (follow-up done), `ARCHITECTURE.md`, `docs/STATUS.md`.
 
-## Vory
+## The nHermes app
 
-Vory connects to one gateway. When its selected profile is a member's bot (`<bot>-<node>`), its settings
-requests (Tools, Skills, Config, instructions/description/model, model set, usage analytics) are
-forwarded by that gateway to `POST /federation/manage/vory/:bot` on the owning machine, which runs them
-through its own Vory handlers for its own bot (`src/federation/vory.ts`). Reads are always answered;
-changes need the same "Let other machines edit this machine's bots" switch, and are logged there with
-the member's name. Only those requests are accepted, only for that machine's own bots. The MCP Servers
-screen follows the same rule: the list and Test are reads; the toggle (the bot's access) and Remove are
-changes.
+The app connects to one gateway. When the bot is a member's (`kind: "member"` in `bots.list`), that gateway
+forwards the app's bot-settings operations (`docs/API.md`, "Bot settings") to the owning machine over the member
+link, in `src/api/ops/bots.ts`:
+
+- `bots.update`, `bots.delete`, `bots.setSkill` and `bots.settings` go to `/federation/manage/*` and need the
+  "Let other machines edit this machine's bots" switch there. Only the fields in decision 4 are accepted;
+  others answer 400. Changes are logged on the owning machine with the member's name.
+- `bots.skills` and `bots.prompt` go to `/federation/read/bots/:name/*`. They need no switch for a shared bot
+  (a private one is readable only when edits are allowed).
+- `bots.rules` answers `not_available` for a member's bot: its "always allowed" rules are kept on its machine.
+- The `mcp.*` operations with a member's `botId` follow the same split (`## MCP servers` below).
+
+This replaced Vory's forwarding (`POST /federation/manage/vory/:bot`, `src/federation/vory.ts`), which is gone.
 
 ## MCP servers
 
-The same switch lets other members' panels manage this machine's MCP servers (`/federation/manage/mcp/*`,
+The same switch lets other members' panels and the app (`mcp.create`, `mcp.update`, `mcp.delete`, `mcp.setForBot` with a member's `botId`) manage this machine's MCP servers (`/federation/manage/mcp/*`,
 the MCP tab's "Other machines"; `docs/MCP.md`): list them with their state and tools, add, edit, turn on or
 off, test, refresh and remove. The server's URL may be set from there; its headers name keys as
 `{{secret:NAME}}`, and the key values are set on this machine (or copied with the Keys tab's "Send to", under
 its own switch). A credential typed into a header is refused, and key values are never sent to a member.
+Listing and reading a member's servers and testing one (`mcp.list`, `mcp.get`, `mcp.action` with `test`) go to
+`/federation/read/mcp/*` and need no switch.
 
 ## Not in scope
 

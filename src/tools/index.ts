@@ -36,7 +36,7 @@ export const GROUP_LABELS: Record<string, { label: string; description: string }
 	self: { label: "Self-management", description: "self_info, self_models, nhermes_docs, change own setup" },
 	schedule: { label: "Scheduled Tasks", description: "schedule_create, schedule_list, …" },
 	delegate: { label: "Delegation", description: "delegate to another bot" },
-	notify: { label: "Notifications", description: "notify (Vory and/or Pushover)" },
+	notify: { label: "Notifications", description: "notify (push notifications to the owner)" },
 	browser: { label: "Browser Automation", description: "Playwright: open, snapshot, click, type, screenshot" },
 	desktop: { label: "Desktop Automation", description: "X11 desktop: screenshot, click, type, windows" },
 	openchamber: { label: "OpenChamber", description: "oc_sessions, oc_read, oc_waiting, oc_diff, oc_approve, oc_answer, oc_stop, oc_prompt, oc_start" },

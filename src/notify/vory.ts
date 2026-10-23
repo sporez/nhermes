@@ -1,41 +1,21 @@
-// Vory's own notifications, sent the way its Companion plugin sends them (vory/server/hermes-push), so
-// the stock app needs nothing but this gateway. The app registers each device with the Vory push
-// relay and writes a device file (relay URL, install id, secret, payload key) under
-// `<bot home>/push/devices/` through the files API; we encrypt each notification with that device's
-// key (AES-256-GCM) and post it to the relay, which forwards it to Apple. The relay sees device
-// tokens and ciphertext only.
-//
-// The Companion's files live in one store under the data dir, whichever bot's home the app names:
-// they hold relay secrets, so they stay out of bot workspaces. Installing the Companion from Vory
-// uploads its plugin files here; they are kept (so the app sees the version it ships) and never run.
-// The heartbeat Vory reads (`push/status.json`) is made up on each read.
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+// Vory's own notifications, kept until the nHermes app has its own (docs/CLIENT-API.md phase E). Vory can no
+// longer connect to this gateway (the Hermes API it spoke is gone), but devices it registered before still get
+// notifications: each one's file under `<data dir>/vory/push/devices/` holds its relay URL, install id, secret
+// and payload key. We encrypt each notification with that device's key (AES-256-GCM) and post it to the Vory
+// push relay, which forwards it to Apple; the relay sees device tokens and ciphertext only. Nothing registers
+// new devices any more.
+import { createCipheriv, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Bots } from "../core/bots.ts";
 import type { Hub, SessionEvent } from "../core/events.ts";
 import type { SessionRow, Sessions } from "../core/sessions.ts";
-import { srqId } from "../hermes/shapes.ts";
 import { logger, redact } from "../log.ts";
 import type { Notification, OptionalNotifier } from "./notifier.ts";
 
 const log = logger("vory-push");
 
-/** Files Vory reads and writes for its Companion, relative to a bot's home. */
-const ALLOWED = [
-	/^push\/(devices|answers|origins|goals)\/[A-Za-z0-9._-]+\.json$/,
-	/^push\/(hermes-push\.conf|hermes_push\.py|install\.sh|test-request\.json|status\.json)$/,
-	/^plugins\/vory-push\/(plugin\.yaml|hermes_push\.py|__init__\.py)$/,
-];
-/** Folders the app may remove whole (uninstall). */
-const REMOVABLE_DIRS = new Set(["push", "plugins/vory-push"]);
-const MAX_FILE = 512 * 1024;
-/** What the heartbeat reports before the app has installed a Companion: new enough that the app
- * expects files to be picked up in place (1.0.12+), so it never asks for a gateway restart. */
-const BASE_VERSION = "1.0.12";
 const LA_MAX_AGE_S = 8 * 3600;
-const ORIGIN_WINDOW_S = 12 * 3600;
-const MARKER_TTL_S = 12 * 3600;
 
 type Kind = "approval" | "clarify" | "turn" | "cron" | "error" | "settled" | "test";
 
@@ -47,7 +27,6 @@ type Device = {
 	gateway?: string;
 	connection_id?: string;
 	device_name?: string;
-	mute_desktop_origin?: boolean;
 	payload_key?: string;
 	relay?: { url?: string; install_id?: string; secret?: string };
 	live_activity_token?: string;
@@ -58,16 +37,8 @@ type Device = {
 
 type Open = { sessionId: string; bot: string; title: string; reached: Set<string> };
 
-export class VoryPushError extends Error {
-	readonly status: number;
-	constructor(status: number, message: string) {
-		super(message);
-		this.status = status;
-	}
-}
-
 export type VoryPushOptions = {
-	/** Where the Companion's files are kept (`<data dir>/vory`). */
+	/** Where Vory's device registrations are kept (`<data dir>/vory`). */
 	dir: string;
 	hub: Hub;
 	bots: Bots;
@@ -84,7 +55,6 @@ export class VoryPush implements OptionalNotifier {
 	private readonly o: Required<Omit<VoryPushOptions, "fetch">> & { fetch: typeof fetch };
 	private readonly open = new Map<string, Open>();
 	private readonly timers = new Set<NodeJS.Timeout>();
-	private lastTest: Record<string, unknown> = {};
 	private lastError: string | null = null;
 	/** What the relay answered last (it passes on Apple's status), for the app's test diagnostics. */
 	private lastResponse = "";
@@ -110,99 +80,6 @@ export class VoryPush implements OptionalNotifier {
 		this.off = undefined;
 		for (const t of this.timers) clearTimeout(t);
 		this.timers.clear();
-	}
-
-	// ── the files API Vory uses ─────────────────────────────────────────────────────────────
-
-	/** A path the app sent, as a path in the store; undefined when it is not one of the Companion's. */
-	private rel(path: string, dirsOk = false): string | undefined {
-		const p = resolve(path);
-		for (const bot of this.o.bots.list()) {
-			if (bot.remote || bot.isPeer || !bot.workspace) continue;
-			const home = resolve(bot.workspace);
-			if (!p.startsWith(home + "/")) continue;
-			const rel = p.slice(home.length + 1);
-			if (ALLOWED.some((re) => re.test(rel)) || (dirsOk && REMOVABLE_DIRS.has(rel))) return rel;
-		}
-		return undefined;
-	}
-
-	read(path: string): Buffer | undefined {
-		const rel = this.rel(path);
-		if (!rel) return undefined;
-		if (rel === "push/status.json") return Buffer.from(JSON.stringify(this.heartbeat()));
-		const file = join(this.o.dir, rel);
-		return existsSync(file) ? readFileSync(file) : undefined;
-	}
-
-	write(path: string, data: Buffer): void {
-		const rel = this.rel(path);
-		if (!rel) throw new VoryPushError(403, "This gateway keeps only Vory's notification files");
-		if (data.length > MAX_FILE) throw new VoryPushError(413, "File too large");
-		if (rel === "push/status.json") throw new VoryPushError(403, "status.json is written by the gateway");
-		if (rel === "push/test-request.json") {
-			// Answered at once rather than kept: the Companion looks for this file every few seconds.
-			let nonce = "";
-			try {
-				nonce = String((JSON.parse(data.toString("utf8")) as { nonce?: unknown }).nonce ?? "");
-			} catch {
-				// a request without a nonce still gets its test
-			}
-			void this.sendTest(nonce || randomBytes(8).toString("hex"));
-			return;
-		}
-		const file = join(this.o.dir, rel);
-		mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-		writeFileSync(file, data, { mode: 0o600 });
-		if (/^push\/(answers|origins|goals)\//.test(rel)) this.prune(dirname(file));
-		if (rel.startsWith("push/devices/")) log.info("device registered", { device: rel.slice(13, 25) });
-		if (rel === "plugins/vory-push/plugin.yaml") log.info("Vory notifications installed", { version: this.installedVersion() });
-	}
-
-	remove(path: string, recursive: boolean): void {
-		const rel = this.rel(path, recursive);
-		if (!rel) throw new VoryPushError(403, "This gateway keeps only Vory's notification files");
-		rmSync(join(this.o.dir, rel), { recursive, force: true });
-		if (rel === "push/test-request.json") return;
-		log.info("removed", { path: rel });
-	}
-
-	/** Vory's "enable plugin": the files are already in place, and nothing needs loading. */
-	enable(): { ok: boolean; error?: string } {
-		if (!this.installedVersion()) return { ok: false, error: "Install the Vory Companion from the app first." };
-		return { ok: true };
-	}
-
-	/** Vory's "disable plugin" (its uninstall): no Companion, so nothing more is sent. */
-	disable(): { ok: boolean } {
-		rmSync(join(this.o.dir, "plugins", "vory-push"), { recursive: true, force: true });
-		log.info("Vory notifications disabled");
-		return { ok: true };
-	}
-
-	installedVersion(): string | undefined {
-		const file = join(this.o.dir, "plugins", "vory-push", "plugin.yaml");
-		if (!existsSync(file)) return undefined;
-		return /version:\s*"?([^"\n]+)"?/.exec(readFileSync(file, "utf8"))?.[1]?.trim() ?? "?";
-	}
-
-	/** What Vory reads as the Companion's heartbeat: always fresh, since this process is the Companion. */
-	heartbeat(): Record<string, unknown> {
-		const script = join(this.o.dir, "plugins", "vory-push", "hermes_push.py");
-		const sha = existsSync(script) ? createHash("sha256").update(readFileSync(script)).digest("hex") : undefined;
-		return {
-			version: this.installedVersion() ?? BASE_VERSION,
-			...(sha ? { script_sha256: sha } : {}),
-			pid: process.pid,
-			profile: "default",
-			updated_at: Date.now() / 1000,
-			connected: true,
-			transport: "nhermes",
-			attached: 0,
-			devices: this.devices().length,
-			...(this.lastError ? { error: this.lastError } : {}),
-			...this.lastTest,
-		};
 	}
 
 	// ── devices ─────────────────────────────────────────────────────────────────────────────
@@ -236,9 +113,15 @@ export class VoryPush implements OptionalNotifier {
 			.map((r) => r.d);
 	}
 
-	/** Sends only once the Companion is installed from Vory and a device has registered. */
+	/** Sends only while Vory's notifications were set up (its Companion installed) and a device is registered. */
 	ready(): boolean {
 		return this.installedVersion() !== undefined && this.devices().length > 0;
+	}
+
+	private installedVersion(): string | undefined {
+		const file = join(this.o.dir, "plugins", "vory-push", "plugin.yaml");
+		if (!existsSync(file)) return undefined;
+		return /version:\s*"?([^"\n]+)"?/.exec(readFileSync(file, "utf8"))?.[1]?.trim() ?? "?";
 	}
 
 	// ── Notifier: scheduled tasks and the notify tool ───────────────────────────────────────
@@ -286,34 +169,32 @@ export class VoryPush implements OptionalNotifier {
 			"approval",
 			`${bot} · approval needed`,
 			`${title}: ${what.slice(0, 180)}`,
-			{ session_id: r.sessionId, profile, request_id: r.requestId, card_id: srqId(r.requestId) },
+			{ session_id: r.sessionId, profile, request_id: r.requestId, card_id: `srq-${r.requestId}` },
 			{ collapse: r.requestId },
 		);
 		this.open.set(r.requestId, { sessionId: r.sessionId, bot, title, reached });
 	}
 
-	/** The approval is no longer waiting: its banner is replaced, quietly, on every device but the one that answered. */
+	/** The approval is no longer waiting: its banner is replaced, quietly, on every device it reached. */
 	private async settle(requestId: string, reason: "answered" | "timeout" | "cancelled"): Promise<void> {
 		const o = this.open.get(requestId);
 		if (!o) return;
 		this.open.delete(requestId);
-		const by = this.answeredBy(requestId, srqId(requestId));
-		const targets = new Set([...o.reached].filter((d) => d !== by));
+		const targets = o.reached;
 		if (targets.size === 0) return;
 		const answered = reason === "answered";
 		await this.pushAll(
 			"settled",
 			answered ? `${o.bot} · approval answered` : o.bot,
-			answered ? `${o.title}: answered on another device.` : `${o.title}: no longer waiting for an answer.`,
+			answered ? `${o.title}: answered.` : `${o.title}: no longer waiting for an answer.`,
 			{ session_id: o.sessionId, profile: this.about(o.sessionId).profile, request_id: requestId },
 			{ collapse: requestId, only: targets },
 		);
 	}
 
 	/**
-	 * A turn of a member's bot finished, in a chat this gateway runs for its client (src/federation/proxy.ts).
-	 * The member does not notify for it; this gateway does, as for its own bots. `p` is the member's
-	 * `message.complete` payload.
+	 * A turn of a member's bot finished, in a chat this gateway runs for its client (src/federation/chats.ts).
+	 * The member does not notify for it; this gateway does, as for its own bots.
 	 */
 	remoteFinished(sid: string, p: Record<string, unknown>): void {
 		if (!this.installedVersion()) return;
@@ -342,12 +223,6 @@ export class VoryPush implements OptionalNotifier {
 		await this.pushAll("turn", bot, `${title}: ${text.slice(0, 300)}`, { session_id: sid, profile, title, text: text.slice(0, 1200) }, { collapse: `turn-${sid}` });
 	}
 
-	private async sendTest(nonce: string): Promise<void> {
-		const reached = await this.pushAll("test", "Vory", "Test notification from your gateway ✓", { nonce }, { collapse: "vory-test" });
-		this.lastTest = { last_test_nonce: nonce, last_test_devices: reached.size, last_test_at: Date.now() / 1000, last_test_detail: this.lastResponse };
-		log.info("test notification sent", { devices: reached.size });
-	}
-
 	// ── sending ─────────────────────────────────────────────────────────────────────────────
 
 	/** Sends to every device (or `only` those); returns the ids of the devices the relay accepted it for. */
@@ -355,13 +230,10 @@ export class VoryPush implements OptionalNotifier {
 		const quiet = kind === "settled";
 		const category = { approval: "HERMES_APPROVAL", clarify: "HERMES_CLARIFY", error: "HERMES_ERROR", settled: "HERMES_INFO" }[kind as string] ?? "HERMES_TURN";
 		const interruption = quiet ? "passive" : kind === "approval" || kind === "clarify" ? "time-sensitive" : "active";
-		const fromMac = meta.session_id ? this.origin(meta.session_id)?.platform === "macos" : false;
 		const reached = new Set<string>();
 		await Promise.all(
 			this.devices().map(async (d) => {
 				if (opts.only && !opts.only.has(d.device_id)) return;
-				// A phone that asked for quiet while a Mac drives the chat (Settings › Notifications).
-				if (fromMac && d.platform === "ios" && d.mute_desktop_origin && !quiet) return;
 				const alert = {
 					title: redact(title).slice(0, 120),
 					body: redact(body),
@@ -445,43 +317,6 @@ export class VoryPush implements OptionalNotifier {
 			log.warn("relay unreachable", { error: this.lastError });
 		}
 		return false;
-	}
-
-	// ── markers the app writes ──────────────────────────────────────────────────────────────
-
-	private marker(dir: string, id: string): Record<string, unknown> | undefined {
-		const file = join(this.o.dir, "push", dir, `${id.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
-		try {
-			const m = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-			return Date.now() / 1000 - Number(m.at ?? 0) < MARKER_TTL_S ? m : undefined;
-		} catch {
-			return undefined;
-		}
-	}
-
-	private answeredBy(...ids: string[]): string | undefined {
-		for (const id of ids) {
-			const by = this.marker("answers", id)?.device_id;
-			if (typeof by === "string" && by) return by;
-		}
-		return undefined;
-	}
-
-	/** Which device prompted the chat last, within the window the app means it for. */
-	private origin(sessionId: string): { platform?: string } | undefined {
-		const m = this.marker("origins", sessionId);
-		return m && Date.now() / 1000 - Number(m.at ?? 0) < ORIGIN_WINDOW_S ? (m as { platform?: string }) : undefined;
-	}
-
-	private prune(dir: string): void {
-		const now = Date.now();
-		for (const f of readdirSync(dir)) {
-			try {
-				if (now - statSync(join(dir, f)).mtimeMs > MARKER_TTL_S * 1000) unlinkSync(join(dir, f));
-			} catch {
-				// gone already
-			}
-		}
 	}
 
 	private later(ms: number, fn: () => Promise<void>): void {

@@ -1,4 +1,4 @@
-// A health check of the gateway (Vory's "Run doctor"): config, models and their keys, keys in use but
+// A health check of the gateway (the panel's and client API's doctor): config, models and their keys, keys in use but
 // not set, network members, MCP servers, SSH hosts, disk space, PDF page rendering, scheduled jobs, the
 // reviewer and the software. An MCP server that is away is only a warning: the gateway works without it.
 // Each finding is one line: "ok", "warn" or "fail"; any "fail" makes the exit code 1.
@@ -85,7 +85,7 @@ export async function runDoctor(c: Core): Promise<DoctorReport> {
 	}
 
 	if (await c.attachments.pdfPages()) add("ok", "PDF pages: pdftoppm found");
-	else add("warn", "PDF pages: pdftoppm not found, install poppler-utils (until then a PDF sent from Vory reaches the bot only as a file to open)");
+	else add("warn", "PDF pages: pdftoppm not found, install poppler-utils (until then a PDF sent from a client reaches the bot only as a file to open)");
 
 	const failedJobs = c.scheduler.list().filter((j) => j.enabled === 1 && c.scheduler.lastRun(j.id)?.status === "error");
 	for (const j of failedJobs) add("warn", `scheduled task "${j.name}" (${j.bot}) failed last time: ${c.scheduler.lastRun(j.id)?.error || "no reason recorded"}`);

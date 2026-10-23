@@ -32,7 +32,7 @@ async function keysScreen() {
 		if (!await ask("Generate a new gateway token? The old one stops working after the gateway restarts.")) return;
 		const t = await api("POST", "/token/new");
 		const box = h("div", { class: "card" }, h("h3", {}, "New token for ", h("span", { class: "mono" }, t.name)),
-			h("div", { class: "notice warn" }, "Shown only once. Vory and the nhermes command need this new token after the gateway restarts."),
+			h("div", { class: "notice warn" }, "Shown only once. The nHermes app and the nhermes command need this new token after the gateway restarts."),
 			selectable(t.value, "code mono"),
 			h("div", { class: "row" },
 				h("button", { on: { click: () => copyText(t.value, "token") } }, "Copy"),

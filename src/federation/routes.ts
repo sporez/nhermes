@@ -57,7 +57,7 @@ export function federationRoutes(core: Core): Router {
 		if (!title || message === undefined) throw new HttpError(400, "title and message are required");
 		const priority = b.priority === -1 || b.priority === 0 || b.priority === 1 ? b.priority : undefined;
 		if (core.localNotifier.name === "none") throw new HttpError(409, `${m.self().name} has no notification transport either`);
-		// The name this gateway shows for that member's bot, so Vory can place it; the member's session id is meaningless here.
+		// The name this gateway shows for that member's bot, so a client can place it; the member's session id is meaningless here.
 		const botName = str(b.bot, 100) ? `${str(b.bot, 100)}-${from.name}` : undefined;
 		const bot = botName && core.bots.get(botName) ? botName : undefined;
 		await core.localNotifier.send({ title, message, priority, url: str(b.url, 512), urlTitle: str(b.urlTitle, 100), bot });

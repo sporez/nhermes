@@ -12,6 +12,7 @@ import { loadConfig } from "../../src/config.ts";
 import { startServer } from "../../src/server.ts";
 import { setThrottleClock } from "../../src/panel/auth.ts";
 import { localHost } from "../../src/panel/panel.ts";
+import { pickableModels } from "../../src/models/pickable.ts";
 import { collect, fauxModels, TOKEN, tempDir } from "../helpers.ts";
 
 async function setup() {
@@ -163,7 +164,7 @@ test("with a password the panel needs a login cookie", async () => {
 	let now = 1_000_000;
 	setThrottleClock(() => now);
 	try {
-		const set = await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
+		const set = await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
 		assert.equal(set.status, 200);
 		assert.deepEqual((await panel("GET", "/session")).json, { passwordSet: true, signedIn: false });
 		assert.equal((await panel("GET", "/state")).status, 401);
@@ -202,7 +203,7 @@ test("with a password the panel needs a login cookie", async () => {
 test("the login cookie is Secure only when a proxy says the browser used HTTPS", async () => {
 	const { core, server, base, cleanup } = await setup();
 	try {
-		await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { "X-Hermes-Session-Token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
+		await fetch(`${base}/admin/panel/password`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ password: "hunter22" }) });
 		const login = (extra: Record<string, string>) => fetch(`${base}/panel/api/login`, { method: "POST", headers: { "content-type": "application/json", "x-nhermes-panel": "1", ...extra }, body: JSON.stringify({ password: "hunter22" }) });
 		assert.ok(!(await login({})).headers.get("set-cookie")!.includes("Secure"));
 		assert.ok((await login({ "x-forwarded-proto": "https" })).headers.get("set-cookie")!.includes("; Secure"));
@@ -341,9 +342,8 @@ test("panel: providers can be left out of model pickers; OpenRouter is by defaul
 		assert.match(readFileSync(path, "utf8"), /models:\n\s+hide: \[ openrouter, faux \]/);
 		state = (await panel("GET", "/state")).json as typeof state;
 		assert.deepEqual(state.models, ["faux/faux-1"], "only the model in use stays");
-		const { modelOptions } = await import("../../src/hermes/rest.ts");
-		const opts = await modelOptions(core, { provider: "faux", modelId: "faux-1" });
-		assert.deepEqual(opts.providers.map((p) => [p.slug, p.models]), [["faux", ["faux-1"]]]);
+		const picks = await pickableModels(core.models, core.config.modelLists.hide, { provider: "faux", modelId: "faux-1" });
+		assert.deepEqual(picks.map((m) => [m.provider, m.id]), [["faux", "faux-1"]]);
 	} finally {
 		await server.close();
 		await core.close();

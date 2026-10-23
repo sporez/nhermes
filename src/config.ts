@@ -100,7 +100,7 @@ export type Config = {
 	dataDir: string;
 	/** federationPort: the encrypted port other members use (default port + 1000, the next free one if taken). */
 	server: { host: string; port: number; publicName: string; federationPort?: number };
-	/** Gateway session token Vory sends as X-Hermes-Session-Token. */
+	/** The gateway token clients send as `Authorization: Bearer`. */
 	token: string;
 	/** The variable that holds it (auth.tokenEnv, default NHERMES_TOKEN). */
 	tokenEnv: string;
@@ -108,7 +108,7 @@ export type Config = {
 	secretsPath: string;
 	/** Jev permission review in the approval guard (active when its key is set). */
 	review: ReviewConfig;
-	/** Model providers left out of model pickers (Vory, the panel); `models.hide` in config.yaml. */
+	/** Model providers left out of model pickers (the client API, the panel); `models.hide` in config.yaml. */
 	modelLists: { hide: string[] };
 	pi: { authPath: string; modelsPath: string };
 	defaults: { model: string; thinking: ThinkingLevel; approvals: ApprovalMode; approvalTimeoutS: number };
