@@ -254,9 +254,9 @@ run is not submitted twice.
   host through `pi-env`'s `RemoteExecutionEnv`; conversations, credentials and state stay central.
   Host keys are pinned in the gateway's own known-hosts file.
 - **Mode B (peer agent):** a peer is simply another `nhermes serve` on another machine, with its own
-  Durable database and bots. No second protocol: the central gateway talks to it over the same Hermes
-  WebSocket Vory uses (`session.create`, `prompt.submit` with `idempotency_key` → the peer's Durable
-  request id, `session.resume` after a dropped connection). A peer is configured as a bot with
+  Durable database and bots. No second protocol: the central gateway talks to it over its client API
+  (`/api/v1/ws`, `src/remote/api-client.ts`) as any client does (`sessions.create`, `sessions.submit` with a
+  `requestId` → the peer's Durable request id, `sessions.subscribe` after a dropped connection). A peer is configured as a bot with
   `peer: { url, tokenEnv, profile }` (the token goes in an `Authorization: Bearer` header, never the URL; a
   plain `http://` URL to another machine logs a warning at load); local bots reach it with `delegate`, and its approval requests are
   relayed to the owner's chat on the central gateway. `wait: false` works for bots on other machines
@@ -264,6 +264,11 @@ run is not submitted twice.
   fixed key and waits (reconnecting, for up to a day), then posts the answer into the caller's chat; a
   restart of either side resumes it without sending the task twice. Peers are not listed as Vory profiles; to chat
   with one directly, add it to Vory as its own gateway.
+- **The owner's chats with a member's bot (`src/federation/chats.ts`):** on the client API, the chat is
+  catalogued here under the id its conversation has on the member, and every call about it goes to the
+  member over its `/api/v1/ws` socket, with the member's events coming back (bot ids made local). The
+  member's approval requests are asked here and answered there. A dropped link sends the app
+  `session.stale`, so it subscribes again. Vory's path for the same chats is `src/federation/proxy.ts`.
 - **Network of members (`src/federation/`, `docs/FEDERATION.md`):** gateways join one network of equals
   with `nhermes invite` / `join`; each pair shares a generated secret (`members`) that keys a TLS-PSK
   link on the encrypted port; it never travels. Members reach only `/federation/*` and the WebSocket,
@@ -311,7 +316,7 @@ bot messages bound it.
   the room log, since a turn's prompt also carries other bots' words; later lines of a message are
   indented in prompts so a bot cannot write a line that reads as the owner's.
 - **Notifications:** one when an exchange settles or is bounded with new bot replies.
-- **Members' bots** answer on their own machine: their room session is made there with `session.create
+- **Members' bots** answer on their own machine: their room session is made there with `sessions.create
   {kind: "room"}` (as work this gateway started, so untrusted there and its approvals come back here),
   catalogued here under the same id so Vory opens it through the member link, and each turn runs with
   `runOnPeer` keyed by the turn. Its prompt is kept in `room_turns`, so a restart sends it again under the

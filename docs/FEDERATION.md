@@ -15,7 +15,8 @@ machine. A web control panel served by every gateway at `/panel` manages the net
 - Every gateway runs the same software; there is no "main" role. Today the gateway Vory points at lists
   remote bots one by one as `peer: { url, tokenEnv, profile }` bot entries (`src/config.ts:44`,
   `deploy/config.example.yaml:46-49`). The link is one-way and the token is created and copied by hand.
-- Delegation (`src/tools/delegate.ts`) already reaches peer bots over the Hermes WebSocket
+- Delegation (`src/tools/delegate.ts`) already reaches peer bots over the Hermes WebSocket (since moved to
+  the client API, `docs/API.md`)
   (`src/remote/peer.ts`), idempotently and with approvals relayed to the root chat.
 - Peers are hidden from Vory: `/api/profiles` and the WS profile list filter them out
   (`src/hermes/rest.ts:77`, `src/hermes/ws.ts:231`) and `sessions.create` refuses them
@@ -154,6 +155,9 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 - After a dropped connection the link reconnects and resumes the chats being watched. While the member
   is offline, opening or starting a chat answers "<node> is offline" (decision: an error rather than a
   read-only view; the chat list still shows the last known titles).
+- On the client API (`docs/API.md`), the same chats go through `src/federation/chats.ts` over the member's
+  `/api/v1/ws`, and delegation, `peer:` agents and member bots' group chat turns use that API too
+  (`src/remote/peer.ts`).
 - Per-chat model and reasoning switches go to the member. Vory's settings for a remote profile (Tools,
   Skills, Config, instructions, description, model, usage) were first refused with 409; they now go over
   the member link to the owning machine (`src/federation/vory.ts`, `docs/REMOTE-BOT-EDITS.md`), and

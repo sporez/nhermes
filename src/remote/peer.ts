@@ -1,165 +1,83 @@
-// Mode B: an independent agent on another machine is another nHermes gateway (its own Durable
-// store, tools and memory). The central gateway reaches it over the same Hermes JSON-RPC WebSocket
-// Vory uses, so there is no second protocol. Delegation to a peer is idempotent (prompt.submit's
-// idempotency_key becomes the peer's Durable request id) and survives a dropped connection: the
-// client reconnects and resumes the remote session. Approval requests from the peer are handed to a
-// callback (the central gateway asks its owner).
-import type { ConnectionOptions } from "node:tls";
-import WebSocket from "ws";
+// Mode B: an independent agent on another machine is another nHermes gateway (its own Durable store, tools
+// and memory). This gateway reaches it over that gateway's client API (/api/v1, src/remote/api-client.ts), as
+// any client does: a configured `peer:` with the owner's token, a member's bot as a member. Running a task
+// there is idempotent (the submission's requestId becomes the other machine's Durable request id) and
+// survives a dropped connection: the client reconnects and follows the remote chat again. Approval requests
+// from the other machine are handed to a callback (this gateway asks its owner) and answered there.
 import { logger } from "../log.ts";
+import type { ApiEvent } from "../api/socket.ts";
+import { ApiClient, type GatewayTarget, RemoteError } from "./api-client.ts";
 
 const log = logger("peer");
 
-/** How often a connection to another machine checks that it is still there (tests shorten it). */
-export let HEARTBEAT_MS = 30_000;
-export function setPeerHeartbeat(ms: number): void {
-	HEARTBEAT_MS = ms;
-}
+/** A bot on another gateway: where to reach it, and its name there. */
+export type PeerTarget = GatewayTarget & { profile?: string };
 
-type Frame = { id?: string | number | null; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { code: number; message: string } };
+/** What a request from the other machine asks, as its approval card says it. */
+export type PeerApprovalRequest = { toolName: string; command: string; description: string; patternKey: string };
+export type PeerApproval = (request: PeerApprovalRequest) => Promise<"once" | "session" | "always" | "deny">;
 
-/** A gateway to reach: with the owner's token (configured peer), or as a member (TLS-PSK). */
-export type PeerTarget = { url: string; token?: string; headers?: Record<string, string>; tls?: ConnectionOptions; profile?: string };
-export type PeerApproval = (params: Record<string, unknown>) => Promise<"once" | "session" | "always" | "deny">;
+type RemoteTurn = { id: string; status: string; error?: string; items: { type: string; text?: string }[] };
 
-class Socket {
-	private ws: WebSocket | undefined;
-	private nextId = 1;
-	private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-	readonly events: { type: string; session_id: string; payload: Record<string, unknown> }[] = [];
-	private readonly listeners = new Set<() => void>();
-	closed = false;
-
-	static async open(t: PeerTarget, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): Promise<Socket> {
-		const s = new Socket();
-		// The token goes in a header, never in the URL (URLs end up in logs and proxies).
-		const url = `${t.url.replace(/^http/, "ws").replace(/\/$/, "")}/api/ws`;
-		const headers = { ...t.headers, ...(t.token ? { authorization: `Bearer ${t.token}` } : {}) };
-		const ws = new WebSocket(url, { handshakeTimeout: 15_000, headers, ...t.tls });
-		s.ws = ws;
-		await new Promise<void>((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`peer ${t.url}: no gateway.ready`)), 20_000);
-			ws.on("message", (data) => {
-				for (const line of data.toString().split("\n")) {
-					if (!line.trim()) continue;
-					const f = JSON.parse(line) as Frame;
-					if (f.method === "event" && (f.params as { type?: string }).type === "gateway.ready") {
-						clearTimeout(timer);
-						resolve();
-					}
-					s.onFrame(f, onRequest);
-				}
-			});
-			ws.on("close", (code) => {
-				s.closed = true;
-				clearTimeout(timer);
-				for (const p of s.pending.values()) p.reject(new Error(`peer connection closed (${code})`));
-				s.pending.clear();
-				for (const l of s.listeners) l();
-				reject(new Error(code === 4401 ? `peer ${t.url} rejected the token` : `peer ${t.url} closed (${code})`));
-			});
-			ws.on("error", (e) => {
-				clearTimeout(timer);
-				reject(e);
-			});
-		});
-		await s.call("client.capabilities", { server_requests: true });
-		s.startHeartbeat();
-		return s;
-	}
-
-	/**
-	 * A machine that froze or vanished never closes the connection, so a wait on it would never end:
-	 * ping every 30 s and drop the connection when an answer takes over 15 s (the caller reconnects).
-	 */
-	private startHeartbeat(): void {
-		let waiting = false;
-		const beat = setInterval(() => {
-			if (waiting || this.closed) return;
-			waiting = true;
-			const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer to ping")), Math.min(15_000, HEARTBEAT_MS)).unref());
-			Promise.race([this.call("ping", {}), timeout])
-				.then(
-					() => undefined,
-					() => {
-						if (this.closed) return;
-						log.warn("peer stopped answering; dropping the connection");
-						this.ws?.terminate();
-					},
-				)
-				.finally(() => (waiting = false));
-		}, HEARTBEAT_MS);
-		beat.unref();
-		this.ws?.on("close", () => clearInterval(beat));
-	}
-
-	private onFrame(f: Frame, onRequest: (method: string, params: Record<string, unknown>) => Promise<unknown>): void {
-		if (f.method === "event") {
-			this.events.push(f.params as never);
-			for (const l of this.listeners) l();
-			return;
-		}
-		if (typeof f.id === "string" && f.method) {
-			const id = f.id;
-			void onRequest(f.method, f.params ?? {}).then((result) => {
-				if (result !== undefined) this.ws?.send(JSON.stringify({ jsonrpc: "2.0", id, result }));
-			});
-			return;
-		}
-		if (typeof f.id === "number") {
-			const p = this.pending.get(f.id);
-			this.pending.delete(f.id);
-			if (p) f.error ? p.reject(new Error(f.error.message)) : p.resolve(f.result);
-		}
-	}
-
-	call<T = Record<string, unknown>>(method: string, params: Record<string, unknown>): Promise<T> {
-		const id = this.nextId++;
-		return new Promise<T>((resolve, reject) => {
-			if (this.closed || !this.ws) return reject(new Error("peer connection closed"));
-			this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-			this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
-		});
-	}
-
-	/** Resolves with the matching event, or rejects when the socket closes or the signal aborts. */
-	waitEvent(pred: (e: Socket["events"][number]) => boolean, signal?: AbortSignal): Promise<Socket["events"][number]> {
-		return new Promise((resolve, reject) => {
-			const check = () => {
-				const hit = this.events.find(pred);
-				if (hit) return done(() => resolve(hit));
-				if (this.closed) return done(() => reject(new Error("peer connection closed")));
-				if (signal?.aborted) return done(() => reject(new Error("cancelled")));
-			};
-			const done = (fn: () => void) => {
-				this.listeners.delete(check);
-				signal?.removeEventListener("abort", check);
-				fn();
-			};
-			this.listeners.add(check);
-			signal?.addEventListener("abort", check);
-			check();
-		});
-	}
-
-	close(): void {
-		this.ws?.close();
-	}
-}
-
-/** Starts an empty chat with the peer's bot and returns its id (the first step of a background task). */
-export async function createPeerSession(t: PeerTarget, extra: Record<string, unknown> = {}): Promise<string> {
-	const s = await Socket.open(t, async () => undefined);
+const machineOf = (t: PeerTarget) => {
 	try {
-		const created = await s.call<{ session_id: string }>("session.create", { ...(t.profile ? { profile: t.profile } : {}), source: "peer", ...extra });
-		return created.session_id;
-	} finally {
-		s.close();
+		return new URL(t.url).host;
+	} catch {
+		return "the other machine";
 	}
+};
+
+/** The reply text of a turn: its reply parts, as the run's answer. */
+function answerOf(turn: RemoteTurn | undefined): string | undefined {
+	const parts = turn?.items.filter((i) => i.type === "text" && i.text).map((i) => i.text!) ?? [];
+	return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+/** Starts an empty chat with the other gateway's bot and returns its id (the first step of a background task). */
+export async function createPeerSession(t: PeerTarget, extra: { kind?: "room"; title?: string } = {}): Promise<string> {
+	const c = await ApiClient.open(t, machineOf(t));
+	try {
+		const r = await c.call<{ session: { id: string } }>("sessions.create", { ...(t.profile ? { botId: t.profile } : {}), source: "peer", ...extra });
+		return r.session.id;
+	} finally {
+		c.close();
+	}
+}
+
+/** Answers the other machine's approval requests for one chat while a task runs there; returns how to stop. */
+function relayApprovals(c: ApiClient, sessionId: string, ask: PeerApproval): () => void {
+	const asking = new Map<string, AbortController>();
+	const off = c.onEvent((e: ApiEvent) => {
+		if (e.event === "approval.requested") {
+			const a = e.data.approval as { id: string; sessionId: string; toolName?: string; command?: string; description?: string; patternKey?: string };
+			if (a.sessionId !== sessionId || asking.has(a.id)) return;
+			const controller = new AbortController();
+			asking.set(a.id, controller);
+			// The callback asks this gateway's owner; a withdrawal there (approval.resolved) cancels the question here.
+			void withAbort(ask({ toolName: a.toolName ?? "tool", command: a.command ?? "", description: a.description ?? "needs approval", patternKey: a.patternKey ?? "" }), controller.signal)
+				.then((choice) => (choice === undefined ? undefined : c.call("approvals.answer", { id: a.id, choice })))
+				.catch((error: unknown) => log.warn("approval for the other machine not answered", { error: String(error) }))
+				.finally(() => asking.delete(a.id));
+		} else if (e.event === "approval.resolved") {
+			asking.get(String(e.data.id))?.abort();
+		}
+	});
+	return () => {
+		off();
+		for (const a of asking.values()) a.abort();
+	};
+}
+
+/** The callback's answer, or undefined once the request was withdrawn on the other machine. */
+function withAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+	return new Promise((resolve, reject) => {
+		signal.addEventListener("abort", () => resolve(undefined), { once: true });
+		p.then(resolve, reject);
+	});
 }
 
 /**
- * Runs one task on a peer and returns its answer. `sessionId` (when given) is a remote session from an
+ * Runs one task on another gateway and returns its answer. `sessionId` (when given) is a remote chat from an
  * earlier attempt of the same task; `key` deduplicates the submission there.
  */
 export async function runOnPeer(
@@ -179,44 +97,52 @@ export async function runOnPeer(
 	},
 ): Promise<{ sessionId: string; text: string }> {
 	const deadline = Date.now() + (opts.timeoutMs ?? 30 * 60_000);
-	const onRequest = async (method: string, params: Record<string, unknown>) => (method === "approval" ? { choice: await opts.onApproval(params) } : undefined);
 	let sessionId = opts.sessionId;
 	let submitted = false;
 	for (let attempt = 0; ; attempt++) {
 		if (opts.signal?.aborted) throw new Error("cancelled");
 		if (Date.now() > deadline) throw new Error("the peer did not answer in time");
-		let s: Socket | undefined;
+		let c: ApiClient | undefined;
+		let stopRelay: (() => void) | undefined;
 		try {
-			s = await Socket.open(t, onRequest);
+			c = await ApiClient.open(t, machineOf(t));
 			if (!sessionId) {
-				const created = await s.call<{ session_id: string }>("session.create", t.profile ? { profile: t.profile, source: "peer" } : { source: "peer" });
-				sessionId = created.session_id;
+				const created = await c.call<{ session: { id: string } }>("sessions.create", { ...(t.profile ? { botId: t.profile } : {}), source: "peer" });
+				sessionId = created.session.id;
 				await opts.onSession?.(sessionId);
 			}
-			const snap = await s.call<{ running: boolean; messages: { role: string; text: string }[] }>("session.resume", { session_id: sessionId });
-			const lastAnswer = () => [...snap.messages].reverse().find((m) => m.role === "assistant" && m.text)?.text;
+			const id = sessionId;
+			stopRelay = relayApprovals(c, id, opts.onApproval);
+			// Follow the chat before anything is sent, so its end cannot pass unseen.
+			const ended = c.waitEvent((e) => e.event === "turn.finished" && e.sessionId === id, opts.signal);
+			ended.catch(() => undefined);
+			const snap = await c.call<{ session: { running: boolean }; turns: { items: RemoteTurn[] } }>("sessions.subscribe", { id, limit: 1 });
+			const last = snap.turns.items.at(-1);
 			if (!submitted || attempt === 0) {
-				// Idempotent on the peer: the same key returns the same submission.
-				const r = await s.call<{ status: string; submission_status?: string }>("prompt.submit", { session_id: sessionId, text: task, idempotency_key: opts.key });
+				// Idempotent there: the same key is the same submission.
+				const r = await c.call<{ status: string; submission: string }>("sessions.submit", { id, text: task, requestId: opts.key });
 				submitted = true;
-				log.debug("submitted to peer", { url: t.url, session: sessionId, status: r.status });
-				if (r.submission_status === "done" && lastAnswer()) return { sessionId, text: lastAnswer()! };
+				log.debug("submitted to peer", { url: t.url, session: id, status: r.status });
+				if (r.submission === "done" && answerOf(last)) return { sessionId: id, text: answerOf(last)! };
 			}
-			if (!snap.running && attempt > 0 && lastAnswer()) return { sessionId, text: lastAnswer()! };
-			const done = await s.waitEvent((e) => e.type === "message.complete" && e.session_id === sessionId, opts.signal);
-			if (done.payload.status === "error") throw new Error(`the peer's run failed: ${String(done.payload.error ?? "")}`);
-			return { sessionId, text: String(done.payload.text ?? "") };
+			if (!snap.session.running && attempt > 0 && answerOf(last)) return { sessionId: id, text: answerOf(last)! };
+			const done = await ended;
+			if (done.data.status === "error") throw new Error(`the peer's run failed: ${String(done.data.error ?? "")}`);
+			const turns = await c.call<{ items: RemoteTurn[] }>("sessions.turns", { id, limit: 1 });
+			return { sessionId: id, text: answerOf(turns.items.at(-1)) ?? "" };
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
+			const code = error instanceof RemoteError ? error.code : "";
 			// The other machine no longer has this chat (it restarted before saving it): the task is gone there,
 			// and sending it again into a new chat could repeat whatever it was doing, so stop.
-			if (sessionId && /session not found/.test(msg)) throw new Error("the other machine no longer has this task (it may have restarted before saving it); nothing was sent again");
-			if (attempt === 0 && s === undefined && opts.failFast && !/rejected the token/.test(msg)) throw new Error(opts.failFast);
-			if (/rejected the token|run failed|cancelled/.test(msg) || attempt >= (opts.maxAttempts ?? 20)) throw error;
+			if (sessionId && code === "session_not_found") throw new Error("the other machine no longer has this task (it may have restarted before saving it); nothing was sent again");
+			if (attempt === 0 && c === undefined && opts.failFast && code !== "unauthorized") throw new Error(/older nHermes/.test(msg) ? msg : opts.failFast);
+			if (code === "unauthorized" || code === "cancelled" || /run failed/.test(msg) || attempt >= (opts.maxAttempts ?? 20)) throw error;
 			log.warn("peer connection problem; retrying", { url: t.url, attempt, error: msg });
 			await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))));
 		} finally {
-			s?.close();
+			stopRelay?.();
+			c?.close();
 		}
 	}
 }

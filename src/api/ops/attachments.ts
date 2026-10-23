@@ -7,8 +7,9 @@ import { type AttachmentKind, FILE_MAX_BYTES, decode } from "../../core/attachme
 import type { Turn } from "../../core/turns.ts";
 import { RawBody, readRaw } from "../../http.ts";
 import { ApiError } from "../errors.ts";
-import { localSession, memberOwns } from "../lookup.ts";
-import type { Op } from "../ops.ts";
+import { localSession } from "../lookup.ts";
+import type { Op, OpContext } from "../ops.ts";
+import type { Params } from "../params.ts";
 
 const KINDS: AttachmentKind[] = ["image", "pdf", "file"];
 
@@ -18,31 +19,38 @@ export function identifyAttachments(core: Core, sessionId: string, turns: readon
 	if (refs.length > 0) core.attachments.identify(sessionId, refs);
 }
 
+/** An upload's bytes and name: the HTTP body (name in X-Filename) or, over the socket, base64 `data`. */
+async function uploadOf(p: Params, cx: OpContext): Promise<{ bytes: Buffer; name: string | undefined }> {
+	let name = p.optStr("name");
+	if (!cx.request) return { bytes: decode(p.str("data"), FILE_MAX_BYTES, "upload"), name };
+	const header = cx.request.headers["x-filename"];
+	if (typeof header === "string" && !name) name = decodeURIComponent(header);
+	return { bytes: await readRaw(cx.request, FILE_MAX_BYTES), name };
+}
+
 export const attachmentOps: Op[] = [
 	{
 		name: "sessions.attach",
 		http: "POST /sessions/:id/attachments",
 		members: true,
 		rawBody: true,
+		forward: true,
+		// A member's chat: the bytes go on to that machine, which keeps the upload.
+		remote: async (p, cx, row) => {
+			const { bytes, name } = await uploadOf(p, cx);
+			return cx.core.memberChats.forward(row, "sessions.attach", { ...(name ? { name } : {}), ...(p.optStr("kind") ? { kind: p.optStr("kind") } : {}), data: bytes.toString("base64") });
+		},
 		handle: async (p, cx) => {
 			const row = localSession(cx, p.str("id"));
-			const kind = p.optEnum("kind", KINDS);
-			let bytes: Buffer;
-			let name = p.optStr("name");
-			if (cx.request) {
-				const header = cx.request.headers["x-filename"];
-				if (typeof header === "string" && !name) name = decodeURIComponent(header);
-				bytes = await readRaw(cx.request, FILE_MAX_BYTES);
-			} else {
-				bytes = decode(p.str("data"), FILE_MAX_BYTES, "upload");
-			}
-			return { attachment: await cx.core.attachments.upload(row.id, bytes, name, kind) };
+			const { bytes, name } = await uploadOf(p, cx);
+			return { attachment: await cx.core.attachments.upload(row.id, bytes, name, p.optEnum("kind", KINDS)) };
 		},
 	},
 	{
 		name: "sessions.detach",
 		http: "DELETE /sessions/:id/attachments/:attachmentId",
 		members: true,
+		forward: true,
 		handle: (p, cx) => {
 			const row = localSession(cx, p.str("id"));
 			if (!cx.core.attachments.withdraw(row.id, p.str("attachmentId"))) throw new ApiError("conflict", "That upload already went with a message, or is not in this chat.");
@@ -51,11 +59,17 @@ export const attachmentOps: Op[] = [
 	},
 	{
 		name: "attachments.content",
-		http: "GET /attachments/:id/content",
+		http: "GET /sessions/:id/attachments/:attachmentId/content",
 		members: true,
+		forward: true,
+		remote: async (p, cx, row) => {
+			const r = (await cx.core.memberChats.forward(row, "attachments.content", { attachmentId: p.str("attachmentId") })) as { name: string; mime: string; data: string };
+			return cx.request ? new RawBody(Buffer.from(r.data, "base64"), r.mime, r.name) : r;
+		},
 		handle: (p, cx) => {
-			const a = cx.core.attachments.content(p.str("id"));
-			if (!a || !memberOwns(cx.core.sessions.get(a.sessionId), cx.caller)) throw new ApiError("not_found", "No upload with that id.");
+			const row = localSession(cx, p.str("id"));
+			const a = cx.core.attachments.content(p.str("attachmentId"));
+			if (!a || a.sessionId !== row.id) throw new ApiError("not_found", "No upload with that id in this chat.");
 			let data: Buffer;
 			try {
 				data = readFileSync(a.path);

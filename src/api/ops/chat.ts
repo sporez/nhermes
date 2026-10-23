@@ -75,11 +75,24 @@ async function submit(p: Params, cx: OpContext) {
 export const chatOps: Op[] = [
 	{
 		name: "sessions.turns",
+		forward: true,
 		http: "GET /sessions/:id/turns",
 		members: true,
 		handle: (p, cx) => turnsPage(cx, localSession(cx, p.str("id")).id, p.optStr("cursor"), p.optInt("limit", { min: 1, max: 500 }) ?? PAGE),
 	},
-	{ name: "sessions.subscribe", members: true, handle: subscribe },
+	{
+		name: "sessions.subscribe",
+		members: true,
+		forward: true,
+		// The member's snapshot, with this gateway's catalogue row and the approvals asked here.
+		remote: async (p, cx, row) => {
+			if (!cx.socket) throw new ApiError("invalid_params", "Following a chat needs the WebSocket.");
+			cx.socket.subscribe(row.id);
+			const snap = await cx.core.memberChats.forward(row, "sessions.subscribe", { limit: p.optInt("limit", { min: 1, max: 500 }) ?? PAGE });
+			return { ...snap, session: await sessionJson(cx.core, row), approvals: cx.core.approvals.pendingFor(row.id).map(approvalJson) };
+		},
+		handle: subscribe,
+	},
 	{
 		name: "sessions.unsubscribe",
 		members: true,
@@ -88,9 +101,20 @@ export const chatOps: Op[] = [
 			return { unsubscribed: true };
 		},
 	},
-	{ name: "sessions.submit", http: "POST /sessions/:id/submit", members: true, handle: submit },
+	{
+		name: "sessions.submit",
+		http: "POST /sessions/:id/submit",
+		members: true,
+		forward: true,
+		remote: (p, cx, row) => {
+			cx.socket?.subscribe(row.id);
+			return cx.core.memberChats.forward(row, "sessions.submit", p.raw);
+		},
+		handle: submit,
+	},
 	{
 		name: "sessions.steer",
+		forward: true,
 		http: "POST /sessions/:id/steer",
 		members: true,
 		handle: async (p, cx) => {
@@ -101,12 +125,14 @@ export const chatOps: Op[] = [
 	},
 	{
 		name: "sessions.interrupt",
+		forward: true,
 		http: "POST /sessions/:id/interrupt",
 		members: true,
 		handle: async (p, cx) => ({ interrupted: await cx.core.sessions.interrupt(localSession(cx, p.str("id")).id) }),
 	},
 	{
 		name: "sessions.compact",
+		forward: true,
 		http: "POST /sessions/:id/compact",
 		members: true,
 		handle: async (p, cx) => {
@@ -115,9 +141,11 @@ export const chatOps: Op[] = [
 			return { started: true };
 		},
 	},
-	{ name: "sessions.usage", http: "GET /sessions/:id/usage", members: true, handle: async (p, cx) => ({ usage: usageJson(await cx.core.sessions.usage(localSession(cx, p.str("id")).id)) }) },
+	{ name: "sessions.usage",
+		forward: true, http: "GET /sessions/:id/usage", members: true, handle: async (p, cx) => ({ usage: usageJson(await cx.core.sessions.usage(localSession(cx, p.str("id")).id)) }) },
 	{
 		name: "sessions.context",
+		forward: true,
 		http: "GET /sessions/:id/context",
 		members: true,
 		handle: async (p, cx) => {
@@ -148,6 +176,7 @@ export const chatOps: Op[] = [
 	},
 	{
 		name: "sessions.commands",
+		forward: true,
 		http: "GET /sessions/:id/commands",
 		members: true,
 		handle: (p, cx) => {
@@ -157,6 +186,7 @@ export const chatOps: Op[] = [
 	},
 	{
 		name: "sessions.command",
+		forward: true,
 		http: "POST /sessions/:id/commands",
 		members: true,
 		handle: async (p, cx) => {

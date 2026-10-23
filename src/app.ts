@@ -19,6 +19,7 @@ import { Secrets } from "./core/secrets.ts";
 import { Updates, type UpdatesOptions } from "./core/updates.ts";
 import { Settings } from "./core/settings.ts";
 import { Members, type MembersOptions } from "./federation/members.ts";
+import { MemberChats } from "./federation/chats.ts";
 import { ProxySessions } from "./federation/proxy.ts";
 import { Roster } from "./federation/roster.ts";
 import { type AgentChange, Engine } from "./engine/engine.ts";
@@ -83,6 +84,8 @@ export type Core = {
 	members: Members;
 	roster: Roster;
 	proxy: ProxySessions;
+	/** The owner's chats with members' bots on the client API. */
+	memberChats: MemberChats;
 	secrets: Secrets;
 	/** Providers whose model list is fetched once their key is set. */
 	catalogs: ProviderCatalogs;
@@ -338,8 +341,12 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
 	const attachments = new Attachments({ db, bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
 	const proxy = new ProxySessions({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, p) => vory.remoteFinished(id, p) });
-	members.onRevoke(() => proxy.dropGone());
-	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id), deleted: (row) => proxy.deleted(row) });
+	const memberChats = new MemberChats({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, t) => vory.remoteFinished(id, t) });
+	members.onRevoke(() => {
+		proxy.dropGone();
+		memberChats.dropGone();
+	});
+	sessions.setRemoteHooks({ running: (id) => proxy.isRunning(id) || memberChats.isRunning(id), deleted: (row) => memberChats.deleted(row) });
 	scheduler = new Scheduler({
 		db,
 		engine,
@@ -410,6 +417,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		members,
 		roster,
 		proxy,
+		memberChats,
 		secrets,
 		catalogs,
 		reviewer,
@@ -426,6 +434,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			vory.stop();
 			await chamberWatcher.stop();
 			proxy.close();
+			memberChats.close();
 			await scheduler!.stop();
 			await rooms!.stop();
 			await browsers.close();

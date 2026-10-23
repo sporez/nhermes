@@ -11,7 +11,7 @@ import type { Core } from "../../src/app.ts";
 import type { BotConfig } from "../../src/config.ts";
 import { federationAdminRoutes } from "../../src/federation/routes.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
-import { setPeerHeartbeat } from "../../src/remote/peer.ts";
+import { setPeerHeartbeat } from "../../src/remote/api-client.ts";
 import { HermesClient } from "../hermes/client.ts";
 import { collect, pngBytes, tempDir, testConfig, testCore } from "../helpers.ts";
 

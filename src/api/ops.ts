@@ -4,6 +4,7 @@
 // either, and the member rules are checked here for every call.
 import type { IncomingMessage } from "node:http";
 import type { Core } from "../app.ts";
+import type { SessionRow } from "../core/sessions.ts";
 import type { MemberRow } from "../federation/members.ts";
 import { Router } from "../http.ts";
 import { ApiError } from "./errors.ts";
@@ -37,6 +38,12 @@ export type Op = {
 	members?: boolean;
 	/** The HTTP body is not JSON: the handler reads `request` itself (uploads). */
 	rawBody?: boolean;
+	/**
+	 * About a chat (`id`): when the owner calls it for a chat with a member's bot, the member answers. `remote`
+	 * replaces the plain pass-on where this gateway has its own part to play.
+	 */
+	forward?: boolean;
+	remote?(p: Params, cx: OpContext, row: SessionRow): unknown;
 	handle(p: Params, cx: OpContext): unknown;
 };
 
@@ -71,9 +78,14 @@ export class OpTable {
 		return { op: m.handler(undefined as never) as Op, params: m.params };
 	}
 
-	/** Runs an operation after the caller checks. */
+	/** Runs an operation after the caller checks; a chat with a member's bot goes to that member. */
 	async call(op: Op, raw: unknown, cx: OpContext): Promise<unknown> {
 		if (cx.caller.kind === "member" && !op.members) throw new ApiError("unknown_op", `Unknown operation ${op.name}.`);
-		return op.handle(new Params(raw), cx);
+		const p = new Params(raw);
+		if (op.forward && cx.caller.kind === "owner" && typeof p.raw.id === "string") {
+			const row = cx.core.sessions.get(p.raw.id);
+			if (row?.remote_node) return op.remote ? op.remote(p, cx, row) : cx.core.memberChats.forward(row, op.name, p.raw);
+		}
+		return op.handle(p, cx);
 	}
 }

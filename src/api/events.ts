@@ -13,7 +13,7 @@ import type { ApiEvent } from "./socket.ts";
 const log = logger("api-events");
 
 /** A followed chat's event on the wire, or undefined for events that are not sent per chat. */
-export function chatEvent(e: SessionEvent): { event: string; data: unknown } | undefined {
+export function chatEvent(e: SessionEvent): { event: string; data: Record<string, unknown> } | undefined {
 	switch (e.type) {
 		case "turn.started":
 			return { event: "turn.started", data: { turn: turnJson(e.turn) } };
@@ -40,17 +40,20 @@ export function chatEvent(e: SessionEvent): { event: string; data: unknown } | u
 }
 
 export function sessionFeed(core: Core) {
-	return (sessionId: string, send: (e: ApiEvent) => void): (() => void) =>
-		core.hub.subscribe(sessionId, (sid, e) => {
+	return (sessionId: string, send: (e: ApiEvent) => void): (() => void) => {
+		// A chat with a member's bot: its events come from the member, already in this shape.
+		if (core.sessions.get(sessionId)?.remote_node) return core.memberChats.follow(sessionId, send);
+		return core.hub.subscribe(sessionId, (sid, e) => {
 			if (e.type === "turn.started") identifyAttachments(core, sid, [e.turn]);
 			const out = chatEvent(e);
 			if (out) send({ event: out.event, sessionId: sid, seq: core.hub.seq(sid), at: Date.now(), data: out.data });
 		});
+	};
 }
 
 export function globalFeed(core: Core) {
 	return (send: (e: ApiEvent) => void, caller: Caller): (() => void) => {
-		const emit = (event: string, data: unknown) => send({ event, at: Date.now(), data });
+		const emit = (event: string, data: Record<string, unknown>) => send({ event, at: Date.now(), data });
 		const sessionChanged = (id: string, bot: string) => {
 			const row = core.sessions.get(id);
 			if (!row) return emit("session.deleted", { id, botId: bot });

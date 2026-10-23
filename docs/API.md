@@ -134,12 +134,23 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.toolResult` | `GET /sessions/:id/items/:itemId/result` | yes | A tool call's whole result: `{text, json?}` |
 | `sessions.attach` | `POST /sessions/:id/attachments` | yes | The bytes as the body; `X-Filename` (URL-encoded) or `name`, and `kind?` (`image`, `pdf`, `file`; by default what the bytes are). Over the socket: `name`, `kind?`, `data` (base64). `{attachment}` |
 | `sessions.detach` | `DELETE /sessions/:id/attachments/:attachmentId` | yes | Takes back an upload that has not gone with a message (its file is removed). `{withdrawn: true}`; `conflict` once sent |
-| `attachments.content` | `GET /attachments/:id/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
+| `attachments.content` | `GET /sessions/:id/attachments/:attachmentId/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
 | `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
 
-Chats with a member machine's bot answer `not_available` on these operations for now (plan step A4).
+## Chats with a member's bot
+
+A network member's bot (`kind: "member"`) chats like a local one: create the chat with its `botId`, and use
+the same operations. This gateway keeps the chat in its own list (title, pins, archive) and passes
+everything else on to the member's machine, which runs it; ids in what comes back are this gateway's. The
+member's approval requests are asked here, as `approval.requested` events like any other, with a
+description that starts with `from <machine>:`. Uploads into such a chat are kept on the member.
+
+- `yolo` cannot be switched on for such a chat (`not_allowed`): its approvals are the member's.
+- When the link to the member drops, a followed chat gets `session.stale`: subscribe again.
+- While the member is offline, calls about its chats answer `member_offline`; the chat list still shows
+  them.
 
 ## Bots
 
@@ -236,6 +247,7 @@ A followed chat's events (with `sessionId` and `seq`):
 | `turn.finished` | `{turnId, status, endedAt, error?, usage?}` |
 | `usage.updated` | `{usage}` |
 | `session.notice` | `{kind: "compacting" \| "notice", text}` |
+| `session.stale` | `{}`: events of this chat may have been missed (a member's link dropped); subscribe again |
 
 Every owner socket also gets, without subscribing:
 
@@ -271,7 +283,8 @@ POST /api/v1/sessions/<id>/submit
   as a note saying where it is.
 - An upload belongs to its chat. It can go with more than one message; until it has gone with one,
   `sessions.detach` takes it back. Uploads are kept in the bot's workspace `uploads/` folder.
-- In a turn, `user.content` names each attachment by id; `attachments.content` opens it. Chats from before
+- In a turn, `user.content` names each attachment by id; `attachments.content` (with the chat's id) opens
+  it. Chats from before
   uploads had ids get one when their history is read, if the file is still there.
 
 ## Approvals

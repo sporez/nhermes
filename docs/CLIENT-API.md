@@ -237,7 +237,7 @@ with its docs.
 - [x] **A3 Attachments.** Binary upload, withdraw, the `attachments` table, content blocks in history,
   content download for every kind, the limits in the hello. Tests port `test/hermes/attachments.test.ts`,
   plus withdraw and download of a PDF from an older turn.
-- [ ] **A4 Federation and peers.** Members and `peer:` bots on the new socket; member access and
+- [x] **A4 Federation and peers.** Members and `peer:` bots on the new socket; member access and
   forwarding from the op table; member bots' settings through `/federation/manage/*`; group chat turns of
   member bots; delegation to members, background delegation included. All `test/federation/` and
   `test/remote/` tests move over, including the security ones (a member cannot reach another member's

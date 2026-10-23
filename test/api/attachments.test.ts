@@ -83,7 +83,7 @@ test("a picture: uploaded as bytes, named by id in the message, seen by the mode
 	const block = items.at(-1)!.user.content[1]!;
 	assert.equal(block.attachment!.id, attachment.id);
 	assert.equal(block.attachment!.kind, "image");
-	const down = await fetch(`http://127.0.0.1:${server.port}/api/v1/attachments/${attachment.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
+	const down = await fetch(`http://127.0.0.1:${server.port}/api/v1/sessions/${sid}/attachments/${attachment.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
 	assert.equal(down.headers.get("content-type"), "image/png");
 	assert.deepEqual(Buffer.from(await down.arrayBuffer()), png);
 	await c.close();
@@ -107,7 +107,7 @@ test("a PDF and a text file: pages for the model, the file's text attached, both
 	assert.equal(seen[0]!.filter((p) => p.type === "image").length, 1, "the PDF's page");
 	const turn = (await http(server.port)<{ items: Turn[] }>(`GET /sessions/${sid}/turns`)).items.at(-1)!;
 	assert.deepEqual(turn.user.content.map((b) => b.type === "text" ? b.text : `${b.attachment!.kind}:${b.attachment!.id}`), ["read both", `pdf:${doc.id}`, `file:${notes.id}`]);
-	const file = await c.call<{ name: string; mime: string; data: string }>("attachments.content", { id: notes.id });
+	const file = await c.call<{ name: string; mime: string; data: string }>("attachments.content", { id: sid, attachmentId: notes.id });
 	assert.equal(Buffer.from(file.data, "base64").toString(), "# Plan\nship it\n");
 	await c.close();
 });
@@ -117,7 +117,7 @@ test("an upload is taken back before sending; one that went with a message canno
 	const { attachment: a } = (await (await upload(sid, pngBytes(8, 8), "a.png", "image/png")).json()) as { attachment: Attachment };
 	assert.deepEqual(await http(server.port)(`DELETE /sessions/${sid}/attachments/${a.id}`), { withdrawn: true });
 	await assert.rejects(c.call("sessions.submit", { id: sid, content: [{ type: "attachment", id: a.id }] }), (e: { code: string }) => e.code === "invalid_params");
-	const gone = await fetch(`http://127.0.0.1:${server.port}/api/v1/attachments/${a.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
+	const gone = await fetch(`http://127.0.0.1:${server.port}/api/v1/sessions/${sid}/attachments/${a.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
 	assert.equal(gone.status, 404);
 	const { attachment: b } = (await (await upload(sid, pngBytes(8, 8), "b.png", "image/png")).json()) as { attachment: Attachment };
 	faux.setResponses([fauxAssistantMessage("ok")]);
@@ -155,7 +155,7 @@ test("a chat from before uploads had ids: its pictures get one when the history 
 	const turn = (await http(server.port)<{ items: Turn[] }>(`GET /sessions/${sid}/turns`)).items.at(-1)!;
 	const a = turn.user.content.find((b) => b.type === "attachment")!.attachment!;
 	assert.match(a.id, /^a[0-9a-f]{16}$/);
-	const down = await fetch(`http://127.0.0.1:${server.port}/api/v1/attachments/${a.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
+	const down = await fetch(`http://127.0.0.1:${server.port}/api/v1/sessions/${sid}/attachments/${a.id}/content`, { headers: { authorization: `Bearer ${TOKEN}` } });
 	assert.deepEqual(Buffer.from(await down.arrayBuffer()), png);
 	await c.close();
 });

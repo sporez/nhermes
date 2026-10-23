@@ -11,6 +11,7 @@ import { UpdateError } from "../core/updates.ts";
 import { ConfigError } from "../config.ts";
 import { LinkError } from "../federation/link.ts";
 import { HttpError } from "../http.ts";
+import { RemoteError } from "../remote/api-client.ts";
 
 /** Every error code the API answers with, and its HTTP status. Codes are only ever added. */
 export const ERROR_STATUS = {
@@ -73,6 +74,8 @@ export function apiError(error: unknown): ApiError | undefined {
 	if (error instanceof ConfigError) return new ApiError("invalid_params", error.message);
 	if (error instanceof HttpError || error instanceof JobError || error instanceof SecretError || error instanceof UpdateError) return new ApiError(codeOfStatus(error.status), error.message);
 	if (error instanceof LinkError) return new ApiError(error.code === 4004 ? "not_found" : error.code === 4003 ? "not_allowed" : "member_offline", error.message);
+	// A member's answer keeps its own code; a lost link is the member being offline.
+	if (error instanceof RemoteError) return new ApiError(error.code in ERROR_STATUS ? (error.code as ErrorCode) : "member_offline", error.message);
 	if (error instanceof AttachmentError) return new ApiError(ATTACHMENT_CODES[error.code] ?? "invalid_params", error.message);
 	if (error instanceof RoomError) return new ApiError(ROOM_CODES[error.code] ?? "invalid_params", error.message);
 	return undefined;

@@ -11,7 +11,8 @@ import type { Caller, OpTable, SocketHandle } from "./ops.ts";
 
 const log = logger("api-ws");
 
-export type ApiEvent = { event: string; sessionId?: string; seq?: number; at: number; data: unknown };
+/** An event frame (docs/API.md "Events"); also what src/remote/api-client.ts receives from another gateway. */
+export type ApiEvent = { event: string; sessionId?: string; seq?: number; at: number; data: Record<string, unknown> };
 
 /** Feeds a socket the events of one chat; returns how to stop. Supplied by the chat operations (src/api/events.ts). */
 export type SessionFeed = (sessionId: string, send: (e: ApiEvent) => void, caller: Caller) => () => void;

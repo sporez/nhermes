@@ -6,7 +6,7 @@ import WebSocket from "ws";
 import { logger } from "../log.ts";
 import type { MemberTarget } from "./members.ts";
 import { keyRefused } from "./psk.ts";
-import { HEARTBEAT_MS } from "../remote/peer.ts";
+import { HEARTBEAT_MS } from "../remote/api-client.ts";
 
 const log = logger("link");
 

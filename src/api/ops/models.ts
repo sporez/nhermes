@@ -2,7 +2,6 @@
 // owner hid, grouped by provider, with what each model can do.
 import { THINKING_LEVELS } from "../../config.ts";
 import { pickableModels } from "../../models/pickable.ts";
-import { ApiError } from "../errors.ts";
 import { botOf } from "../lookup.ts";
 import type { Op } from "../ops.ts";
 
@@ -13,7 +12,7 @@ export const modelOps: Op[] = [
 		members: true,
 		handle: async (p, cx) => {
 			const bot = botOf(cx, p.optStr("botId"));
-			if (bot.remote) throw new ApiError("not_available", "Another machine's models are not available on this API yet.");
+			if (bot.remote) return cx.core.memberChats.forBot(bot, "models.list", {});
 			const current = bot.model;
 			const models = await pickableModels(cx.core.models, cx.core.config.modelLists.hide, current);
 			const byProvider = new Map<string, typeof models>();

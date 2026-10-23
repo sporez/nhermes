@@ -61,7 +61,10 @@ async function create(p: Params, cx: OpContext) {
 	const title = p.optStr("title")?.trim() || undefined;
 	const kind = p.optEnum("kind", ["chat", "room"] as const) ?? "chat";
 	if (kind === "room" && cx.caller.kind === "owner") throw new ApiError("invalid_params", "A group chat's sessions are made by the group chat itself.");
-	if (bot.remote) throw new ApiError("not_available", "Chats with another machine's bots are not available on this API yet.");
+	if (bot.remote) {
+		if (cx.caller.kind === "member") throw new ApiError("bot_not_found", `No bot with id ${bot.name}.`);
+		return { session: await sessionJson(cx.core, await cx.core.memberChats.create(bot, { title, source: p.optStr("source") ?? "app" })) };
+	}
 	const source = cx.caller.kind === "member" ? memberSource(cx.caller.member.node_id, p.optBool("relay") === true) : (p.optStr("source") ?? "app");
 	const row = await cx.core.sessions.create(bot.name, { kind, source, title });
 	await cx.core.sessions.live(row.id);
@@ -79,7 +82,13 @@ async function update(p: Params, cx: OpContext) {
 	const model = modelParam(cx, p);
 	const thinking = p.optEnum("thinking", THINKING_LEVELS as readonly ThinkingLevel[]);
 	if (cx.caller.kind === "member" && (yolo !== undefined || pinned !== undefined || archived !== undefined)) throw new ApiError("not_allowed", "A network member can change only a chat's title, model and reasoning.");
-	if ((model || thinking) && row.remote_node) throw new ApiError("not_available", "Chats with another machine's bots are not available on this API yet.");
+	if (row.remote_node) {
+		// Pins and archiving are this gateway's; the title is kept on both sides; the rest is the member's.
+		if (yolo !== undefined) throw new ApiError("not_allowed", "Approvals for a chat with another machine's bot are that machine's; Bypass cannot be switched on from here.");
+		if (title !== undefined || model || thinking) await cx.core.memberChats.forward(row, "sessions.update", { ...(title !== undefined ? { title } : {}), ...(model ? { model: { provider: model.provider, id: model.modelId } } : {}), ...(thinking ? { thinking } : {}) });
+		if (title !== undefined || pinned !== undefined || archived !== undefined) cx.core.sessions.update(id, { title, pinned, archived });
+		return { session: await sessionJson(cx.core, cx.core.sessions.require(id)) };
+	}
 	if (title !== undefined || pinned !== undefined || archived !== undefined) cx.core.sessions.update(id, { title, pinned, archived });
 	if (yolo !== undefined) cx.core.approvals.setYolo(id, yolo);
 	if (model) {
@@ -116,6 +125,7 @@ export const sessionOps: Op[] = [
 		name: "sessions.toolResult",
 		http: "GET /sessions/:id/items/:itemId/result",
 		members: true,
+		forward: true,
 		handle: async (p, cx) => {
 			const row = localSession(cx, p.str("id"));
 			const itemId = p.str("itemId");
