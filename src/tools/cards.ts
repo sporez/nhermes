@@ -31,7 +31,7 @@ export function cardsFeature(late: LateServices): Feature {
 			const entries = await late.sessions().entriesOf(api.conversationId as number);
 			const found = findCardSource(entries, args.from.trim());
 			const data = args.only?.length ? narrowCardData(found.data, args.only) : found.data;
-			const card = redactJson<CardDetails>({ kind: "result", caption: caption.length > MAX_CAPTION ? `${caption.slice(0, MAX_CAPTION - 1)}…` : caption, source: found.source, data });
+			const card = redactJson<CardDetails>({ kind: "result", caption: caption.length > MAX_CAPTION ? `${caption.slice(0, MAX_CAPTION - 1)}…` : caption, source: found.source, data, ...(args.only?.length ? { filtered: true as const } : {}) });
 			return { output: [{ type: "text" as const, text: shownText(card.caption, card.data) }], details: { card } as never, control: { terminate: true as const } };
 		},
 	});

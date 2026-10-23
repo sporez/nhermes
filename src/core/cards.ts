@@ -11,8 +11,11 @@ export const SHOW_TOOL = "show";
 
 export type CardSource = { item: string; name: string; args: Record<string, unknown> };
 
-/** What a successful `show` call keeps in its result's details; the turn item is projected from it. */
-export type CardDetails = { kind: "result"; caption: string; source: CardSource; data: unknown };
+/**
+ * What a successful `show` call keeps in its result's details; the turn item is projected from it. `filtered`: the
+ * bot kept only some items (`only`), so counts in `data` describe the whole result, not the card.
+ */
+export type CardDetails = { kind: "result"; caption: string; source: CardSource; data: unknown; filtered?: true };
 
 /** A short name for a tool call that the model can quote: "c" and the first 5 hex characters of the call id's hash. */
 export function cardHandle(callId: string): string {

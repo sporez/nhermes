@@ -84,7 +84,7 @@ test("show with the reply puts a filtered card on screen and ends the run with n
 		assert.equal(resultText(r.events, "call_show"), "Shown to the owner as a card: Today: 2 events (Dentist, Run). They can see it; don't repeat what it shows, add only what the card doesn't say.");
 
 		const data = { events: [{ id: "e1", title: "Dentist" }, { id: "e3", title: "Run" }], total: 3 };
-		const card = { type: "card", id: "call_show", kind: "result", caption: "Today: 2 events", source: { item: "call_list", name: "mcp__cal__list_events", args: {} }, data };
+		const card = { type: "card", id: "call_show", kind: "result", caption: "Today: 2 events", source: { item: "call_list", name: "mcp__cal__list_events", args: {} }, data, filtered: true };
 		// History.
 		const { turns } = await s.core.sessions.turns(r.session.id);
 		const items = turns.at(-1)!.items;
@@ -123,6 +123,7 @@ test("show without only keeps the whole result; a batch with other tools continu
 		const card = turns.at(-1)!.items.find((i) => i.type === "card");
 		assert.ok(card?.type === "card");
 		assert.deepEqual(card.data, EVENTS);
+		assert.equal(card.filtered, undefined, "a whole result is not marked filtered");
 	} finally {
 		await s.cleanup();
 	}

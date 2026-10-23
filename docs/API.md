@@ -281,12 +281,13 @@ item that has `result.json`. The model is told what was shown and does not repea
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
  "caption": "Groceries: 2 reminders",
  "source": {"item": "call_reminders", "name": "mcp__bridge__reminders_list", "args": {"list": "Groceries"}},
- "data": {"reminders": [{"id": "r1", "title": "Milk", "completed": false}]}}
+ "data": {"reminders": [{"id": "r1", "title": "Milk", "completed": false}]}, "filtered": true}
 ```
 
 - `kind: "result"` is a tool's structured result. A client decodes `data` by `source.name` (the tool that
   made it); `source.item` is that tool item's id and `source.args` its arguments. `data` may be narrowed by the
-  bot to some of the items. `caption` is one line written by the bot: show it where the client cannot draw the
+  bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
+  result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
 - The card is a turn item of its own, placed where the bot's `show` call was, usually after the reply text. The

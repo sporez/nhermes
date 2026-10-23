@@ -143,7 +143,7 @@ export function redactJson<T>(v: T): T {
  */
 /** The card item of a successful `show` call: its id, the result's time, and the card kept in its details. */
 export function cardItem(callId: string, at: number, card: CardDetails): Extract<TurnItem, { type: "card" }> {
-	return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, source: card.source, data: card.data };
+	return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, source: card.source, data: card.data, ...(card.filtered ? { filtered: true as const } : {}) };
 }
 
 export function projectTurns(entries: readonly EntryRecord[], live?: { running: boolean; partial?: LivePartial }): Turn[] {
