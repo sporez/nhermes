@@ -1,12 +1,13 @@
 // SKILL.md skills per bot and per job, and memory: persistence, search, and sharing boundaries.
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { http } from "../api/client.ts";
 import { startServer } from "../../src/server.ts";
 import { MemoryAccessError } from "../../src/memory/memory.ts";
+import { SKILL_READ_MAX } from "../../src/skills/skills.ts";
 import { collect, fauxModels, TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
 function writeSkill(dir: string, name: string, description: string, body: string, extra?: Record<string, string>) {
@@ -73,6 +74,47 @@ test("skills: per-bot and opted-in global skills are active; the skill tool load
 			assert.deepEqual(core.bots.overrides("ops"), { disabledSkills: ["proxmox-health"], enabledSkills: ["backup-check"] });
 		} finally {
 			await server.close();
+		}
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("skills: a skill's config file, keys, binaries and files outside it are neither listed nor read", async () => {
+	const { dir, cleanup } = await tempDir();
+	const skillsDir = join(dir, "skills");
+	writeSkill(skillsDir, "home-cli", "Query home services with the home CLI", "Run `home status`.", {
+		"config.toml": 'token = "tok-example-1234"\n',
+		"config.example.toml": 'token = "<your token>"\n',
+		"helper.env": "API_KEY=tok-example-1234\n",
+		"reference.md": "flags and examples",
+		".hidden": "dotfile",
+	});
+	writeFileSync(join(skillsDir, "home-cli", "home"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0, 1, 2]));
+	writeFileSync(join(skillsDir, "home-cli", "big.md"), "x".repeat(SKILL_READ_MAX + 1));
+	writeFileSync(join(dir, "outside.txt"), "not part of the skill");
+	symlinkSync(join(dir, "outside.txt"), join(skillsDir, "home-cli", "notes.md"));
+	symlinkSync(join(skillsDir, "home-cli", "config.toml"), join(skillsDir, "home-cli", "settings.md"));
+	const config = testConfig(dir, [{ name: "main", default: true, instructions: "main", skills: ["home-cli"] }]);
+	const core = await testCore(dir, { config });
+	try {
+		const skill = core.skills.find(core.bots.require("main"), "home-cli")!;
+		assert.deepEqual(core.skills.files(skill).sort(), ["config.example.toml", "reference.md"]);
+		assert.equal(core.skills.readFile(skill, "reference.md"), "flags and examples");
+		assert.match(core.skills.readFile(skill, "config.example.toml"), /<your token>/);
+		for (const [file, error] of [
+			["config.toml", /keys or settings/],
+			["helper.env", /keys or settings/],
+			["settings.md", /keys or settings/],
+			["home", /binary/],
+			["big.md", /too large/],
+			[".hidden", /hidden/],
+			["notes.md", /outside the skill/],
+			["../outside.txt", /outside the skill/],
+			["missing.md", /no file/],
+		] as const) {
+			assert.throws(() => core.skills.readFile(skill, file), error, file);
 		}
 	} finally {
 		await core.close();

@@ -81,6 +81,11 @@ turn's notification, the iPad (installed, not yet opened).
   shells now get a scrubbed environment and known secret values are redacted from tool output, transcript
   rows and events (`test/core/web.test.ts`). Redaction of streamed text works per delta, so a secret split
   across two deltas would not be caught there (the stored transcript row is still redacted).
+- The `skill` tool listed and read any file in a skill's folder, including a CLI skill's `config.toml`
+  with the program's own tokens, a symlink pointing outside the folder, and its binary as text → it now
+  neither lists nor reads hidden files, files named like keys or settings (`config.*`, `secrets.*`,
+  `*.env`, private keys; `*.example*` stays readable), binaries, files over 256 KB, or anything that
+  resolves outside the folder (`test/core/skills-memory.test.ts`).
 
 Found in a security audit (2026-10-20), fixed with regression tests:
 

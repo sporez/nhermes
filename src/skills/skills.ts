@@ -2,9 +2,9 @@
 // skills directory (a bot opts in by name or "*") and each bot's own bots/<name>/skills (always on
 // unless switched off). A job can attach extra skills to its session. Only names and descriptions go
 // into the prompt; the `skill` tool loads a body when the model decides it is relevant.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import type { Bot, Bots } from "../core/bots.ts";
 import { logger } from "../log.ts";
@@ -15,7 +15,28 @@ const log = logger("skills");
 export type SkillEntry = { name: string; description: string; filePath: string; baseDir: string; source: "global" | "bot"; modelInvocable: boolean };
 
 export const SKILL_FILE_MAX = 64 * 1024;
+/** The largest supporting file the skill tool hands a model. */
+export const SKILL_READ_MAX = 256 * 1024;
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/** Names of files that hold a skill program's keys or settings (config.toml, secrets.env, a private key); `*.example*` stays readable. */
+const PRIVATE_FILE = /^(config|secrets?|credentials?|auth|tokens?)\.(toml|ya?ml|json|ini|conf|cfg|env|txt)$|\.(env|pem|key|p12|pfx|keystore)$|^id_(rsa|dsa|ecdsa|ed25519)$/i;
+
+/** Why a file inside a skill is not shown to a model, or undefined when it may be. */
+function unreadableReason(path: string): string | undefined {
+	if (PRIVATE_FILE.test(basename(path))) return "holds keys or settings for the skill's own program, so it is not shown";
+	const st = statSync(path);
+	if (!st.isFile()) return "is not a file";
+	if (st.size > SKILL_READ_MAX) return `is larger than ${SKILL_READ_MAX / 1024} KB, too large to show`;
+	const fd = openSync(path, "r");
+	try {
+		const head = Buffer.alloc(Math.min(st.size, 8192));
+		readSync(fd, head, 0, head.length, 0);
+		if (head.includes(0)) return "is a program or other binary file, not text, so it cannot be shown";
+	} finally {
+		closeSync(fd);
+	}
+	return undefined;
+}
 
 /** A supporting file's path inside a skill folder: relative, no `..`, no hidden parts, never SKILL.md itself. */
 function skillRelPath(path: string): string {
@@ -156,17 +177,25 @@ export class Skills {
 		return readFileSync(skill.filePath, "utf8");
 	}
 
-	/** Files next to SKILL.md (scripts, references), relative to the skill directory. */
+	/** Files next to SKILL.md (scripts, references) a model may read, relative to the skill directory. */
 	files(skill: SkillEntry, limit = 50): string[] {
-		const root = dirname(skill.filePath);
+		const root = realpathSync(dirname(skill.filePath));
+		const skillMd = realpathSync(skill.filePath);
 		const out: string[] = [];
 		const walk = (d: string, depth: number) => {
 			if (depth > 3 || out.length >= limit) return;
 			for (const name of readdirSync(d)) {
 				if (name.startsWith(".")) continue;
 				const p = join(d, name);
-				if (statSync(p).isDirectory()) walk(p, depth + 1);
-				else if (p !== skill.filePath) out.push(relative(root, p));
+				let real: string;
+				try {
+					real = realpathSync(p);
+				} catch {
+					continue;
+				}
+				if (!real.startsWith(root + sep)) continue;
+				if (statSync(real).isDirectory()) walk(p, depth + 1);
+				else if (real !== skillMd && !unreadableReason(real)) out.push(relative(root, p));
 				if (out.length >= limit) return;
 			}
 		};
@@ -174,12 +203,22 @@ export class Skills {
 		return out;
 	}
 
-	/** Reads a supporting file inside the skill's directory (no escaping it). */
+	/**
+	 * Reads a supporting file inside the skill's directory: no escaping it (symlinks included), and never a
+	 * hidden file, a file that holds the skill program's keys or settings, a binary, or a very large file.
+	 * Skills such as a CLI's keep their config.toml next to SKILL.md; its tokens must not reach a transcript.
+	 */
 	readFile(skill: SkillEntry, path: string): string {
-		const root = dirname(skill.filePath);
+		const root = realpathSync(dirname(skill.filePath));
 		const target = resolve(root, path);
-		if (target !== root && !target.startsWith(root + sep)) throw new Error("path is outside the skill directory");
-		return readFileSync(target, "utf8");
+		if (!target.startsWith(root + sep)) throw new Error("path is outside the skill directory");
+		if (relative(root, target).split(sep).some((p) => p.startsWith("."))) throw new Error(`${path} is a hidden file, which skills do not share`);
+		if (!existsSync(target)) throw new Error(`no file ${path} in this skill`);
+		const real = realpathSync(target);
+		if (!real.startsWith(root + sep)) throw new Error("path is outside the skill directory");
+		const reason = unreadableReason(real);
+		if (reason) throw new Error(`${path} ${reason}`);
+		return readFileSync(real, "utf8");
 	}
 
 	noteUse(bot: string, skill: string): void {
