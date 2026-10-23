@@ -185,6 +185,20 @@ writes `events-card.jsonl` and `turns-card.json`. In the nHermes app (Mac and iP
 throwaway gateways with the faux model and a fake MacBridge: cards under the reply, `only`, a bad handle, captions in
 the chat preview. Not verified: with a real MacBridge server and a real model.
 
+## Questions
+
+Automated (`test/tools/ask.test.ts`, 2026-10-23), with the faux model through the client API: a question waiting
+on the approvals path (both sockets hear it, `GET /approvals` and the subscribe snapshot list it, no tool step is
+announced for the `ask` call); wrong `values` refused with the question still waiting; values answering it, the
+first answer winning, the bot's next call reading the answers and the turn ending complete with the `question`
+card item live and in history; dismissed, timed out (`questionTimeoutS`), withdrawn by a stop; a typed reply
+taken as the answer and not queued as a new turn; malformed questions refused as failed `ask` steps; a scheduled
+run's question ending at the task's next occurrence; a question asked again after a restart; a member's bot's
+question asked on the gateway the app is connected to and answered back; the push notification (`question`,
+`NH_QUESTION`, time-sensitive) and its settled replacement; `questionTimeoutS` in the gateway settings.
+`scripts/api-fixtures.ts` writes a question asked and answered (`events-question.jsonl`, `turns-question.json`,
+`approvals-question.json`) and a typed reply's answer (`submit-answered.json`). Not verified: with a real model.
+
 ## MCP servers
 
 MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):

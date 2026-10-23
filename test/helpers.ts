@@ -31,7 +31,7 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		modelLists: { hide: ["openrouter"] },
 		review: { enabled: true, keyEnv: "TEST_JEV_KEY", allowThreshold: 0.8, timeoutMs: 3000 },
 		pi: { authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json") },
-		defaults: { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30 },
+		defaults: { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30, questionTimeoutS: 30 },
 		skillsDir: join(dir, "skills"),
 		timezone: "America/New_York",
 		node: {},

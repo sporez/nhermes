@@ -99,7 +99,7 @@ async function setupFile(yaml = YAML) {
 	const core = await createCore(loadConfig(path), { models, updates: { codeDir: t.dir } });
 	const cards: { toolName: string; description: string; command: string; choices: string[] }[] = [];
 	const answer = (choice: "once" | "deny" = "once") => core.hub.subscribeAll((_sid, e) => {
-		if (e.type === "approval.requested") {
+		if (e.type === "approval.requested" && e.request.kind === "approval") {
 			cards.push(e.request);
 			core.approvals.answer(e.request.requestId, choice);
 		}

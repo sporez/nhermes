@@ -2,9 +2,9 @@
 // The chat is catalogued here (title, preview, pins) under the id its conversation has on the member;
 // everything else is the member's: this gateway passes the app's calls on over the member's /api/v1 socket
 // (TLS-PSK) and its events back, with the member's bot ids turned into the `<bot>-<node>` ids used here. The
-// member's approval requests for these chats are asked here through this gateway's own approvals, so they
-// reach the owner the same way a local bot's do, and the answer goes back.
-import { type Approvals, fromMachine } from "../core/approvals.ts";
+// member's approval requests and its bots' questions for these chats are asked here through this gateway's own
+// approvals, so they reach the owner the same way a local bot's do, and the answer goes back.
+import { type Approvals, forwardedRequest, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import { cardNote } from "../core/cards.ts";
 import type { Hub } from "../core/events.ts";
@@ -263,18 +263,9 @@ export class MemberChats {
 		const controller = new AbortController();
 		this.asks.set(a.id, controller);
 		try {
-			const choice = await this.d.approvals.ask(
-				{
-					sessionId: row.id,
-					bot: row.bot,
-					toolName: a.toolName ?? "tool",
-					command: a.command ?? "",
-					description: fromMachine(node, a.description ?? "needs approval"),
-					patternKey: `member:${nodeId}:${a.patternKey ?? ""}`,
-				},
-				controller.signal,
-			);
-			if (!controller.signal.aborted) await this.link(nodeId).call("approvals.answer", { id: a.id, choice });
+			const request = forwardedRequest(a);
+			const answer = await this.d.approvals.relay(request, { sessionId: row.id, bot: row.bot, description: fromMachine(node, request.description), patternKey: `member:${nodeId}:${request.patternKey}` }, controller.signal);
+			if (!controller.signal.aborted) await this.link(nodeId).call("approvals.answer", { id: a.id, ...answer });
 		} catch (error) {
 			log.warn("approval for a member's chat not answered there", { session: row.id, error: String(error) });
 		} finally {
@@ -305,7 +296,7 @@ export class MemberChats {
 	}
 }
 
-type RemoteApproval = { id: string; sessionId: string; toolName?: string; command?: string; description?: string; patternKey?: string };
+type RemoteApproval = { id: string; sessionId: string } & Record<string, unknown>;
 
 /** The member names its bot by its own name; here it is `<bot>-<node>`. */
 function localize<T>(value: T, bot: Bot): T {

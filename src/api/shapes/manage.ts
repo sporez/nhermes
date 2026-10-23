@@ -15,7 +15,7 @@ export function gatewaySettingsJson(core: Core) {
 	const c = core.config;
 	return {
 		timeZone: c.timezone,
-		defaults: { model: c.defaults.model, thinking: c.defaults.thinking, approvals: c.defaults.approvals, approvalTimeoutS: c.defaults.approvalTimeoutS },
+		defaults: { model: c.defaults.model, thinking: c.defaults.thinking, approvals: c.defaults.approvals, approvalTimeoutS: c.defaults.approvalTimeoutS, questionTimeoutS: c.defaults.questionTimeoutS },
 		hiddenModelProviders: c.modelLists.hide,
 		groundRules: c.groundRules ?? null,
 		review: { enabled: c.review.enabled, allowThreshold: c.review.allowThreshold, timeoutMs: c.review.timeoutMs, keyEnv: c.review.keyEnv },

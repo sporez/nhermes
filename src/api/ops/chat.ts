@@ -73,6 +73,9 @@ async function submit(p: Params, cx: OpContext) {
 	const { text, ids } = message(p);
 	if (!text.trim() && ids.length === 0) throw new ApiError("invalid_params", "A message needs words or an attachment.");
 	cx.socket?.subscribe(row.id);
+	// While the bot waits on a question here, words typed in the chat are its answer, not a message queued behind it.
+	const answered = ids.length === 0 ? cx.core.approvals.answerWithReply(row.id, text) : undefined;
+	if (answered) return { status: "answered", approvalId: answered };
 	const requestId = p.optStr("requestId");
 	const r = await cx.core.attachments.submitWith(row.id, text, ids, (content) => cx.core.sessions.submit(row.id, content, { requestId, whenBusy: "followUp" }));
 	// `submission`: whether Durable placed it, queued it, or (a retry with the same requestId) already answered it.

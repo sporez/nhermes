@@ -470,7 +470,8 @@ export class Panel {
 		// Status: what is running, what waits for the owner, scheduled jobs
 		r.on("GET", "/panel/api/status", () => ({
 			running: c.sessions.runningCount(),
-			approvals: c.approvals.allPending().map((a) => ({ id: a.requestId, sessionId: a.sessionId, bot: a.bot, tool: a.toolName, command: a.command, description: a.description, createdAt: a.createdAt })),
+			// Questions are answered in the app; the panel lists the approvals.
+			approvals: c.approvals.allPending().flatMap((a) => (a.kind !== "approval" ? [] : [{ id: a.requestId, sessionId: a.sessionId, bot: a.bot, tool: a.toolName, command: a.command, description: a.description, createdAt: a.createdAt }])),
 			jobs: c.scheduler.list().map((j) => {
 				const last = c.scheduler.lastRun(j.id);
 				return {

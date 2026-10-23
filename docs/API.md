@@ -77,7 +77,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   "api": 1,
   "gateway": {"id": "4f0c…", "name": "studio", "version": "0.1.0", "commit": "c67d427"},
   "bootId": "9b2e…",
-  "features": ["events.replay", "cards"],
+  "features": ["events.replay", "cards", "questions"],
   "limits": {"toolResultChars": 65536, "imageBytes": 26214400, "fileBytes": 41943040},
   "caller": {"kind": "owner"}
 }
@@ -87,7 +87,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
 - `features` lists optional capabilities by name: `events.replay` (see Following a chat), `cards` (see
-  Cards), `push.apns` (see Push notifications).
+  Cards), `questions` (see Questions), `push.apns` (see Push notifications).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
 
@@ -124,7 +124,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.turns` | `GET /sessions/:id/turns` | yes | `limit?` (50, at most 500), `cursor?`. `{items: [Turn], nextCursor}`: the newest turns, oldest first; `nextCursor` names the page before |
 | `sessions.subscribe` | socket only | yes | `id`, `limit?`, `afterSeq?`. See Following a chat |
 | `sessions.unsubscribe` | socket only | yes | `id` |
-| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered |
+| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered. While a bot's question waits in the chat, words without attachments answer it instead: `{status: "answered", approvalId}` (see Questions) |
 | `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
 | `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. `{interrupted}` |
 | `sessions.compact` | `POST /sessions/:id/compact` | yes | `instructions?`. `{started: true}` |
@@ -186,7 +186,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `devices.delete` | `DELETE /devices/:id` | | `{deleted: true}` |
 | `devices.test` | `POST /devices/:id/test` | | Sends a test notification. `{ok, error?}`; `not_available` without an APNs key |
 | `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
-| `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
+| `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`; for a question, `values` (with `choice` `answer`, which may be left out) or `choice: "dismiss"`. `{answered: true}`; `approval_not_found` when it is no longer waiting; `invalid_params` for values that don't fit the questions |
 | `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
 
 ## Chats with a member's bot
@@ -289,6 +289,8 @@ item that has `result.json`. The model is told what was shown and does not repea
   bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
   result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
+- `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
+  It has no `source`.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
 - The card is a turn item of its own, placed where the bot's `show` call was, usually after the reply text. The
   `show` call is not also a tool item. A `show` call that fails stays a tool item (named `show`, `status`
@@ -297,6 +299,57 @@ item that has `result.json`. The model is told what was shown and does not repea
   call finishes; no tool step for `show` is announced before it. Snapshots and `GET /sessions/:id/turns` hold the
   same item with the same `id`.
 - Only gateways that list `cards` in `features` send `card` items.
+
+## Questions
+
+When a bot needs the owner's choice before going on, it asks with its `ask` tool instead of listing options in
+its reply. The run waits for the answer, on the same path approvals take: the question is a pending request
+(`kind: "question"`, see Approvals) with the same events, the same listing in `GET /approvals` and the
+snapshot, the same withdrawal on stop, and a notification. The answer is the `ask` call's result and the bot
+carries on in the same turn.
+
+```json
+{"id": "q1w2e3r4t5y6", "sessionId": "…", "botId": "main", "kind": "question", "toolName": "ask",
+ "description": "Dinner plans", "caption": "Dinner plans", "choices": ["answer", "dismiss"],
+ "questions": [
+   {"id": "cuisine", "prompt": "Which cuisine?", "kind": "single", "other": true,
+    "options": [{"id": "thai", "label": "Thai"}, {"id": "pizza", "label": "Pizza", "detail": "the place on Main St"}]},
+   {"id": "time", "prompt": "What time?", "kind": "text"}],
+ "createdAt": 1761139200000, "toolCallId": "call_ask", "callSessionId": "…"}
+```
+
+- Up to 4 questions. `kind`: `single` (one option), `multiple` (any of them), `text` (a short answer).
+  `options`: 2 to 8 `{id, label, detail?}`, for `single` and `multiple`. `other: true` also takes an answer in
+  the owner's own words.
+- **Answering:** `approvals.answer {id, values}`, `values` by question id: an option id for `single`, a list
+  of option ids for `multiple`, text for `text`. Where `other` is true, a string that is not an option id is the
+  owner's own words (one per question). Questions may be left out, but at least one is answered. Text is
+  trimmed and kept to 2,000 characters. A wrong shape is refused with `invalid_params` and a plain message,
+  and the question keeps waiting. `approvals.answer {id, choice: "dismiss"}` declines. The first answer wins;
+  a second device gets `approval_not_found`.
+- **A typed reply answers too.** `sessions.submit` with words and no attachments while a question waits in that
+  chat answers the oldest one there, as text: for the first `text` question, else the first with `other`, else
+  the first question. It answers `{status: "answered", approvalId}`; the words are the answer, not a new turn.
+- **Timeout:** `defaults.questionTimeoutS` (a day unless set; see Gateway settings). In a scheduled task's
+  run it waits at most until the task's next occurrence. A question nobody answers ends unanswered.
+- `approval.resolved` for a question has `choice` `answer` or `dismiss` and `reason` `answered`, `timeout` or
+  `cancelled` (the run was stopped).
+- **The card:** while it waits, the request is the card; the `ask` call is not announced as a tool item. Once it
+  ends, the call is a `card` item of kind `question`, live (`item.started` and `item.finished` back to back) and
+  in history, where the call was:
+
+```json
+{"type": "card", "id": "call_ask", "at": 1761139260000, "kind": "question", "caption": "Dinner plans",
+ "data": {"questions": [{"id": "cuisine", …}, {"id": "time", …}], "answers": {"cuisine": "thai", "time": "7:30"}}}
+```
+
+  `answers` is `null` when it was dismissed, timed out or withdrawn. An `ask` call the gateway refused (a
+  malformed question) stays a tool item named `ask` with `status` `failed`.
+- A member's bot's question in a chat run through this gateway is asked here like its approvals, with
+  `description` saying which machine it came from, and the answer goes back. A delegated bot's question is
+  asked in the chat the work started in.
+- Where cards are not drawn (a notification, a transcript), a question reads as its caption and its questions.
+- Only gateways that list `questions` in `features` ask questions.
 
 ## Following a chat
 
@@ -341,7 +394,7 @@ Every owner socket also gets, without subscribing:
 | `session.deleted` | `{id, botId}` |
 | `sessions.changed` | `{botId}`: several of a bot's chats may have changed; list them again |
 | `approval.requested` | `{approval}` |
-| `approval.resolved` | `{id, sessionId, choice, reason}`: `reason` is `answered` (on any device), `timeout` or `cancelled` (interrupt) |
+| `approval.resolved` | `{id, sessionId, choice, reason}`: `reason` is `answered` (on any device), `timeout` or `cancelled` (interrupt); a question's `choice` is `answer` or `dismiss` |
 | `jobs.changed` | `{}` |
 | `bots.changed` | `{}`: bots' settings changed, or a member machine's list of bots did; list them again |
 | `room.updated` | `{room}`: a group chat was created or disbanded |
@@ -413,10 +466,11 @@ literal, or `null` when its name looks like a credential; no key is ever returne
 
 ## Gateway settings
 
-`{timeZone, defaults: {model, thinking, approvals, approvalTimeoutS}, hiddenModelProviders, groundRules,
-review: {enabled, allowThreshold, timeoutMs, keyEnv}}`. `groundRules` is `null` for the built-in rules (send
-`null` to go back to them). `restartNeeded` names the settings that take effect only after a restart (time
-zone, approval timeout); until then the answer shows the values in force.
+`{timeZone, defaults: {model, thinking, approvals, approvalTimeoutS, questionTimeoutS}, hiddenModelProviders,
+groundRules, review: {enabled, allowThreshold, timeoutMs, keyEnv}}`. `groundRules` is `null` for the built-in
+rules (send `null` to go back to them). `questionTimeoutS` is how long a bot's question waits (a day by default;
+it applies at once). `restartNeeded` names the settings that take effect only after a restart (time zone,
+approval timeout); until then the answer shows the values in force.
 
 ## Scheduled tasks
 
@@ -442,7 +496,9 @@ Each notification carries `aps` (alert, sound, `category`, `thread-id`: the chat
 `nh: {kind, gateway, sessionId?, botId?, approvalId?}`. `kind`: `approval` (category `NH_APPROVAL`, for
 actions Approve once and Deny, answered with `approvals.answer`), `settled` (the same approval answered, timed
 out or withdrawn: it replaces the approval's notification quietly, `NH_INFO`), `turn` and `notice`
-(`NH_TURN`), `error` (`NH_ERROR`), `cron` (a scheduled task's result), `test`. An approval's notification has
+(`NH_TURN`), `error` (`NH_ERROR`), `cron` (a scheduled task's result), `test`, `question` (a bot's question,
+`NH_QUESTION`, time-sensitive and without actions: tapping it opens the chat at the question; a `settled`
+replaces it the same way). An approval's notification has
 the collapse id `approval-<id>`, so a client's own notification for it with that identifier is replaced
 rather than doubled. A chat another network member started here is that member's to notify.
 
@@ -450,7 +506,7 @@ rather than doubled. A chat another network member started here is that member's
 
 ```json
 {
-  "id": "a1b2c3d4e5f6", "sessionId": "…", "botId": "main", "toolName": "bash",
+  "id": "a1b2c3d4e5f6", "sessionId": "…", "botId": "main", "kind": "approval", "toolName": "bash",
   "command": "rm -rf ./tmpdir; echo cleaned", "description": "recursive forced delete",
   "choices": ["once", "session", "always", "deny"], "patternKey": "rm -rf", "createdAt": 1761139200000,
   "toolCallId": "call_7", "callSessionId": "…"
@@ -460,7 +516,9 @@ rather than doubled. A chat another network member started here is that member's
 `sessionId` is where the owner answers: the chat the work started in. `callSessionId` is the session the
 call runs in (a delegated task's own session) and `toolCallId` the tool item it holds. `once` lets this call
 run, `session` allows the pattern for the rest of the chat, `always` for the bot, `deny` refuses it. A
-request no one answers is denied when the gateway's approval timeout passes.
+request no one answers is denied when the gateway's approval timeout passes. `kind` is `approval`, or
+`question` for a bot's question (see Questions), which carries `caption` and `questions` instead of `command`
+and `patternKey`.
 
 ## Usage
 

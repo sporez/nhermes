@@ -2,7 +2,10 @@
 // two throwaway gateways in one network with a scripted model: no keys, no network beyond 127.0.0.1, nothing
 // kept. Usage: node scripts/api-fixtures.ts <output folder>. One JSON file per answer, and `events.jsonl` with
 // the socket frames of a turn that streams, reasons, calls a tool, asks for an approval and finishes;
-// `events-card.jsonl` and `turns-card.json` are a turn that reads a list and shows it as a card.
+// `events-card.jsonl` and `turns-card.json` are a turn that reads a list and shows it as a card;
+// `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
+// the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
+// typed reply taken as a question's answer.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall, Type } from "@earendil-works/pi-ai";
@@ -108,6 +111,37 @@ try {
 	await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === cardChat.id, 15000);
 	writeFileSync(join(out, "events-card.jsonl"), `${app.events.slice(before).filter((e) => e.sessionId === cardChat.id).map((e) => JSON.stringify(e)).join("\n")}\n`);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
+
+	// A turn that asks the owner a question, waits for the answer, and carries on with it.
+	const questions = [
+		{ id: "cuisine", prompt: "Which cuisine?", kind: "single", options: [{ id: "thai", label: "Thai" }, { id: "pizza", label: "Pizza", detail: "the place on Main St" }], other: true },
+		{ id: "sides", prompt: "Any sides?", kind: "multiple", options: [{ id: "rice", label: "Rice" }, { id: "salad", label: "Salad" }, { id: "soup", label: "Soup" }] },
+		{ id: "time", prompt: "What time?", kind: "text" },
+	];
+	const { session: askChat } = await app.call<{ session: { id: string } }>("sessions.create", { botId: "main" });
+	await app.call("sessions.subscribe", { id: askChat.id });
+	a.faux.setResponses([
+		fauxAssistantMessage([fauxText("A couple of things first."), fauxToolCall("ask", { caption: "Dinner plans", questions } as never, { id: "call_ask" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("Thai with rice at 7:30: I'll book a table.")]),
+	]);
+	const beforeAsk = app.events.length;
+	await app.call("sessions.submit", { id: askChat.id, content: [{ type: "text", text: "Plan dinner" }], requestId: "fixture-3" });
+	const question = await app.waitEvent((e) => e.event === "approval.requested" && (e.data.approval as { sessionId: string }).sessionId === askChat.id, 10000);
+	save("approvals-question.json", await a.api("GET /approvals"));
+	save("subscribe-question.json", await app.call("sessions.subscribe", { id: askChat.id }));
+	await app.call("approvals.answer", { id: (question.data.approval as { id: string }).id, values: { cuisine: "thai", sides: ["rice"], time: "7:30" } });
+	await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === askChat.id, 15000);
+	writeFileSync(join(out, "events-question.jsonl"), `${app.events.slice(beforeAsk).filter((e) => e.sessionId === askChat.id || (e.event.startsWith("approval.") && (e.data.sessionId ?? (e.data.approval as { sessionId?: string } | undefined)?.sessionId) === askChat.id)).map((e) => JSON.stringify(e)).join("\n")}\n`);
+	save("turns-question.json", await a.api(`GET /sessions/${askChat.id}/turns`));
+	// A reply typed while a question waits is its answer.
+	a.faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("ask", { caption: "Dessert", questions: [{ id: "what", prompt: "Anything for dessert?", kind: "text" }] } as never, { id: "call_ask2" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("Mango sticky rice it is.")]),
+	]);
+	await app.call("sessions.submit", { id: askChat.id, text: "Plan dessert too", requestId: "fixture-4" });
+	await app.waitEvent((e) => e.event === "approval.requested" && (e.data.approval as { toolCallId?: string }).toolCallId === "call_ask2", 10000);
+	save("submit-answered.json", await app.call("sessions.submit", { id: askChat.id, text: "mango sticky rice" }));
+	await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === askChat.id && app.events.filter((x) => x.event === "turn.finished" && x.sessionId === askChat.id).length === 2, 15000);
 
 	// A chat with beta's bot through alpha.
 	const remote = await app.call<{ session: { id: string } }>("sessions.create", { botId: "nasbot-beta" });

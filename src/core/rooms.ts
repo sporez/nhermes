@@ -343,17 +343,7 @@ export class Rooms {
 				sessionId: session.id,
 				failFast: `${remote.node} is offline (its bots cannot be reached right now)`,
 				onApproval: (p) =>
-					this.d.approvals.ask(
-						{
-							sessionId: session.id,
-							bot: bot.name,
-							toolName: p.toolName,
-							command: p.command,
-							description: fromMachine(remote.node, p.description),
-							patternKey: `member:${remote.nodeId}:${p.patternKey}`,
-						},
-						controller.signal,
-					),
+					this.d.approvals.relay(p, { sessionId: session.id, bot: bot.name, description: fromMachine(remote.node, p.description), patternKey: `member:${remote.nodeId}:${p.patternKey}` }, controller.signal),
 				signal: controller.signal,
 				timeoutMs: 24 * 3600_000,
 				maxAttempts: 1000,
@@ -382,7 +372,7 @@ export class Rooms {
 			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
 			this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot, sessionId: session.id });
 			const who = member.display_name || member.handle;
-			const status = `${who} is waiting for your approval: open "${session.title}" in Chats`;
+			const status = e.request.kind === "question" ? `${who} has a question for you: open "${session.title}" in Chats` : `${who} is waiting for your approval: open "${session.title}" in Chats`;
 			this.append(room.room_id, [{ kind: "room.activity", actor: GATEWAY, payload: { status, member_id: member.member_id, thread_id: coords.thread_id, discussion_event_id: coords.discussion_event_id } }]);
 		});
 	}

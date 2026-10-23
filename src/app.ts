@@ -42,6 +42,7 @@ import { Push } from "./notify/push.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
+import { askFeature } from "./tools/ask.ts";
 import { cardsFeature } from "./tools/cards.ts";
 import { scheduleFeature } from "./tools/schedule.ts";
 import { webFeature } from "./tools/web.ts";
@@ -180,7 +181,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const updates = new Updates(db, options.updates);
 	bots.setRemote(() => roster.list());
 	members.onChange(() => void roster.sync().then(() => hub.publishGlobal({ type: "bots.changed" })));
-	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
+	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000, () => config.defaults.questionTimeoutS * 1000);
 	const models = options.models ?? (await loadModels(config));
 	// Before any chat resumes, so one on a catalog model finds it.
 	const catalogs = new ProviderCatalogs({ models, db, modelsPath: config.pi.modelsPath, catalogs: options.catalogs, fetch: options.catalogFetch });
@@ -272,6 +273,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		skillsFeature(late, skills),
 		selfFeature(late, selfServices),
 		cardsFeature(late),
+		askFeature(late, { approvals: () => approvals, attentionSession: (id) => rootSession(sessions!, id), deadline: (id) => scheduler?.questionDeadline(id) }),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),

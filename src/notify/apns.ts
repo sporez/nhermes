@@ -21,8 +21,8 @@ const MAX_PAYLOAD = 4096;
 /** Reasons that mean the token will never work again here. */
 const GONE = new Set(["BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic"]);
 
-/** The notification categories the app registers (its actions: Approve once and Deny on an approval). */
-export const CATEGORY: Record<PushKind, string> = { approval: "NH_APPROVAL", settled: "NH_INFO", turn: "NH_TURN", error: "NH_ERROR", cron: "NH_TURN", notice: "NH_TURN", test: "NH_INFO" };
+/** The notification categories the app registers (its actions: Approve once and Deny on an approval; a question has none). */
+export const CATEGORY: Record<PushKind, string> = { approval: "NH_APPROVAL", question: "NH_QUESTION", settled: "NH_INFO", turn: "NH_TURN", error: "NH_ERROR", cron: "NH_TURN", notice: "NH_TURN", test: "NH_INFO" };
 
 export type ApnsOptions = {
 	config: ApnsConfig | undefined;
@@ -79,7 +79,7 @@ export class ApnsTransport implements PushTransport {
 				...(quiet ? {} : { sound: "default" }),
 				category: CATEGORY[m.kind],
 				"thread-id": m.sessionId ?? "nhermes",
-				"interruption-level": quiet ? "passive" : m.kind === "approval" ? "time-sensitive" : "active",
+				"interruption-level": quiet ? "passive" : m.kind === "approval" || m.kind === "question" ? "time-sensitive" : "active",
 			},
 			nh: {
 				kind: m.kind,

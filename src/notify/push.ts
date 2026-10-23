@@ -1,6 +1,6 @@
-// Push notifications to the owner's devices: what to send and when, whatever carries it. An approval asked
-// in a chat is sent at once, and replaced quietly on the devices it reached once it is answered, times out
-// or is withdrawn; a chat's turn that finished or failed is sent too (jobs notify through the scheduler, and
+// Push notifications to the owner's devices: what to send and when, whatever carries it. An approval or a bot's
+// question asked in a chat is sent at once, and replaced quietly on the devices it reached once it is answered,
+// times out or is withdrawn; a chat's turn that finished or failed is sent too (jobs notify through the scheduler, and
 // delegated work answers in its parent chat); scheduled-task results, the `notify` tool and other
 // notifications arrive through `send`. A chat another gateway in the network started here is that gateway's
 // to notify, so a phone registered on both gets each notification once. A transport (src/notify/apns.ts) only
@@ -13,7 +13,7 @@ import type { Notification, OptionalNotifier } from "./notifier.ts";
 
 const log = logger("push");
 
-export type PushKind = "approval" | "settled" | "turn" | "error" | "cron" | "notice" | "test";
+export type PushKind = "approval" | "question" | "settled" | "turn" | "error" | "cron" | "notice" | "test";
 
 /** One notification, before a transport shapes it for its devices. Text is redacted by the transport. */
 export type PushMessage = {
@@ -47,7 +47,7 @@ export type PushOptions = {
 	settleDelayMs?: number;
 };
 
-type Open = { sessionId: string; bot: string; title: string; reached: Map<PushTransport, Set<string>> };
+type Open = { sessionId: string; bot: string; title: string; reached: Map<PushTransport, Set<string>>; question: boolean };
 
 export class Push implements OptionalNotifier {
 	readonly name = "push";
@@ -117,17 +117,19 @@ export class Push implements OptionalNotifier {
 	private async approvalRequested(r: Extract<SessionEvent, { type: "approval.requested" }>["request"]): Promise<void> {
 		const { row, botId, bot, title } = this.about(r.sessionId, r.bot);
 		if (drivenElsewhere(row)) return;
-		const what = r.description || r.command || "A command is waiting for your decision";
+		// A question reads as its caption and questions (src/core/questions.ts); tapping it opens the chat at its card.
+		const what = r.kind === "question" ? [r.caption, ...r.questions.map((q) => q.prompt)].join("\n") : r.description || r.command || "A command is waiting for your decision";
 		const reached = await this.pushAll({
-			kind: "approval",
-			title: `${bot} · approval needed`,
+			kind: r.kind === "question" ? "question" : "approval",
+			title: r.kind === "question" ? `${bot} · has a question` : `${bot} · approval needed`,
 			body: `${title}: ${what.slice(0, 180)}`,
+			...(r.kind === "question" ? { text: what.slice(0, 1200) } : {}),
 			sessionId: r.sessionId,
 			botId,
 			approvalId: r.requestId,
 			collapse: `approval-${r.requestId}`,
 		});
-		this.open.set(r.requestId, { sessionId: r.sessionId, bot, title, reached });
+		this.open.set(r.requestId, { sessionId: r.sessionId, bot, title, reached, question: r.kind === "question" });
 	}
 
 	/** The approval is no longer waiting: its banner is replaced, quietly, on every device it reached. */
@@ -138,7 +140,7 @@ export class Push implements OptionalNotifier {
 		const answered = reason === "answered";
 		const m: PushMessage = {
 			kind: "settled",
-			title: answered ? `${o.bot} · approval answered` : o.bot,
+			title: answered ? `${o.bot} · ${o.question ? "question" : "approval"} answered` : o.bot,
 			body: answered ? `${o.title}: answered.` : `${o.title}: no longer waiting for an answer.`,
 			sessionId: o.sessionId,
 			botId: this.about(o.sessionId).botId,

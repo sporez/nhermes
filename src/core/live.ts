@@ -8,7 +8,7 @@
 import type { AgentEvent, ConvId, Engine, EngineWatch, EntryRecord } from "../engine/engine.ts";
 import { logger, redact } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
-import { type CardDetails, cardNote, SHOW_TOOL } from "./cards.ts";
+import { CARD_TOOLS, type CardDetails, cardNote } from "./cards.ts";
 import { textOf, toolPreview, userDisplay } from "./transcript.ts";
 import { cardItem, type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
 
@@ -51,7 +51,7 @@ export class LiveSession {
 	private ordinal = 0;
 	private opened = { text: false, reasoning: false };
 	private tools = new Map<string, ToolItem>();
-	/** `show` calls in flight: not announced as tool items; a card (or a failed call) is announced when one ends. */
+	/** `show` and `ask` calls in flight: not announced as tool items; a card (or a failed call) is announced when one ends. */
 	private shows = new Map<string, ToolItem>();
 	private toolOutput = new Map<string, string>();
 	private turnUsage: TurnUsage | undefined;
@@ -209,12 +209,12 @@ export class LiveSession {
 			// The calls the open turn is still waiting on, so their results finish the same items.
 			const open = projectTurns(entries, { running: true }).at(-1);
 			if (open && open.id === this.turn) for (const item of open.items) if (item.type === "tool" && item.status === "running") this.tools.set(item.id, item);
-			// projectTurns holds back a running `show`; the hub still needs it to finish as a card.
+			// projectTurns holds back a running `show` or `ask`; the hub still needs it to finish as a card.
 			for (const entry of entries.slice(lastUser + 1)) {
 				const m = entry.model?.[0] as Msg | undefined;
 				if (m?.role !== "assistant" || typeof m.content === "string") continue;
 				for (const b of m.content) {
-					if (b.type !== "toolCall" || b.name !== SHOW_TOOL || !b.id) continue;
+					if (b.type !== "toolCall" || !CARD_TOOLS.has(b.name ?? "") || !b.id) continue;
 					const answered = entries.some((x) => (x.model?.[0] as Msg | undefined)?.toolCallId === b.id);
 					if (!answered) this.shows.set(b.id, this.toolItem(b));
 				}
@@ -366,7 +366,7 @@ export class LiveSession {
 		for (const b of blocks) {
 			if (b.type !== "toolCall" || !b.id) continue;
 			const item = this.toolItem(b);
-			if (b.name === SHOW_TOOL) {
+			if (CARD_TOOLS.has(b.name ?? "")) {
 				this.shows.set(b.id, item);
 				continue;
 			}
@@ -390,7 +390,8 @@ export class LiveSession {
 		const text = m ? textOf(m.content) : "";
 		if (pending && m && !m.isError && m.details?.card) {
 			const card = cardItem(callId, m.timestamp ?? Date.now(), JSON.parse(redact(JSON.stringify(m.details.card))) as CardDetails);
-			this.runParts.push(cardNote(card.caption));
+			// A question asked along the way is not part of the reply the run ends with.
+			if (card.kind === "result") this.runParts.push(cardNote(card.caption));
 			this.emit({ type: "item.started", turnId: turn, item: card });
 			this.emit({ type: "item.finished", turnId: turn, item: card });
 			return;

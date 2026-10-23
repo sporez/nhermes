@@ -4,7 +4,7 @@ import type { Core } from "../../app.ts";
 import type { Bot } from "../../core/bots.ts";
 import type { ApprovalRequest, UsageSummary } from "../../core/events.ts";
 import type { SessionRow } from "../../core/sessions.ts";
-import type { ContentBlock, Turn, TurnItem } from "../../core/turns.ts";
+import { type ContentBlock, redactJson, type Turn, type TurnItem } from "../../core/turns.ts";
 import { redact } from "../../log.ts";
 import { LIMITS } from "../ops/gateway.ts";
 
@@ -95,20 +95,22 @@ export function turnJson(turn: Turn) {
 	return { ...turn, user: turn.user ? { content: contentJson(turn.user.content), at: turn.user.at } : null, items: turn.items.map(itemJson) };
 }
 
+/** A request waiting for the owner: an approval (`kind: "approval"`) or a bot's question (`kind: "question"`). */
 export function approvalJson(r: ApprovalRequest) {
-	return {
+	const common = {
 		id: r.requestId,
 		sessionId: r.sessionId,
 		botId: r.bot,
+		kind: r.kind,
 		toolName: r.toolName,
-		command: redact(r.command),
 		description: redact(r.description),
 		choices: r.choices,
-		patternKey: r.patternKey,
 		createdAt: ms(r.createdAt),
 		toolCallId: r.toolCallId ?? null,
 		callSessionId: r.callSessionId ?? null,
 	};
+	if (r.kind === "question") return { ...common, caption: redact(r.caption), questions: redactJson(r.questions) };
+	return { ...common, command: redact(r.command), patternKey: r.patternKey };
 }
 
 export function usageJson(u: UsageSummary) {

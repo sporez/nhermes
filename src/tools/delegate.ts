@@ -145,12 +145,11 @@ function remoteReporter(deps: DelegateDeps) {
 						key: task.input.key,
 						sessionId: checkpoint.sessionId,
 						onApproval: (p) =>
-							deps.approvals().ask(
+							deps.approvals().relay(
+								p,
 								{
 									sessionId: attention,
 									bot,
-									toolName: p.toolName,
-									command: p.command,
 									description: `${fromMachine(machine, p.description)} (asked by ${target.displayName} on another machine, for a task running in the background)`,
 									patternKey: `peer:${bot}:${p.patternKey}`,
 								},
@@ -224,12 +223,11 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 					failFast: target.remote ? `${target.remote.node} is offline (its bots cannot be reached right now)` : undefined,
 					onSession: async (id) => void (await api.memo("peer-session", id, ctx)),
 					onApproval: (p) =>
-						deps.approvals().ask(
+						deps.approvals().relay(
+							p,
 							{
 								sessionId: attention,
 								bot: target.name,
-								toolName: p.toolName,
-								command: p.command,
 								description: `${fromMachine(machine, p.description)} (asked by ${target.displayName} on another machine)`,
 								patternKey: `peer:${target.name}:${p.patternKey}`,
 							},
