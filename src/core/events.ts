@@ -61,6 +61,8 @@ export type SessionEvent =
 export type GlobalEvent =
 	| { type: "sessions.changed"; bot: string; sessionId?: string }
 	| { type: "cron.changed" }
+	/** Bots' settings changed, or a member's list of bots did. */
+	| { type: "bots.changed" }
 	/** A group chat was created, or filed events in its log (src/core/rooms.ts). */
 	| { type: "rooms.changed"; roomId: string; events: RoomEvent[] };
 

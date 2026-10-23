@@ -10,7 +10,7 @@ import { loadConfig } from "../../src/config.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
 import { fauxModels, TOKEN, tempDir } from "../helpers.ts";
 import { FakeMcpServer } from "../mcp/server.ts";
-import { ApiCallError, http } from "./client.ts";
+import { ApiCallError, ApiSocketClient, http } from "./client.ts";
 
 const SECRET = "api-bots-test-key-0123456789";
 
@@ -241,6 +241,22 @@ test("a member's bot is edited on its own machine, once that machine allows it",
 		await a.core.close();
 		await b.core.close();
 		await fake.stop();
+		await cleanup();
+	}
+});
+
+test("a change to a bot's settings is announced to the app as bots.changed", async () => {
+	process.env.NHERMES_TOKEN = TOKEN;
+	const { dir, cleanup } = await tempDir();
+	const g = await gateway(dir, "alpha", "  - name: main\n    default: true\n    tools: [memory]\n");
+	const app = await ApiSocketClient.connect(g.server.port);
+	try {
+		await g.api("PATCH /bots/main", { description: "Now described" });
+		await app.waitEvent("bots.changed");
+	} finally {
+		await app.close();
+		await g.server.close();
+		await g.core.close();
 		await cleanup();
 	}
 });

@@ -170,7 +170,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	const reviewLog = new ReviewLog(db);
 	const updates = new Updates(db, options.updates);
 	bots.setRemote(() => roster.list());
-	members.onChange(() => void roster.sync());
+	members.onChange(() => void roster.sync().then(() => hub.publishGlobal({ type: "bots.changed" })));
 	const approvals = new Approvals(hub, db, config.defaults.approvalTimeoutS * 1000);
 	const models = options.models ?? (await loadModels(config));
 	// Before any chat resumes, so one on a catalog model finds it.
@@ -372,7 +372,10 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		toolGroups: () => [...toolGroups.keys()],
 		botChanged: (name) => hosts.reset(name),
 		// The openchamber_alerts group turned on or off (Vory's Tools page, the panel) takes effect without a restart.
-		applied: () => void chamberWatcher.sync(),
+		applied: () => {
+			void chamberWatcher.sync();
+			hub.publishGlobal({ type: "bots.changed" });
+		},
 		mcpChanged: () => {
 			mcp.apply();
 			mcpTools?.republish();

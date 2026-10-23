@@ -310,6 +310,7 @@ Every owner socket also gets, without subscribing:
 | `approval.requested` | `{approval}` |
 | `approval.resolved` | `{id, sessionId, choice, reason}`: `reason` is `answered` (on any device), `timeout` or `cancelled` (interrupt) |
 | `jobs.changed` | `{}` |
+| `bots.changed` | `{}`: bots' settings changed, or a member machine's list of bots did; list them again |
 | `room.updated` | `{room}`: a group chat was created or disbanded |
 | `room.event` | `{roomId, event}`: a group chat filed an event in its log |
 

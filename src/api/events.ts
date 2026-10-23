@@ -138,6 +138,7 @@ export function globalFeed(core: Core) {
 				if (e.sessionId) sessionChanged(e.sessionId, e.bot);
 				else if (caller.kind === "owner") emit("sessions.changed", { botId: e.bot });
 			} else if (e.type === "cron.changed" && caller.kind === "owner") emit("jobs.changed", {});
+			else if (e.type === "bots.changed" && caller.kind === "owner") emit("bots.changed", {});
 			else if (e.type === "rooms.changed" && caller.kind === "owner") {
 				if (e.events.length === 0 || e.events.some((x) => x.kind === "room.disbanded")) {
 					const room = core.rooms.get(e.roomId);
