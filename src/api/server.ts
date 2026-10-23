@@ -7,7 +7,12 @@ import type { Core } from "../app.ts";
 import { RawBody, readJson, sendJson, sendRaw } from "../http.ts";
 import { logger } from "../log.ts";
 import { ApiError, apiError } from "./errors.ts";
+import { globalFeed, sessionFeed } from "./events.ts";
+import { approvalOps } from "./ops/approvals.ts";
+import { chatOps } from "./ops/chat.ts";
 import { gatewayOps } from "./ops/gateway.ts";
+import { modelOps } from "./ops/models.ts";
+import { sessionOps } from "./ops/sessions.ts";
 import { type Caller, OpTable } from "./ops.ts";
 import { ApiSocket, type GlobalFeed, type SessionFeed } from "./socket.ts";
 
@@ -21,13 +26,15 @@ export class ClientApi {
 	readonly ops: OpTable;
 	private readonly core: Core;
 	private readonly heartbeatMs: number;
-	private readonly sessionFeed: SessionFeed = () => () => {};
-	private readonly globalFeed: GlobalFeed = () => () => {};
+	private readonly sessionFeed: SessionFeed;
+	private readonly globalFeed: GlobalFeed;
 
 	constructor(core: Core, o: ClientApiOptions = {}) {
 		this.core = core;
 		this.heartbeatMs = o.heartbeatMs ?? 30_000;
-		this.ops = new OpTable([...gatewayOps]);
+		this.ops = new OpTable([...gatewayOps, ...sessionOps, ...chatOps, ...approvalOps, ...modelOps]);
+		this.sessionFeed = sessionFeed(core);
+		this.globalFeed = globalFeed(core);
 	}
 
 	/** Whether a path belongs to this API. */

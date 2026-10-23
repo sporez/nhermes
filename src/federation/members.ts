@@ -24,6 +24,15 @@ const UNREACHABLE = new Set(["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH", "ETI
 /** How long the previous pair secret still opens a connection after it was replaced. */
 const PREV_SECRET_GRACE_MS = 10 * 60_000;
 
+/**
+ * The session source that marks a chat a member started (it is never trusted, see guardExtension).
+ * `relayed` marks the owner's own chat passed on from their client on that member (created with `relay`,
+ * sent only by ProxySessions); delegated work and anything unmarked stay plain.
+ */
+export function memberSource(nodeId: string, relayed = false): string {
+	return relayed ? `member:${nodeId}:owner` : `member:${nodeId}`;
+}
+
 export type MemberRow = {
 	node_id: string;
 	name: string;

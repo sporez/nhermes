@@ -163,6 +163,11 @@ export class Engine {
 		await (await this.conv(id)).submit({ type: "write", entry: { kind: "nh.notice", data: { text, ...data } } }, ctx);
 	}
 
+	/** Records how a turn ended (core/turns.ts reads it back for history); the model does not see it. */
+	async writeRunRecord(id: ConvId, record: { turn: string; status: string; endedAt: number; error?: string }): Promise<void> {
+		await (await this.conv(id)).submit({ type: "write", entry: { kind: "nh.run", data: record } }, ctx);
+	}
+
 	/** The text of an answer entry (the `answer` of a settled input). */
 	async answerText(id: ConvId, entryId: number): Promise<string> {
 		const conv = await this.conv(id);

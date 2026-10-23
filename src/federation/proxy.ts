@@ -149,7 +149,7 @@ export class ProxySessions {
 		if (running) this.running.add(id);
 		else this.running.delete(id);
 		const row = this.d.sessions().get(id);
-		if (row) this.d.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+		if (row) this.d.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 	}
 
 	private onEvent(nodeId: string, e: LinkEvent): void {

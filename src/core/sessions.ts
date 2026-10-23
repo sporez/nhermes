@@ -10,6 +10,7 @@ import type { Bot, Bots } from "./bots.ts";
 import type { Hub, UsageSummary } from "./events.ts";
 import { type LiveHooks, LiveSession } from "./live.ts";
 import { projectTranscript, type TranscriptRow, userPlain } from "./transcript.ts";
+import { projectTurns, type Turn } from "./turns.ts";
 
 const log = logger("sessions");
 
@@ -161,7 +162,7 @@ export class Sessions {
 			now,
 			nodeId,
 		);
-		this.hub.publishGlobal({ type: "sessions.changed", bot: botName });
+		this.hub.publishGlobal({ type: "sessions.changed", bot: botName, sessionId: id });
 		return this.require(id);
 	}
 
@@ -195,13 +196,18 @@ export class Sessions {
 			JSON.stringify(opts.skills ?? []),
 		);
 		this.byConvCache.set(convId, id);
-		this.hub.publishGlobal({ type: "sessions.changed", bot: botName });
+		this.hub.publishGlobal({ type: "sessions.changed", bot: botName, sessionId: id });
 		return this.require(id);
 	}
 
-	list(botName: string, o: ListOptions): { rows: SessionRow[]; total: number } {
-		const where = ["bot = ?", "deleted = 0"];
-		const params: (string | number)[] = [botName];
+	/** One bot's sessions, or (no bot) every bot's. */
+	list(botName: string | undefined, o: ListOptions): { rows: SessionRow[]; total: number } {
+		const where = ["deleted = 0"];
+		const params: (string | number)[] = [];
+		if (botName !== undefined) {
+			where.push("bot = ?");
+			params.push(botName);
+		}
 		if (o.archived === "exclude") where.push("archived = 0");
 		if (o.archived === "only") where.push("archived = 1");
 		if (o.kinds && o.kinds.length > 0) {
@@ -254,7 +260,7 @@ export class Sessions {
 		if (patch.archived !== undefined) this.db.run("UPDATE sessions SET archived = ? WHERE id = ?", patch.archived ? 1 : 0, id);
 		if (patch.pinned !== undefined) this.db.run("UPDATE sessions SET pinned = ? WHERE id = ?", patch.pinned ? 1 : 0, id);
 		if (patch.title !== undefined) this.hub.publish(id, { type: "title", title: patch.title.trim() });
-		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 		return this.require(id);
 	}
 
@@ -268,7 +274,7 @@ export class Sessions {
 		if (row.remote_node) {
 			this.approvals.cancelSession(id);
 			this.db.run("UPDATE sessions SET deleted = 1 WHERE id = ?", id);
-			this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+			this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 			await this.remote?.deleted(row);
 			return true;
 		}
@@ -279,7 +285,7 @@ export class Sessions {
 		this.db.run("UPDATE sessions SET deleted = 1 WHERE id = ?", id);
 		await this.lives.get(id)?.detach();
 		this.lives.delete(id);
-		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 		return true;
 	}
 
@@ -382,6 +388,14 @@ export class Sessions {
 		return snap;
 	}
 
+	/** The chat as turns (core/turns.ts), the running one with what is streaming now. */
+	async turns(id: string): Promise<{ turns: Turn[]; running: boolean }> {
+		const session = this.require(id);
+		const live = await this.live(id);
+		const entries = await this.engine.entries(session.conversation_id);
+		return { turns: projectTurns(entries, { running: live.running, partial: live.partial() }), running: live.running };
+	}
+
 	async rows(id: string): Promise<TranscriptRow[]> {
 		return projectTranscript(await this.engine.entries(this.require(id).conversation_id));
 	}
@@ -482,7 +496,7 @@ export class Sessions {
 		const preview = text.trim() ? text.replace(/\s+/g, " ").slice(0, 200) : row.preview;
 		// message_count: user prompts and answers in the transcript (two per finished run).
 		this.db.run("UPDATE sessions SET last_active = ?, preview = ?, message_count = message_count + 2 WHERE id = ?", Date.now() / 1000, preview, id);
-		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot });
+		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 		log.debug("run finished", { session: id });
 	}
 }

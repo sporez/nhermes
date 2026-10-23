@@ -79,8 +79,8 @@ export function sessionInfo(args: {
 export function storedSession(row: SessionRow, model: string, running: boolean): Record<string, Json> {
 	return {
 		id: row.id,
-		title: row.title || null,
-		preview: row.preview || null,
+		title: redact(row.title) || null,
+		preview: redact(row.preview) || null,
 		source: row.kind === "job" ? "cron" : row.kind === "delegate" ? "delegate" : row.source,
 		model,
 		started_at: row.created_at,

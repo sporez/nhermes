@@ -89,7 +89,11 @@ Pi upgrade that changes it fails there first.
 
 `engine.watch()` turns Durable `AgentEvent` batches into canonical events:
 `run.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.output`, `tool.finished`,
-`run.finished {text, status, usage, error}`, `approval.requested/resolved`, `session.updated`.
+`run.finished {text, status, usage, error}`, `approval.requested/resolved`, `session.updated`, and the turn
+events the client API streams (`turn.started`, `item.started/updated/finished`, `turn.finished`). A chat's
+history as turns is a pure projection of its entries (`core/turns.ts`) that names turns and items as the
+live projection (`core/live.ts`) does; each run's end is written to the transcript as an `nh.run` entry the
+model never sees, so history knows when and how a turn ended.
 The hub fans them out to subscribers: Hermes sockets attached to the session, the scheduler waiting on
 a job run, a delegation waiting for its answer. A client that reconnects gets a snapshot from
 `session.resume` (transcript + `running` + `inflight` partial + open approvals); nothing is replayed

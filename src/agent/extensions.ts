@@ -166,7 +166,7 @@ export function guardExtension(deps: AgentDeps): Extension {
 					// Trust does not cross machines: work a network member started is never trusted here.
 					const source = sessions.get(attention)?.source ?? "";
 					const fromMember = source.startsWith("member:");
-					// The owner's own chat relayed from their client on a member (memberSource in src/hermes/ws.ts).
+					// The owner's own chat relayed from their client on a member (memberSource in src/federation/members.ts).
 					const relayed = fromMember && source.endsWith(":owner");
 					const effective: Bot = { ...bot, trusted: bot.trusted && chain.every((b) => b.trusted) && !fromMember, approvals: { ...bot.approvals, mode } };
 					const args = call.arguments as Record<string, unknown>;
@@ -219,6 +219,8 @@ export function guardExtension(deps: AgentDeps): Extension {
 					const choice = await approvals.ask(
 						{
 							sessionId: attention,
+							toolCallId: call.id,
+							callSessionId: row.id,
 							bot: bot.name,
 							toolName: call.name,
 							command: config ? (deps.describeConfig?.(effective, call.name, args) ?? decision.command) : decision.command,

@@ -113,3 +113,157 @@ parameters and a JSON body are merged into one parameter object; over the socket
 |---|---|---|---|
 | `gateway.hello` | `GET /` | yes | See Hello |
 | `ping` | `GET /ping` | yes | |
+| `bots.list` | `GET /bots` | yes | `{items: [Bot]}`. A member gets this machine's shareable bots |
+| `bots.get` | `GET /bots/:id` | yes | `{bot}` |
+| `sessions.list` | `GET /sessions` | | `botId?`, `archived?` (`exclude` default, `only`, `include`; `include` when `q` is given), `order?` (`recent` default: pinned first, then last active; `created`), `kinds?`, `q?` (title and preview), `limit?` (50, at most 200), `cursor?`. `{items: [Session], total, nextCursor}`. Without `kinds`, group-chat and delegated sessions are left out, except one with an approval waiting |
+| `sessions.get` | `GET /sessions/:id` | yes | `{session}` |
+| `sessions.create` | `POST /sessions` | yes | `botId?` (the default bot), `title?`, `source?`. `{session}`. A member may pass `kind: "room"` and `relay` |
+| `sessions.update` | `PATCH /sessions/:id` | yes | Any of `title`, `pinned`, `archived`, `model` (`"provider/id"` or `{provider, id}`), `thinking`, `yolo`. `{session}`. A member may change only title, model and thinking |
+| `sessions.delete` | `DELETE /sessions/:id` | yes | `{deleted: true}`. The bot, its memory and its jobs are untouched |
+| `sessions.turns` | `GET /sessions/:id/turns` | yes | `limit?` (50, at most 500), `cursor?`. `{items: [Turn], nextCursor}`: the newest turns, oldest first; `nextCursor` names the page before |
+| `sessions.subscribe` | socket only | yes | `id`, `limit?`. See Following a chat |
+| `sessions.unsubscribe` | socket only | yes | `id` |
+| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text` (or `content` blocks), `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered |
+| `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
+| `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. `{interrupted}` |
+| `sessions.compact` | `POST /sessions/:id/compact` | yes | `instructions?`. `{started: true}` |
+| `sessions.usage` | `GET /sessions/:id/usage` | yes | `{usage}` |
+| `sessions.context` | `GET /sessions/:id/context` | yes | `{parts: [{id, label, tokens}], used, max, percent, estimated, model}` |
+| `sessions.commands` | `GET /sessions/:id/commands` | yes | `{items: [{name, description, kind: "builtin" \| "skill", takesText, usage?, origin?}]}`. `new` is the client's own |
+| `sessions.command` | `POST /sessions/:id/commands` | yes | `name`, `args?`. `{kind: "output", text}`, or `{kind: "prompt", text}` for a skill: send `text` as the next message |
+| `sessions.toolResult` | `GET /sessions/:id/items/:itemId/result` | yes | A tool call's whole result: `{text, json?}` |
+| `approvals.list` | `GET /approvals` | yes | `sessionId?`. `{items: [Approval]}`, oldest first |
+| `approvals.answer` | `POST /approvals/:id` | yes | `choice`: one of the request's `choices`. `{answered: true}`; `approval_not_found` when it is no longer waiting |
+| `models.list` | `GET /models` | yes | `botId?`. `{providers: [{id, name, models: [{id, name, reasoning, thinkingLevels, input, contextWindow}]}], current: {provider, id}}` |
+
+Chats with a member machine's bot answer `not_available` on these operations for now (plan step A4).
+
+## Bots
+
+```json
+{
+  "id": "nasbot-beta", "name": "nasbot", "displayName": "NAS bot", "description": "…",
+  "isDefault": false, "kind": "member", "node": {"id": "…", "name": "beta", "online": true},
+  "model": {"provider": "openai", "id": "gpt-5.5"}, "thinking": "medium", "approvals": {"mode": "smart"},
+  "toolGroups": [], "skillCount": 0, "private": false, "trusted": false, "avatar": null
+}
+```
+
+`kind` is `local` (this gateway's), `member` (a network member's, `node` set) or `peer` (a configured
+`peer:` agent; not listed today). `toolGroups` and `skillCount` are a local bot's. `thinking` is one of
+`off`, `minimal`, `low`, `medium`, `high`, `xhigh`. `avatar` is reserved.
+
+## Sessions
+
+```json
+{
+  "id": "20261022_101500_ab12cd", "botId": "main", "kind": "chat", "title": "Plans", "preview": "…",
+  "source": "app", "createdAt": 1761139200000, "lastActiveAt": 1761139260000, "messageCount": 4,
+  "running": false, "archived": false, "pinned": true, "model": {"provider": "faux", "id": "faux-2"},
+  "thinking": "low", "yolo": false, "approvalMode": "smart", "approvalsWaiting": 0,
+  "parentId": null, "jobId": null
+}
+```
+
+`kind`: `chat`, `job` (a scheduled task's runs), `delegate` (work another bot asked for), `room` (a bot's
+session for a group chat). `model` and `thinking` are the chat's: its own when it chose them, else its
+bot's. `yolo` is the chat's Bypass switch: approvals are skipped (deny rules and changes to the gateway's
+configuration still apply); it resets when the gateway restarts.
+
+## Turns
+
+A chat is a list of turns. A turn opens with each of the owner's messages and holds what the bot did in
+answer, in order.
+
+```json
+{
+  "id": "t42", "status": "complete", "startedAt": 1761139200000, "endedAt": 1761139211000,
+  "user": {"content": [{"type": "text", "text": "How many?"}], "at": 1761139200000},
+  "items": [
+    {"type": "reasoning", "id": "t42.1r", "text": "…", "at": 1761139200100},
+    {"type": "text", "id": "t42.1t", "text": "Checking.", "at": 1761139200100},
+    {"type": "tool", "id": "call_7", "name": "mcp__cal__list_events", "args": {"day": "today"}, "preview": "today",
+     "status": "done", "isError": false, "startedAt": 1761139201000, "durationMs": 420,
+     "result": {"text": "2 events", "truncated": false, "length": 8, "json": {"events": []}}},
+    {"type": "text", "id": "t42.2t", "text": "There are two.", "at": 1761139202000}
+  ],
+  "usage": {"input": 1200, "output": 80, "cacheRead": 0, "cacheWrite": 0, "costUsd": 0.0012, "calls": 2}
+}
+```
+
+- `status`: `running`, `complete`, `error` (with `error`), `interrupted`. `endedAt` is `null` while running,
+  and for turns from before the gateway recorded run ends.
+- `user` is `null` for a turn that only carries a notice (a scheduled task's result posted into the chat,
+  a compaction marker).
+- Content blocks: `{type: "text", text}`, `{type: "attachment", attachment: {id, kind, name, pages?}}`
+  (`kind`: `image`, `pdf`, `file`; `id` is `null` for uploads from before attachments had ids).
+- Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `notice`
+  (`{kind, text, at}`), `error` (`{message, at}`).
+- A tool item's `status`: `running`, `done`, `failed`, `blocked` (refused: the owner denied it or a rule
+  did; it never ran), `unknown` (the run ended before it reported). `durationMs` is `null` when it never
+  ran. `result.text` is cut at the hello's `toolResultChars` (`truncated`, `length` say so;
+  `sessions.toolResult` returns it all). `result.json` is structured data the tool returned beside its
+  text, such as an MCP server's `structuredContent`; absent when there is none or it is over 256 KB.
+- Ids: a turn's id stays the same live and in history, and so do its items' ids.
+
+## Following a chat
+
+Over the socket, `sessions.subscribe {id}` answers with the chat's state and starts its live events:
+
+```json
+{"session": {…}, "seq": 41, "turns": {"items": [Turn], "nextCursor": null}, "approvals": [Approval]}
+```
+
+The running turn (if any) is in `turns` with what has streamed so far. Events of this chat carry `seq`; an
+event with a `seq` at or below the snapshot's is already in it and must be skipped (one can arrive just
+before the reply). `seq` only grows, with gaps. After a reconnect, subscribe again; the snapshot replaces
+what the client holds. `sessions.submit` over a socket also subscribes it.
+
+## Events
+
+A followed chat's events (with `sessionId` and `seq`):
+
+| Event | Data |
+|---|---|
+| `turn.started` | `{turn}`, its `items` empty |
+| `item.started` | `{turnId, item}`: a reply part, reasoning or tool call begins (a tool call when the model asks for it) |
+| `item.delta` | `{turnId, itemId, field, text}`: append `text` to the item's `field` (`text` for replies and reasoning, `output` for a running tool's output) |
+| `item.updated` | `{turnId, item}`: the whole item, replacing it (a tool call starting to run) |
+| `item.finished` | `{turnId, item}`: the whole finished item |
+| `turn.finished` | `{turnId, status, endedAt, error?, usage?}` |
+| `usage.updated` | `{usage}` |
+| `session.notice` | `{kind: "compacting" \| "notice", text}` |
+
+Every owner socket also gets, without subscribing:
+
+| Event | Data |
+|---|---|
+| `session.updated` | `{session}`: a chat's row changed (title, a run starting or ending, pins, settings) |
+| `session.deleted` | `{id, botId}` |
+| `sessions.changed` | `{botId}`: several of a bot's chats may have changed; list them again |
+| `approval.requested` | `{approval}` |
+| `approval.resolved` | `{id, sessionId, choice, reason}`: `reason` is `answered` (on any device), `timeout` or `cancelled` (interrupt) |
+| `jobs.changed` | `{}` |
+
+A member's socket gets the approval events of the chats it started, and their `session.updated`.
+
+## Approvals
+
+```json
+{
+  "id": "a1b2c3d4e5f6", "sessionId": "…", "botId": "main", "toolName": "bash",
+  "command": "rm -rf ./tmpdir; echo cleaned", "description": "recursive forced delete",
+  "choices": ["once", "session", "always", "deny"], "patternKey": "rm -rf", "createdAt": 1761139200000,
+  "toolCallId": "call_7", "callSessionId": "…"
+}
+```
+
+`sessionId` is where the owner answers: the chat the work started in. `callSessionId` is the session the
+call runs in (a delegated task's own session) and `toolCallId` the tool item it holds. `once` lets this call
+run, `session` allows the pattern for the rest of the chat, `always` for the bot, `deny` refuses it. A
+request no one answers is denied when the gateway's approval timeout passes.
+
+## Usage
+
+`{model, input, output, reasoning, cacheRead, cacheWrite, total, calls, contextUsed, contextMax,
+contextPercent, costUsd}`: the chat's totals to date; `contextUsed` is the last model call's.

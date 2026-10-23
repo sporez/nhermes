@@ -6,11 +6,12 @@ import type { WebSocket } from "ws";
 import type { Core } from "../app.ts";
 import type { Choice } from "../core/approvals.ts";
 import { AttachmentError } from "../core/attachments.ts";
+import { CommandError, commandCatalog, runCommand } from "../core/commands.ts";
 import type { SessionEvent } from "../core/events.ts";
 import { RoomError } from "../core/rooms.ts";
 import { UnknownSession } from "../core/sessions.ts";
 import { LinkError } from "../federation/link.ts";
-import type { MemberRow } from "../federation/members.ts";
+import { type MemberRow, memberSource } from "../federation/members.ts";
 import { shareable } from "../federation/roster.ts";
 import { logger, redact } from "../log.ts";
 import { modelOptions } from "./rest.ts";
@@ -99,15 +100,6 @@ const PROXIED = new Set([
 	"slash.exec",
 	"command.dispatch",
 ]);
-
-/**
- * The session source that marks a chat a member started (it is never trusted, see guardExtension).
- * `relayed` marks the owner's own chat passed on from their client on that member (`session.create`
- * with `relay: true`, sent only by ProxySessions); delegated work and anything unmarked stay plain.
- */
-export function memberSource(nodeId: string, relayed = false): string {
-	return relayed ? `member:${nodeId}:owner` : `member:${nodeId}`;
-}
 
 export class Connection {
 	private readonly ws: WebSocket;
@@ -500,14 +492,15 @@ export class Connection {
 				const id = str(p, "session_id", false);
 				const bot = id ? this.core.bots.require(sessions.require(id).bot) : this.botOf(p);
 				if (bot.remote) return this.core.proxy.forBot(bot, method, {});
-				const usage = this.core.skills.usage(bot.name);
-				const skills = this.core.skills.active(bot).filter((s) => s.modelInvocable);
+				const all = commandCatalog(this.core, bot);
+				const builtins = all.filter((c) => c.kind === "builtin");
+				const skills = all.filter((c) => c.kind === "skill");
 				return {
-					pairs: [...COMMANDS.map((c) => [c.name, c.description]), ...skills.map((s) => [s.name, s.description])],
+					pairs: all.map((c) => [c.name, c.description]),
 					categories: [],
 					canon: { "/compress": "/compact" },
-					commands: Object.fromEntries(COMMANDS.map((c) => [`/${c.name}`, { argument_mode: c.args ? "text" : null, desktop: null }])),
-					skills: Object.fromEntries(skills.map((s) => [`/${s.name}`, { usage: usage.get(s.name) ?? 0, origin: s.source === "bot" ? "local" : "hub" }])),
+					commands: Object.fromEntries(builtins.map((c) => [`/${c.name}`, { argument_mode: c.takesText ? "text" : null, desktop: null }])),
+					skills: Object.fromEntries(skills.map((s) => [`/${s.name}`, { usage: s.usage ?? 0, origin: s.origin === "bot" ? "local" : "hub" }])),
 					warning: "",
 				};
 			}
@@ -515,10 +508,17 @@ export class Connection {
 			case "command.dispatch": {
 				const id = str(p, "session_id");
 				const command = method === "slash.exec" ? str(p, "command") : `${str(p, "name")} ${typeof p.arg === "string" ? p.arg : ""}`;
-				const skill = this.skillCommand(id, command);
-				if (skill) return skill;
-				const output = await this.slash(id, command);
-				return method === "slash.exec" ? { output } : { type: "exec", output };
+				const [name = "", ...rest] = command.replace(/^\//, "").trim().split(/\s+/);
+				const bot = this.core.bots.require(sessions.require(id).bot);
+				let r: Awaited<ReturnType<typeof runCommand>>;
+				try {
+					r = await runCommand(this.core, bot, id, name, rest.join(" ").trim());
+				} catch (error) {
+					if (error instanceof CommandError) throw new RpcError(4018, `unknown command: /${name}`);
+					throw error;
+				}
+				if (r.kind === "prompt") return { type: "skill", message: r.text };
+				return method === "slash.exec" ? { output: r.text } : { type: "exec", output: r.text };
 			}
 			case "model.options": {
 				const bot = this.botOf(p);
@@ -569,46 +569,7 @@ export class Connection {
 		}
 		throw new RpcError(-32602, `unsupported config key: ${key}`);
 	}
-
-	/** `/<skill> [what]`: becomes a prompt that has the bot load and follow that skill (Vory sends it). */
-	private skillCommand(sessionId: string, command: string): { type: "skill"; message: string } | undefined {
-		const [name = "", ...rest] = command.replace(/^\//, "").trim().split(/\s+/);
-		const row = this.core.sessions.require(sessionId);
-		const skill = this.core.skills.find(this.core.bots.require(row.bot), name);
-		if (!skill) return undefined;
-		const what = rest.join(" ").trim();
-		return { type: "skill", message: `Use the "${skill.name}" skill (load it with the skill tool first)${what ? ` for: ${what}` : "."}` };
-	}
-
-	private async slash(sessionId: string, command: string): Promise<string> {
-		const [name = "", ...rest] = command.replace(/^\//, "").trim().split(/\s+/);
-		const { sessions, engine } = this.core;
-		const row = sessions.require(sessionId);
-		switch (name.toLowerCase()) {
-			case "compact":
-			case "compress":
-				await engine.compact(row.conversation_id, rest.join(" ") || undefined);
-				return "Compaction started.";
-			case "usage": {
-				const u = await sessions.usage(sessionId);
-				return [`Model ${u.model}`, `input ${u.input}`, `output ${u.output}`, `cache read ${u.cacheRead}`, `context ${u.contextUsed} / ${u.contextMax}`, `cost $${u.costUsd.toFixed(4)}`].join("\n");
-			}
-			case "status": {
-				const info = await this.info(sessionId);
-				return `Bot ${row.bot} · model ${info.provider}/${info.model} · reasoning ${info.reasoning_effort} · ${info.running ? "running" : "idle"}`;
-			}
-			default:
-				throw new RpcError(4018, `unknown command: /${name}`);
-		}
-	}
 }
-
-const COMMANDS: { name: string; description: string; args?: boolean }[] = [
-	{ name: "new", description: "Start a new chat" },
-	{ name: "compact", description: "Compress this chat's context", args: true },
-	{ name: "usage", description: "Show token usage for this chat" },
-	{ name: "status", description: "Show this chat's bot, model and state" },
-];
 
 function normalizeChoice(c: string): Choice {
 	return c === "once" || c === "session" || c === "always" || c === "deny" ? c : "deny";

@@ -1,17 +1,22 @@
 // Live state of one session, derived from Pi Durable's agent events: whether a run is going, the
 // prompt in flight, the partial answer, and the run's text so far. It republishes everything as
-// canonical events on the hub. Durable remains the source of truth; this is a projection that can be
-// rebuilt at any time from a watch's snapshot.
+// canonical events on the hub, including the turn events whose ids match core/turns.ts, so a snapshot
+// and the events after it name the same turns and items. Durable remains the source of truth; this is a
+// projection that can be rebuilt at any time from a watch's snapshot. When a run ends (or a turn ends
+// because a new owner message arrived mid-run), it records how in an `nh.run` entry, so history knows a
+// turn's end and outcome later.
 import type { AgentEvent, ConvId, Engine, EngineWatch, EntryRecord } from "../engine/engine.ts";
-import { logger } from "../log.ts";
+import { logger, redact } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
 import { textOf, toolPreview, userDisplay } from "./transcript.ts";
+import { type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
 
 const log = logger("live");
 
 type Block = { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: Record<string, unknown> };
-type Msg = { role: string; content: string | Block[]; stopReason?: string; errorMessage?: string; usage?: TokenUsage; toolCallId?: string; toolName?: string; isError?: boolean; durationMs?: number; model?: string; provider?: string };
+type Msg = { role: string; content: string | Block[]; timestamp?: number; stopReason?: string; errorMessage?: string; usage?: TokenUsage; toolCallId?: string; toolName?: string; isError?: boolean; durationMs?: number; model?: string; provider?: string; details?: { structured?: unknown } };
 type TokenUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens: number; cost?: { total: number } };
+type ToolItem = Extract<TurnItem, { type: "tool" }>;
 
 export type LiveHooks = {
 	/** A user prompt was placed (counts and titles). */
@@ -40,6 +45,13 @@ export class LiveSession {
 	private runReasoning: string[] = [];
 	private lastAssistant: { stopReason?: string; errorMessage?: string } | undefined;
 	private toolStarts = new Map<string, number>();
+	/** The turn open now (named after its user message), its model replies so far, and its tool calls. */
+	private turn: string | undefined;
+	private ordinal = 0;
+	private opened = { text: false, reasoning: false };
+	private tools = new Map<string, ToolItem>();
+	private toolOutput = new Map<string, string>();
+	private turnUsage: TurnUsage | undefined;
 	private watch: EngineWatch | undefined;
 	private attaching: Promise<void> | undefined;
 	private readonly engine: Engine;
@@ -64,6 +76,14 @@ export class LiveSession {
 
 	get attached(): boolean {
 		return this.watch !== undefined;
+	}
+
+	/** What the transcript does not hold yet: the reply streaming now and the tools running (core/turns.ts). */
+	partial(): LivePartial | undefined {
+		if (!this.turn) return undefined;
+		const tools = new Map<string, { startedAt: number; output: string }>();
+		for (const [id, at] of this.toolStarts) tools.set(id, { startedAt: at, output: this.toolOutput.get(id) ?? "" });
+		return { turnId: this.turn, ordinal: this.ordinal, text: this.streaming ? this.blocks.join("") : "", reasoning: this.streaming ? this.thinking.filter(Boolean).join("\n") : "", tools };
 	}
 
 	/** Starts following the conversation (idempotent). Resolves once the initial snapshot is applied. */
@@ -124,24 +144,34 @@ export class LiveSession {
 				case "run_end":
 					await this.finishRun(e.inputs as unknown as number[]);
 					break;
-				case "tool_execution_start":
+				case "tool_execution_start": {
 					if (e.parentToolCallId !== undefined) break;
-					this.toolStarts.set(e.toolCallId, Date.now());
+					const now = Date.now();
+					this.toolStarts.set(e.toolCallId, now);
 					this.emit({ type: "tool.started", callId: e.toolCallId, name: e.toolName, args: e.args as Record<string, unknown>, preview: toolPreview(e.args as Record<string, unknown>) });
+					const item = this.tools.get(e.toolCallId);
+					if (item && this.turn) {
+						item.startedAt = now;
+						this.emit({ type: "item.updated", turnId: this.turn, item: { ...item } });
+					}
 					break;
+				}
 				case "tool_execution_update":
 					if (e.parentToolCallId === undefined && e.output && "append" in e.output && e.output.append) {
-						this.emit({ type: "tool.output", callId: e.toolCallId, name: e.toolName, text: e.output.append });
+						this.toolOutput.set(e.toolCallId, (this.toolOutput.get(e.toolCallId) ?? "") + e.output.append);
+						this.emit({ type: "tool.output", callId: e.toolCallId, name: e.toolName, text: e.output.append, turnId: this.turn ?? "" });
 					}
 					break;
 				case "tool_execution_end": {
 					if (e.parentToolCallId !== undefined) break;
 					const started = this.toolStarts.get(e.toolCallId);
 					this.toolStarts.delete(e.toolCallId);
+					this.toolOutput.delete(e.toolCallId);
 					const m = e.entry?.model?.[0] as Msg | undefined;
 					const resultText = m ? textOf(m.content) : "The tool did not finish (interrupted).";
 					const durationS = m?.durationMs !== undefined ? m.durationMs / 1000 : started ? (Date.now() - started) / 1000 : 0;
 					this.emit({ type: "tool.finished", callId: e.toolCallId, name: e.toolName, resultText, isError: m?.isError ?? true, durationS });
+					this.finishTool(e.toolCallId, m, started, durationS);
 					break;
 				}
 				case "usage_changed":
@@ -168,6 +198,10 @@ export class LiveSession {
 			}
 		}
 		this.runParts = [];
+		this.turn = lastUser >= 0 ? turnId(entries[lastUser]!.id as number) : undefined;
+		this.ordinal = 0;
+		this.tools.clear();
+		for (const entry of entries.slice(lastUser + 1)) if ((entry.model?.[0] as Msg | undefined)?.role === "assistant") this.ordinal++;
 		if (running) {
 			for (const entry of entries.slice(lastUser + 1)) {
 				const m = entry.model?.[0] as Msg | undefined;
@@ -177,14 +211,20 @@ export class LiveSession {
 				}
 			}
 			if (!this.running) this.turnStartedAt = Date.now() / 1000;
+			// The calls the open turn is still waiting on, so their results finish the same items.
+			const open = projectTurns(entries, { running: true }).at(-1);
+			if (open && open.id === this.turn) for (const item of open.items) if (item.type === "tool" && item.status === "running") this.tools.set(item.id, item);
 		}
 		this.running = running;
 		this.blocks = [];
 		this.thinking = [];
 		this.streaming = false;
+		this.opened = { text: false, reasoning: false };
 		if (partial) {
+			this.ordinal++;
 			this.streaming = true;
 			this.applyWholeMessage(partial, false);
+			this.opened = { text: this.blocks.some(Boolean), reasoning: this.thinking.some(Boolean) };
 		}
 	}
 
@@ -192,6 +232,8 @@ export class LiveSession {
 		this.blocks = [];
 		this.thinking = [];
 		this.streaming = true;
+		this.ordinal++;
+		this.opened = { text: false, reasoning: false };
 		this.emit({ type: "message.started" });
 	}
 
@@ -207,13 +249,27 @@ export class LiveSession {
 	private setText(i: number, next: string, emit = true): void {
 		const prev = this.blocks[i] ?? "";
 		this.blocks[i] = next;
-		if (emit && next.startsWith(prev) && next.length > prev.length) this.emit({ type: "text.delta", text: next.slice(prev.length) });
+		if (!emit || !next.startsWith(prev) || next.length <= prev.length) return;
+		const turn = this.turn ?? "";
+		const itemId = replyItemId(turn, this.ordinal, "t");
+		if (!this.opened.text) {
+			this.opened.text = true;
+			this.emit({ type: "item.started", turnId: turn, item: { type: "text", id: itemId, text: "", at: Date.now() } });
+		}
+		this.emit({ type: "text.delta", text: next.slice(prev.length), turnId: turn, itemId });
 	}
 
 	private setThinking(i: number, next: string, emit = true): void {
 		const prev = this.thinking[i] ?? "";
 		this.thinking[i] = next;
-		if (emit && next.startsWith(prev) && next.length > prev.length) this.emit({ type: "reasoning.delta", text: next.slice(prev.length) });
+		if (!emit || !next.startsWith(prev) || next.length <= prev.length) return;
+		const turn = this.turn ?? "";
+		const itemId = replyItemId(turn, this.ordinal, "r");
+		if (!this.opened.reasoning) {
+			this.opened.reasoning = true;
+			this.emit({ type: "item.started", turnId: turn, item: { type: "reasoning", id: itemId, text: "", at: Date.now() } });
+		}
+		this.emit({ type: "reasoning.delta", text: next.slice(prev.length), turnId: turn, itemId });
 	}
 
 	private applyChange(c: { type: string; contentIndex?: number; delta?: string; block?: Block; message?: Msg }): void {
@@ -248,6 +304,7 @@ export class LiveSession {
 		if (!m) return;
 		if (m.role === "user") {
 			this.prompt = userDisplay(m.content);
+			this.startTurn(entry, m);
 			this.hooks.onUserPlaced(this.sessionId, this.prompt);
 			return;
 		}
@@ -264,11 +321,80 @@ export class LiveSession {
 		if (text) this.runParts.push(text);
 		const thought = this.thinking.filter(Boolean).join("\n");
 		if (thought) this.runReasoning.push(thought);
+		this.finishReply(m, text, thought);
 		this.lastAssistant = { stopReason: m.stopReason, errorMessage: m.errorMessage };
 		this.hooks.onModelOutcome?.({ provider: m.provider, stopReason: m.stopReason, errorMessage: m.errorMessage });
 		this.blocks = [];
 		this.thinking = [];
 		this.streaming = false;
+	}
+
+	/** A new owner message opens a turn; one still open (an owner message mid-run) ends here. */
+	private startTurn(entry: EntryRecord, m: Msg): void {
+		if (this.turn && this.running) this.endTurn("complete");
+		this.turn = turnId(entry.id as number);
+		this.ordinal = 0;
+		this.tools.clear();
+		this.turnUsage = undefined;
+		const at = m.timestamp ?? Date.now();
+		this.emit({ type: "turn.started", turn: { id: this.turn, status: "running", startedAt: at, endedAt: null, user: { content: userContent(m.content), at }, items: [] } });
+	}
+
+	/** A model reply is complete: its reasoning and text items finish, and the tool calls it asked for start. */
+	private finishReply(m: Msg, text: string, thought: string): void {
+		const turn = this.turn;
+		if (!turn) return;
+		const at = m.timestamp ?? Date.now();
+		if (m.usage) {
+			const u = (this.turnUsage ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0, calls: 0 });
+			u.input += m.usage.input;
+			u.output += m.usage.output;
+			u.cacheRead += m.usage.cacheRead;
+			u.cacheWrite += m.usage.cacheWrite;
+			u.costUsd += m.usage.cost?.total ?? 0;
+			u.calls++;
+		}
+		if (thought) this.emit({ type: "item.finished", turnId: turn, item: { type: "reasoning", id: replyItemId(turn, this.ordinal, "r"), text: redact(thought), at } });
+		if (text) this.emit({ type: "item.finished", turnId: turn, item: { type: "text", id: replyItemId(turn, this.ordinal, "t"), text: redact(text), at } });
+		if (m.stopReason === "error") this.emit({ type: "item.finished", turnId: turn, item: { type: "error", id: replyItemId(turn, this.ordinal, "e"), message: redact(m.errorMessage ?? "The model request failed."), at } });
+		const blocks = typeof m.content === "string" ? [] : m.content;
+		for (const b of blocks) {
+			if (b.type !== "toolCall" || !b.id) continue;
+			const args = JSON.parse(redact(JSON.stringify(b.arguments ?? {}))) as Record<string, unknown>;
+			const item: ToolItem = { type: "tool", id: b.id, name: b.name ?? "tool", args, preview: redact(toolPreview(b.arguments)), status: "running", startedAt: null, durationMs: null, result: null };
+			this.tools.set(b.id, item);
+			this.emit({ type: "item.started", turnId: turn, item: { ...item } });
+		}
+	}
+
+	private finishTool(callId: string, m: Msg | undefined, started: number | undefined, durationS: number): void {
+		const turn = this.turn;
+		const item = this.tools.get(callId);
+		if (!turn || !item) return;
+		this.tools.delete(callId);
+		const text = m ? textOf(m.content) : "";
+		const done: ToolItem = {
+			...item,
+			status: m ? toolStatus(text, m.isError) : "unknown",
+			startedAt: item.startedAt ?? started ?? null,
+			// Only a call that ran has a duration (a refused one never started).
+			durationMs: m?.durationMs ?? (started !== undefined ? Math.round(durationS * 1000) : null),
+			result: m ? redact(text) : null,
+			...(m?.details?.structured !== undefined ? { json: JSON.parse(redact(JSON.stringify(m.details.structured))) as unknown } : {}),
+		};
+		this.emit({ type: "item.finished", turnId: turn, item: done });
+	}
+
+	/** The open turn ends: announced, and recorded in the transcript for history. */
+	private endTurn(status: RunStatus, error?: string): void {
+		const turn = this.turn;
+		if (!turn) return;
+		const endedAt = Date.now();
+		for (const item of this.tools.values()) this.emit({ type: "item.finished", turnId: turn, item: { ...item, status: "unknown" } });
+		this.tools.clear();
+		this.emit({ type: "turn.finished", turnId: turn, status, endedAt, ...(error ? { error: redact(error) } : {}), ...(this.turnUsage ? { usage: this.turnUsage } : {}) });
+		const record: RunRecord = { turn, status, endedAt, ...(error ? { error } : {}) };
+		this.engine.writeRunRecord(this.convId, record).catch((e: unknown) => log.warn("run record not written", { session: this.sessionId, error: String(e) }));
 	}
 
 	private async finishRun(inputs: number[]): Promise<void> {
@@ -293,6 +419,7 @@ export class LiveSession {
 		this.running = false;
 		this.streaming = false;
 		this.blocks = [];
+		this.endTurn(status, error);
 		const usage = await this.hooks.usage(this.sessionId);
 		log.debug("run finished", { session: this.sessionId, status });
 		this.emit({ type: "run.finished", text, reasoning: this.runReasoning.join("\n"), status, error, usage });

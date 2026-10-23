@@ -29,6 +29,7 @@ import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
 import type { Tuning } from "./mcp/connection.ts";
 import { McpServers } from "./mcp/servers.ts";
+import { pickableModels } from "./models/pickable.ts";
 import { VERSION } from "./version.ts";
 import { McpTools } from "./tools/mcp.ts";
 import { isOwnGateway } from "./tools/own-gateway.ts";
@@ -249,11 +250,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			const i = ref.indexOf("/");
 			return i > 0 && models.getModel(ref.slice(0, i), ref.slice(i + 1)) !== undefined;
 		},
-		// Same filter as pickableModels in src/hermes/rest.ts.
-		pickableModels: async (current) => {
-			const hide = new Set(config.modelLists.hide);
-			return (await models.getAvailable()).filter((m) => !hide.has(m.provider) || (m.provider === current.provider && m.id === current.modelId));
-		},
+		pickableModels: (current) => pickableModels(models, config.modelLists.hide, current),
 	};
 	const features = [
 		memoryFeature(late, memory),

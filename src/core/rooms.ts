@@ -368,10 +368,10 @@ export class Rooms {
 	 */
 	private watchApprovals(room: RoomInfo, member: RoomMember, session: SessionRow, coords: Coords): () => void {
 		return this.d.hub.subscribe(session.id, (_sid, e) => {
-			if (e.type === "approval.resolved") return this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot });
+			if (e.type === "approval.resolved") return this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot, sessionId: session.id });
 			if (e.type !== "approval.requested" || this.row(room.room_id)?.disbanded_at !== null) return;
 			this.d.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, session.id);
-			this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot });
+			this.d.hub.publishGlobal({ type: "sessions.changed", bot: session.bot, sessionId: session.id });
 			const who = member.display_name || member.handle;
 			const status = `${who} is waiting for your approval: open "${session.title}" in Chats`;
 			this.append(room.room_id, [{ kind: "room.activity", actor: GATEWAY, payload: { status, member_id: member.member_id, thread_id: coords.thread_id, discussion_event_id: coords.discussion_event_id } }]);

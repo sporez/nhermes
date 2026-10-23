@@ -1,6 +1,7 @@
 // Hermes-compatible REST endpoints, translated onto the core services. Routes we do not implement are
 // absent (404), so Vory's own capability checks hide those features.
 import type { Core } from "../app.ts";
+import { pickableModels } from "../models/pickable.ts";
 import { GROUP_LABELS } from "../tools/index.ts";
 import { LinkError } from "../federation/link.ts";
 import { HttpError, obj, type Req, Router } from "../http.ts";
@@ -40,14 +41,8 @@ function intParam(q: URLSearchParams, key: string, def: number, max: number): nu
 	return n;
 }
 
-/** Models offered in pickers: hidden providers left out, except the model already in use. */
-export async function pickableModels(core: Core, current?: { provider: string; modelId: string }) {
-	const hide = new Set(core.config.modelLists.hide);
-	return (await core.models.getAvailable()).filter((m) => !hide.has(m.provider) || (m.provider === current?.provider && m.id === current?.modelId));
-}
-
 export async function modelOptions(core: Core, current?: { provider: string; modelId: string }) {
-	const available = await pickableModels(core, current);
+	const available = await pickableModels(core.models, core.config.modelLists.hide, current);
 	const byProvider = new Map<string, typeof available[number][]>();
 	for (const m of available) {
 		const list = byProvider.get(m.provider) ?? [];

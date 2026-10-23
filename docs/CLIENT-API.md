@@ -227,7 +227,7 @@ with its docs.
 - [x] **A1 Foundation.** `src/server.ts` (move the listeners out of `hermes/`), `/api/v1` mount, Bearer
   auth, errors, the op table with HTTP and WebSocket dispatch, hello and features, the event envelope,
   `test/api/client.ts`. Tests: auth (401 and close 4401), unknown op, the same op over both transports.
-- [ ] **A2 Chat.** Bots (read), sessions (list, get, search, patch, delete, create), turns history,
+- [x] **A2 Chat.** Bots (read), sessions (list, get, search, patch, delete, create), turns history,
   subscribe with snapshot, live turn and item events, submit, steer, interrupt, session settings,
   approvals (global events, answer from any socket), usage, context, commands and compact, models.
   Run-end bookkeeping entry. Tests mirror `test/hermes/protocol.test.ts`, plus: an approval answered on

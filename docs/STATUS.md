@@ -28,6 +28,14 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
 | 16 | Backup and restore | ✅ | ✅ on the VM: backup while running, restore refused while running, restore + restart | |
 | 17 | OpenChamber threads (`openchamber` tool group, `openchamber_alerts` event watcher) | ✅ fake server: read and control tools, policy, event watcher (permission, form, failure, finish stays quiet, child skip, debounce, reconnect) | Live, 2026-10-18, tools run locally against OpenChamber 2.4.0 / OpenCode 2.0.32: oc_sessions, oc_read, oc_waiting, oc_diff (whole thread and last turn) ✅; oc_start with OpenChamber's default model and variant ✅, the thread shows in OpenChamber ✅; oc_answer on a real question ✅; oc_prompt ✅; oc_stop interrupts a running tool ✅; the watcher reported the question and the finished thread from the live stream ✅; a permission card escalated past the Jev reviewer showed in oc_waiting with the reviewer's recommendation, and oc_approve rejected it, the thread saw the rejection ✅ | The watcher's permission notice is tested on the fake server only. Not yet run through a deployed gateway and Vory |
 
+## Client API (`/api/v1`, `docs/API.md`)
+
+Automated (`test/api/`): Bearer auth on HTTP and the socket, hello, errors, one operation over both
+transports, member-only operations; chats live and in history with the same turn and item ids, tool
+items with arguments, result, structured result (MCP `structuredContent`), duration and status (blocked
+when refused), following a chat mid-answer, approvals announced and answered on any device, interrupt,
+chat settings, commands, redaction of every new field. Not yet used by a client.
+
 ## Security findings fixed during live testing
 
 - A denied package install was retried by delegating to the trusted `ops` bot → delegation now never
@@ -63,6 +71,8 @@ Found in a security audit (2026-10-20), fixed with regression tests:
   (`test/federation/psk.test.ts`).
 - A removed member's open WebSocket kept working → member sockets close when the member is forgotten or
   their key stops being accepted (`test/federation/network.test.ts`).
+- Chat titles and previews made from a prompt that held a key were listed unredacted → redacted in the
+  chat lists of both APIs (`test/api/chat.test.ts`).
 - Live events (reasoning, errors, tool results, approval cards, resume snapshots), approval audit rows and
   forwarded notifications were not redacted. JSON-escaped forms of a key were missed, and keys from the
   service environment were never registered → all are redacted now (`test/hermes/protocol.test.ts`,

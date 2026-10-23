@@ -1,6 +1,7 @@
 // Canonical events. Produced from Pi Durable's agent events (core/live.ts) and the approval broker;
-// consumed by the Hermes adapter, the scheduler and delegation. Adapters translate; they never
+// consumed by the API layers, the scheduler and delegation. Adapters translate; they never
 // produce agent state of their own.
+import type { Turn, TurnItem, TurnUsage } from "./turns.ts";
 
 export type UsageSummary = {
 	model: string;
@@ -18,7 +19,11 @@ export type UsageSummary = {
 
 export type ApprovalRequest = {
 	requestId: string;
+	/** Where the owner answers it: the chat the work started in (a delegated task asks in its caller's chat). */
 	sessionId: string;
+	/** The tool call waiting, and the session it runs in (differs from sessionId for delegated work). */
+	toolCallId?: string;
+	callSessionId?: string;
 	bot: string;
 	toolName: string;
 	command: string;
@@ -33,10 +38,16 @@ export type RunStatus = "complete" | "error" | "interrupted";
 export type SessionEvent =
 	| { type: "run.started"; at: number; prompt: string }
 	| { type: "message.started" }
-	| { type: "text.delta"; text: string }
-	| { type: "reasoning.delta"; text: string }
+	// The turn events (ids as core/turns.ts names them): what the client API streams.
+	| { type: "turn.started"; turn: Turn }
+	| { type: "item.started"; turnId: string; item: TurnItem }
+	| { type: "item.updated"; turnId: string; item: TurnItem }
+	| { type: "item.finished"; turnId: string; item: TurnItem }
+	| { type: "turn.finished"; turnId: string; status: RunStatus; endedAt: number; error?: string; usage?: TurnUsage }
+	| { type: "text.delta"; text: string; turnId: string; itemId: string }
+	| { type: "reasoning.delta"; text: string; turnId: string; itemId: string }
 	| { type: "tool.started"; callId: string; name: string; args: Record<string, unknown>; preview: string }
-	| { type: "tool.output"; callId: string; name: string; text: string }
+	| { type: "tool.output"; callId: string; name: string; text: string; turnId: string }
 	| { type: "tool.finished"; callId: string; name: string; resultText: string; isError: boolean; durationS: number }
 	| { type: "run.finished"; text: string; reasoning: string; status: RunStatus; error?: string; usage: UsageSummary }
 	| { type: "usage"; usage: UsageSummary }
@@ -45,7 +56,8 @@ export type SessionEvent =
 	| { type: "approval.resolved"; requestId: string; choice: string; reason: "answered" | "timeout" | "cancelled" }
 	| { type: "notice"; message: string };
 
-export type GlobalEvent = { type: "sessions.changed"; bot: string } | { type: "cron.changed" };
+/** `sessionId`: the one session that changed, when there is one (a client then fetches just that row). */
+export type GlobalEvent = { type: "sessions.changed"; bot: string; sessionId?: string } | { type: "cron.changed" };
 
 type SessionListener = (sessionId: string, event: SessionEvent) => void;
 type GlobalListener = (event: GlobalEvent) => void;
