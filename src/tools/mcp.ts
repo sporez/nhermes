@@ -4,7 +4,8 @@
 // extension re-installed in Durable's registry, whenever a list or the config changes; never when a server
 // merely goes offline. A down server keeps its known tools declared, and a call to it fails within a few
 // seconds with an outcome that says whether anything was sent (src/mcp/outcome.ts). Tool descriptions and
-// results are the server's text: data, never instructions about policy.
+// results are the server's text: data, never instructions about policy. A result that kept structured data ends
+// with a line naming it for the `show` tool (core/cards.ts).
 import { createHash } from "node:crypto";
 import type { ImageContent, TextContent, TSchema } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type Registry, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -12,6 +13,7 @@ import { createToolSearchTool } from "@earendil-works/pi-durable/tool-search";
 import { type CallToolResult, type Tool as McpTool, toLlmContent } from "@earendil-works/pi-mcp";
 import type { PromptPart } from "../agent/extensions.ts";
 import type { McpServerConfig } from "../config.ts";
+import { cardableLine } from "../core/cards.ts";
 import { matchesGlob } from "../core/policy.ts";
 import type { McpServers } from "../mcp/servers.ts";
 import { modelText } from "../mcp/outcome.ts";
@@ -63,13 +65,16 @@ function clipMiddle(text: string, maxBytes: number): string {
 	return `${head}\n\n[… ${Buffer.byteLength(text) - 2 * half} bytes cut from the middle …]\n\n${tail}`;
 }
 
-/** The result for the model: text (one block, capped) and images. */
-function resultContent(result: CallToolResult): (TextContent | ImageContent)[] {
+/** The result for the model: text (one block, capped; `extra` is added after the cap) and images. */
+function resultContent(result: CallToolResult, extra?: string): (TextContent | ImageContent)[] {
 	const content = toLlmContent(result) as (TextContent | ImageContent)[];
 	const text = content.filter((b): b is TextContent => b.type === "text").map((b) => b.text).join("\n");
 	const images = content.filter((b): b is ImageContent => b.type === "image");
 	const out: (TextContent | ImageContent)[] = [];
-	if (text || images.length === 0) out.push({ type: "text", text: text ? clipMiddle(text, MAX_TEXT_BYTES) : "(the tool returned nothing)" });
+	if (text || images.length === 0 || extra) {
+		const body = text ? clipMiddle(text, MAX_TEXT_BYTES) : "(the tool returned nothing)";
+		out.push({ type: "text", text: extra ? `${body}\n\n${extra}` : body });
+	}
 	return [...out, ...images];
 }
 
@@ -163,7 +168,7 @@ export class McpTools {
 					const isError = r.result.isError === true;
 					const structured = r.result.structuredContent;
 					const keep = structured !== undefined && JSON.stringify(structured).length <= MAX_STRUCTURED_CHARS;
-					return { output: resultContent(r.result), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
+					return { output: resultContent(r.result, keep && !isError ? cardableLine(api.callId) : undefined), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
 				}
 				const o = r.outcome;
 				const text = modelText({ kind: o.kind, message: redact(o.message) }, { server: c.name, tool: t.name, readOnly, timeoutS: current.timeoutS, since: r.since });

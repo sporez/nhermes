@@ -107,6 +107,15 @@ member that has one, so one setup is enough; the gateway the app is connected to
 other machines' bots, and the machine running the bot stays quiet for them. A gateway that still held
 Vory's notification registrations (`<data>/vory/`) removes them at its next start.
 
+### Cards
+
+Calendar, Reminders and Contacts results from MacBridge (or any MCP server that returns structured data) can
+appear in the app as cards. Which ones is the bot's choice: its `cards` tool group (on by default; a bot with an
+explicit `tools:` list needs `cards` added) gives it the `show` tool, and each result that can be a card ends
+with a line giving its handle. The owner sees the card with the bot's reply, and the bot is told what was shown,
+so it does not repeat it. Cards need an app that
+lists `cards` in the hello's `features` (`docs/API.md` "Cards").
+
 ### Group chats
 
 A group chat is two to six bots sharing one log (`rooms.*` in `docs/API.md`; the app has no screen for it

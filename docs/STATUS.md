@@ -166,6 +166,16 @@ Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.
 - Not yet verified live: a photo, screenshot, PDF and CSV from the Vory app to a gateway on a vision model and
   a text-only one, and the thumbnails after reopening the chat.
 
+## Cards
+
+Automated (`test/tools/cards.test.ts`, 2026-10-23), with a fake MCP server and the faux model: the handle line
+only on a kept, non-error structured result and after the 20 KB cut; `show` resolving a handle from the
+transcript, narrowing with `only`, plain errors for an unknown handle, a result without card data, `only`
+matching nothing and a handle two results share; the run ending with the reply that shows the card (no further
+model call) while a batch with other tools continues; the card as the same turn item live (`item.started` and
+`item.finished`, no tool step for `show`) and in history. `scripts/api-fixtures.ts` writes `events-card.jsonl` and `turns-card.json`. Not verified: with a
+real MacBridge server and a real model, or in the app.
+
 ## MCP servers
 
 MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):

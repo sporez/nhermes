@@ -4,12 +4,13 @@
 // live events that follow it describe the same objects:
 //   turn       `t<entry id of the user message>`
 //   reasoning  `<turn>.<n>r`, reply part `<turn>.<n>t`, failed call `<turn>.<n>e` (n: the turn's nth model reply)
-//   tool call  its Durable call id
+//   tool call  its Durable call id (a successful `show` call is a card item with the same id)
 //   notice     `n<entry id>` (its own turn, with no user message)
 // Text is redacted here, once, for every consumer.
 import { basename } from "node:path";
 import type { EntryRecord } from "../engine/engine.ts";
 import { redact } from "../log.ts";
+import { type CardDetails, SHOW_TOOL } from "./cards.ts";
 import { textOf, toolPreview } from "./transcript.ts";
 
 export type AttachmentRef = {
@@ -47,6 +48,8 @@ export type TurnItem =
 			/** Output streamed while it runs (live only). */
 			output?: string;
 	  }
+	/** What the owner was shown with the `show` tool (core/cards.ts); replaces that call's tool item. */
+	| ({ type: "card"; id: string; at: number } & CardDetails)
 	| { type: "notice"; id: string; kind: "notice" | "compaction"; text: string; at: number }
 	| { type: "error"; id: string; message: string; at: number };
 
@@ -91,7 +94,7 @@ type Msg = {
 	toolCallId?: string;
 	isError?: boolean;
 	durationMs?: number;
-	details?: { structured?: unknown };
+	details?: { structured?: unknown; card?: CardDetails };
 	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; cost?: { total: number } };
 };
 
@@ -130,7 +133,7 @@ function usageOf(m: Msg, into: TurnUsage | undefined): TurnUsage | undefined {
 	return u;
 }
 
-function redactJson<T>(v: T): T {
+export function redactJson<T>(v: T): T {
 	return v === undefined ? v : (JSON.parse(redact(JSON.stringify(v))) as T);
 }
 
@@ -138,6 +141,11 @@ function redactJson<T>(v: T): T {
  * The turns of a conversation, oldest first. `live`: the conversation is running now; its last turn is
  * running, and the reply streaming now is added from `partial`.
  */
+/** The card item of a successful `show` call: its id, the result's time, and the card kept in its details. */
+export function cardItem(callId: string, at: number, card: CardDetails): Extract<TurnItem, { type: "card" }> {
+	return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, source: card.source, data: card.data };
+}
+
 export function projectTurns(entries: readonly EntryRecord[], live?: { running: boolean; partial?: LivePartial }): Turn[] {
 	const turns: Turn[] = [];
 	const records = new Map<string, RunRecord>();
@@ -202,6 +210,13 @@ export function projectTurns(entries: readonly EntryRecord[], live?: { running: 
 			const item = tools.get(m.toolCallId ?? "");
 			if (!item) continue;
 			const text = textOf(m.content);
+			if (item.name === SHOW_TOOL && !m.isError && m.details?.card) {
+				const at = m.timestamp ?? 0;
+				const i = turn.items.indexOf(item);
+				if (i >= 0) turn.items[i] = cardItem(item.id, at, redactJson(m.details.card));
+				tools.delete(item.id);
+				continue;
+			}
 			item.result = redact(text);
 			item.durationMs = m.durationMs ?? null;
 			item.startedAt = m.durationMs !== undefined && m.timestamp !== undefined ? m.timestamp - m.durationMs : (m.timestamp ?? null);
@@ -226,5 +241,7 @@ export function projectTurns(entries: readonly EntryRecord[], live?: { running: 
 			}
 		}
 	} else close();
+	// A `show` call still running is not announced: it appears as its card, or as a failed call, when it ends.
+	for (const t of turns) t.items = t.items.filter((i) => !(i.type === "tool" && i.name === SHOW_TOOL && i.status === "running"));
 	return turns;
 }

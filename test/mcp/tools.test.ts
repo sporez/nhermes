@@ -89,12 +89,12 @@ test("a server's structured result is kept with the call for clients, beside the
 	try {
 		s.mcp.behavior.set("list_events", { text: "2 events", structured: { events: [{ title: "Dentist" }, { title: "Lunch" }] } });
 		const r = await run(s, "main", [call("mcp__cal__list_events", { day: "today" })]);
-		assert.equal(r.finished[0]?.resultText, "2 events");
+		assert.match(r.finished[0]?.resultText ?? "", /^2 events\n\n\(The owner can be shown this as a card: show \{from: "c[0-9a-f]{5}"\}\)$/);
 		const { turns } = await s.core.sessions.turns(r.session.id);
 		const item = turns.at(-1)!.items.find((i) => i.type === "tool");
 		assert.ok(item?.type === "tool");
 		assert.deepEqual(item.json, { events: [{ title: "Dentist" }, { title: "Lunch" }] });
-		assert.equal(item.result, "2 events");
+		assert.match(item.result ?? "", /^2 events\n\n\(The owner can be shown this as a card: show /);
 	} finally {
 		await s.cleanup();
 	}

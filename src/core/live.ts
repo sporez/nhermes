@@ -8,13 +8,14 @@
 import type { AgentEvent, ConvId, Engine, EngineWatch, EntryRecord } from "../engine/engine.ts";
 import { logger, redact } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
+import { type CardDetails, SHOW_TOOL } from "./cards.ts";
 import { textOf, toolPreview, userDisplay } from "./transcript.ts";
-import { type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
+import { cardItem, type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
 
 const log = logger("live");
 
 type Block = { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: Record<string, unknown> };
-type Msg = { role: string; content: string | Block[]; timestamp?: number; stopReason?: string; errorMessage?: string; usage?: TokenUsage; toolCallId?: string; toolName?: string; isError?: boolean; durationMs?: number; model?: string; provider?: string; details?: { structured?: unknown } };
+type Msg = { role: string; content: string | Block[]; timestamp?: number; stopReason?: string; errorMessage?: string; usage?: TokenUsage; toolCallId?: string; toolName?: string; isError?: boolean; durationMs?: number; model?: string; provider?: string; details?: { structured?: unknown; card?: CardDetails } };
 type TokenUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; totalTokens: number; cost?: { total: number } };
 type ToolItem = Extract<TurnItem, { type: "tool" }>;
 
@@ -50,6 +51,8 @@ export class LiveSession {
 	private ordinal = 0;
 	private opened = { text: false, reasoning: false };
 	private tools = new Map<string, ToolItem>();
+	/** `show` calls in flight: not announced as tool items; a card (or a failed call) is announced when one ends. */
+	private shows = new Map<string, ToolItem>();
 	private toolOutput = new Map<string, string>();
 	private turnUsage: TurnUsage | undefined;
 	private watch: EngineWatch | undefined;
@@ -192,6 +195,7 @@ export class LiveSession {
 		this.turn = lastUser >= 0 ? turnId(entries[lastUser]!.id as number) : undefined;
 		this.ordinal = 0;
 		this.tools.clear();
+		this.shows.clear();
 		for (const entry of entries.slice(lastUser + 1)) if ((entry.model?.[0] as Msg | undefined)?.role === "assistant") this.ordinal++;
 		if (running) {
 			for (const entry of entries.slice(lastUser + 1)) {
@@ -205,6 +209,16 @@ export class LiveSession {
 			// The calls the open turn is still waiting on, so their results finish the same items.
 			const open = projectTurns(entries, { running: true }).at(-1);
 			if (open && open.id === this.turn) for (const item of open.items) if (item.type === "tool" && item.status === "running") this.tools.set(item.id, item);
+			// projectTurns holds back a running `show`; the hub still needs it to finish as a card.
+			for (const entry of entries.slice(lastUser + 1)) {
+				const m = entry.model?.[0] as Msg | undefined;
+				if (m?.role !== "assistant" || typeof m.content === "string") continue;
+				for (const b of m.content) {
+					if (b.type !== "toolCall" || b.name !== SHOW_TOOL || !b.id) continue;
+					const answered = entries.some((x) => (x.model?.[0] as Msg | undefined)?.toolCallId === b.id);
+					if (!answered) this.shows.set(b.id, this.toolItem(b));
+				}
+			}
 		}
 		this.running = running;
 		this.blocks = [];
@@ -325,6 +339,7 @@ export class LiveSession {
 		this.turn = turnId(entry.id as number);
 		this.ordinal = 0;
 		this.tools.clear();
+		this.shows.clear();
 		this.turnUsage = undefined;
 		const at = m.timestamp ?? Date.now();
 		this.emit({ type: "turn.started", turn: { id: this.turn, status: "running", startedAt: at, endedAt: null, user: { content: userContent(m.content), at }, items: [] } });
@@ -350,19 +365,35 @@ export class LiveSession {
 		const blocks = typeof m.content === "string" ? [] : m.content;
 		for (const b of blocks) {
 			if (b.type !== "toolCall" || !b.id) continue;
-			const args = JSON.parse(redact(JSON.stringify(b.arguments ?? {}))) as Record<string, unknown>;
-			const item: ToolItem = { type: "tool", id: b.id, name: b.name ?? "tool", args, preview: redact(toolPreview(b.arguments)), status: "running", startedAt: null, durationMs: null, result: null };
+			const item = this.toolItem(b);
+			if (b.name === SHOW_TOOL) {
+				this.shows.set(b.id, item);
+				continue;
+			}
 			this.tools.set(b.id, item);
 			this.emit({ type: "item.started", turnId: turn, item: { ...item } });
 		}
 	}
 
+	private toolItem(b: Block): ToolItem {
+		const args = JSON.parse(redact(JSON.stringify(b.arguments ?? {}))) as Record<string, unknown>;
+		return { type: "tool", id: b.id!, name: b.name ?? "tool", args, preview: redact(toolPreview(b.arguments)), status: "running", startedAt: null, durationMs: null, result: null };
+	}
+
 	private finishTool(callId: string, m: Msg | undefined, started: number | undefined, durationS: number): void {
 		const turn = this.turn;
-		const item = this.tools.get(callId);
+		const pending = this.shows.get(callId);
+		this.shows.delete(callId);
+		const item = this.tools.get(callId) ?? pending;
 		if (!turn || !item) return;
 		this.tools.delete(callId);
 		const text = m ? textOf(m.content) : "";
+		if (pending && m && !m.isError && m.details?.card) {
+			const card = cardItem(callId, m.timestamp ?? Date.now(), JSON.parse(redact(JSON.stringify(m.details.card))) as CardDetails);
+			this.emit({ type: "item.started", turnId: turn, item: card });
+			this.emit({ type: "item.finished", turnId: turn, item: card });
+			return;
+		}
 		const done: ToolItem = {
 			...item,
 			status: m ? toolStatus(text, m.isError) : "unknown",
@@ -372,6 +403,8 @@ export class LiveSession {
 			result: m ? redact(text) : null,
 			...(m?.details?.structured !== undefined ? { json: JSON.parse(redact(JSON.stringify(m.details.structured))) as unknown } : {}),
 		};
+		// A failed `show` was never announced: it starts and finishes here, so its error is visible.
+		if (pending) this.emit({ type: "item.started", turnId: turn, item: { ...pending } });
 		this.emit({ type: "item.finished", turnId: turn, item: done });
 	}
 
@@ -382,6 +415,7 @@ export class LiveSession {
 		const endedAt = Date.now();
 		for (const item of this.tools.values()) this.emit({ type: "item.finished", turnId: turn, item: { ...item, status: "unknown" } });
 		this.tools.clear();
+		this.shows.clear();
 		this.emit({ type: "turn.finished", turnId: turn, status, endedAt, ...(error ? { error: redact(error) } : {}), ...(this.turnUsage ? { usage: this.turnUsage } : {}) });
 		const record: RunRecord = { turn, status, endedAt, ...(error ? { error } : {}) };
 		this.engine.writeRunRecord(this.convId, record).catch((e: unknown) => log.warn("run record not written", { session: this.sessionId, error: String(e) }));

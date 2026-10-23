@@ -77,7 +77,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   "api": 1,
   "gateway": {"id": "4f0c…", "name": "studio", "version": "0.1.0", "commit": "c67d427"},
   "bootId": "9b2e…",
-  "features": ["events.replay"],
+  "features": ["events.replay", "cards"],
   "limits": {"toolResultChars": 65536, "imageBytes": 26214400, "fileBytes": 41943040},
   "caller": {"kind": "owner"}
 }
@@ -86,8 +86,8 @@ person can read; `details` is optional. Codes, with their HTTP status:
 - `bootId` changes when the gateway restarts; a client that sees a new one after reconnecting knows that
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
-- `features` lists optional capabilities by name: `events.replay` (see Following a chat), `push.apns` (see
-  Push notifications).
+- `features` lists optional capabilities by name: `events.replay` (see Following a chat), `cards` (see
+  Cards), `push.apns` (see Push notifications).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
 
@@ -261,14 +261,41 @@ answer, in order.
   a compaction marker).
 - Content blocks: `{type: "text", text}`, `{type: "attachment", attachment: {id, kind, name, pages?}}`
   (`kind`: `image`, `pdf`, `file`; `id` is `null` only when an old upload's file is gone).
-- Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `notice`
-  (`{kind, text, at}`), `error` (`{message, at}`).
+- Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `card` (see
+  Cards), `notice` (`{kind, text, at}`), `error` (`{message, at}`).
 - A tool item's `status`: `running`, `done`, `failed`, `blocked` (refused: the owner denied it or a rule
   did; it never ran), `unknown` (the run ended before it reported). `durationMs` is `null` when it never
   ran. `result.text` is cut at the hello's `toolResultChars` (`truncated`, `length` say so;
   `sessions.toolResult` returns it all). `result.json` is structured data the tool returned beside its
   text, such as an MCP server's `structuredContent`; absent when there is none or it is over 256 KB.
 - Ids: a turn's id stays the same live and in history, and so do its items' ids.
+
+## Cards
+
+A bot can show the owner a tool's result as a card. A tool that returns structured data (an MCP server's
+`structuredContent`) keeps it in the tool item's `result.json`; whether the owner sees it as a card is the
+bot's choice, made with its `show` tool, so a client draws a card only for a `card` item, not for every tool
+item that has `result.json`. The model is told what was shown and does not repeat it.
+
+```json
+{"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
+ "caption": "Groceries: 2 reminders",
+ "source": {"item": "call_reminders", "name": "mcp__bridge__reminders_list", "args": {"list": "Groceries"}},
+ "data": {"reminders": [{"id": "r1", "title": "Milk", "completed": false}]}}
+```
+
+- `kind: "result"` is a tool's structured result. A client decodes `data` by `source.name` (the tool that
+  made it); `source.item` is that tool item's id and `source.args` its arguments. `data` may be narrowed by the
+  bot to some of the items. `caption` is one line written by the bot: show it where the client cannot draw the
+  card (an unknown `source.name`, a notification, an accessibility label).
+- Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
+- The card is a turn item of its own, placed where the bot's `show` call was, usually after the reply text. The
+  `show` call is not also a tool item. A `show` call that fails stays a tool item (named `show`, `status`
+  `failed`) with the reason in `result.text`.
+- Live, a card arrives as `item.started` and `item.finished` back to back, both with the whole item, when the
+  call finishes; no tool step for `show` is announced before it. Snapshots and `GET /sessions/:id/turns` hold the
+  same item with the same `id`.
+- Only gateways that list `cards` in `features` send `card` items.
 
 ## Following a chat
 
@@ -296,7 +323,7 @@ A followed chat's events (with `sessionId` and `seq`):
 | Event | Data |
 |---|---|
 | `turn.started` | `{turn}`, its `items` empty |
-| `item.started` | `{turnId, item}`: a reply part, reasoning or tool call begins (a tool call when the model asks for it) |
+| `item.started` | `{turnId, item}`: a reply part, reasoning or tool call begins (a tool call when the model asks for it); a `card` item arrives whole, followed at once by its `item.finished` |
 | `item.delta` | `{turnId, itemId, field, text}`: append `text` to the item's `field` (`text` for replies and reasoning, `output` for a running tool's output) |
 | `item.updated` | `{turnId, item}`: the whole item, replacing it (a tool call starting to run) |
 | `item.finished` | `{turnId, item}`: the whole finished item |

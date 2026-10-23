@@ -310,7 +310,8 @@ another, and a call waits only on its own server.
   - then `client.callTool(name, args, { signal, timeoutMs, onProgress })`;
   - progress messages stream through `api.output()`.
 - **Results:** `toLlmContent()` (text, images; resources and links as short text), capped at 20 KB
-  of text (middle cut, as Pi does). `structuredContent` without content blocks becomes JSON.
+  of text (middle cut, as Pi does). A result that kept structured data then ends with one line giving its handle
+  for the `show` tool (`docs/API.md` "Cards"), after the cut. `structuredContent` without content blocks becomes JSON.
 - **Every failure returns an `isError` result** with a plain sentence for the model, and
   `details: { server, tool, outcome, sent, ms, httpStatus?, rpcCode? }` for the panel and logs. No
   failure is ever reported as success.

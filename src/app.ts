@@ -42,6 +42,7 @@ import { Push } from "./notify/push.ts";
 import { Skills } from "./skills/skills.ts";
 import { delegateExtension } from "./tools/delegate.ts";
 import { memoryFeature } from "./tools/memory.ts";
+import { cardsFeature } from "./tools/cards.ts";
 import { scheduleFeature } from "./tools/schedule.ts";
 import { webFeature } from "./tools/web.ts";
 import { Browsers } from "./computer/browser.ts";
@@ -268,6 +269,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
 		selfFeature(late, selfServices),
+		cardsFeature(late),
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),

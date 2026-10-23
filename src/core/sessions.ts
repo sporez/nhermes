@@ -2,7 +2,7 @@
 // Durable conversation id; the catalogue row (title, preview, counts, flags) is ours. Deleting a
 // session never touches its bot.
 import { randomBytes } from "node:crypto";
-import type { AgentChange, ConvId, Engine, SubmitOptions, UserInput } from "../engine/engine.ts";
+import type { AgentChange, ConvId, Engine, EntryRecord, SubmitOptions, UserInput } from "../engine/engine.ts";
 import { logger } from "../log.ts";
 import type { AppDb } from "../store/db.ts";
 import type { Approvals } from "./approvals.ts";
@@ -375,6 +375,11 @@ export class Sessions {
 		const live = await this.live(id);
 		const entries = await this.engine.entries(session.conversation_id);
 		return { turns: projectTurns(entries, { running: live.running, partial: live.partial() }), running: live.running };
+	}
+
+	/** Every transcript entry of a conversation, oldest first (for tools that look back in their own chat). */
+	entriesOf(convId: ConvId): Promise<EntryRecord[]> {
+		return this.engine.entries(convId);
 	}
 
 	async rows(id: string): Promise<TranscriptRow[]> {
