@@ -124,9 +124,9 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.turns` | `GET /sessions/:id/turns` | yes | `limit?` (50, at most 500), `cursor?`. `{items: [Turn], nextCursor}`: the newest turns, oldest first; `nextCursor` names the page before |
 | `sessions.subscribe` | socket only | yes | `id`, `limit?`, `afterSeq?`. See Following a chat |
 | `sessions.unsubscribe` | socket only | yes | `id` |
-| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`. `{status: "started" \| "queued", submission}`. A chat that is answering queues the message. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered. While a bot's question waits in the chat, words without attachments answer it instead: `{status: "answered", approvalId}` (see Questions) |
+| `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`, `steer?` (boolean). `{status: "started" \| "queued" \| "steered", submission}`. A chat that is answering queues the message, unless `steer` is true: then it is placed after the running reply's current tool round (or at its end, if the reply finishes first) and the status is `steered`; `started` when nothing was running. Attachments and `requestId` work as without `steer`, and the steered turn names the `requestId` in `user.requestId`. **Queued to steer:** `steer: true` with the `requestId` of a message that is still `queued` withdraws that message and places the content of this call as a steer, so it runs now and once; its turn still names the original `requestId`. If that message was placed meanwhile, nothing is sent again and the status is `started` (`submission` is `placed` or `done`). Resend the same words and attachment ids. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered. While a bot's question waits in the chat, words without attachments answer it instead: `{status: "answered", approvalId}` (see Questions) |
 | `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
-| `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. `{interrupted}` |
+| `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. It also withdraws every message still queued behind the run: those never run, and their `requestId`s never get a turn, so clients should show them as not sent. `{interrupted}` |
 | `sessions.compact` | `POST /sessions/:id/compact` | yes | `instructions?`. `{started: true}` |
 | `sessions.usage` | `GET /sessions/:id/usage` | yes | `{usage}` |
 | `sessions.context` | `GET /sessions/:id/context` | yes | `{parts: [{id, label, tokens}], used, max, percent, estimated, model}` |
@@ -410,8 +410,10 @@ carries on in the same turn.
 Over the socket, `sessions.subscribe {id}` answers with the chat's state and starts its live events:
 
 ```json
-{"session": {…}, "seq": 41, "turns": {"items": [Turn], "nextCursor": null}, "approvals": [Approval]}
+{"session": {…}, "seq": 41, "turns": {"items": [Turn], "nextCursor": null}, "approvals": [Approval], "waiting": [{"requestId": "…", "mode": "queued"}]}
 ```
+
+`waiting` lists the messages sent into this chat that are still queued, not yet part of a turn, in queue order: `requestId` is the one the message's turn will name (the original, also for a queued message turned into a steer), `mode` is `queued` (follow-up) or `steer`. Messages sent without a `requestId` are not listed. Empty when none. A message leaves the list when its turn starts (or when Stop withdraws it); the `replay` answer carries `waiting` too.
 
 The running turn (if any) is in `turns` with what has streamed so far. Events of this chat carry `seq`; an
 event with a `seq` at or below the snapshot's is already in it and must be skipped (one can arrive just
@@ -419,7 +421,7 @@ before the reply). `seq` only grows, with gaps. `sessions.submit` over a socket 
 
 After a reconnect, subscribe again. With feature `events.replay`, pass the last `seq` the client applied as
 `afterSeq`: when the gateway still has every event after it, the answer is
-`{session, seq, replay: [events], approvals}`, the missed events in order, and live events continue after
+`{session, seq, replay: [events], approvals, waiting}`, the missed events in order, and live events continue after
 them. Otherwise (too long away, or the hello's `bootId` changed: then do not pass `afterSeq` at all) the
 answer is the snapshot above, which replaces what the client holds. A gateway keeps a chat's latest 2,000
 events for 5 minutes after its last follower leaves.

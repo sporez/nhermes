@@ -114,6 +114,81 @@ test("a message that waited behind a run names its requestId when its turn start
 	await c2.close();
 });
 
+test("a steer during a running reply is steered and its turn names its requestId; with no reply running it is started", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	faux.setResponses([fauxAssistantMessage([fauxText("word ".repeat(200).trim())]), fauxAssistantMessage([fauxText("Steered.")])]);
+	await c.call("sessions.submit", { id: sid, text: "first" });
+	await c.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	const r = await c.call<{ status: string }>("sessions.submit", { id: sid, text: "change course", requestId: "req-steer", steer: true });
+	assert.equal(r.status, "steered");
+	await c.waitEvent((e) => finished(sid)(e) && chatEvents(c, sid).filter((x) => x.event === "turn.finished").length === 2, 15000);
+	const users = chatEvents(c, sid).filter((e) => e.event === "turn.started").map((e) => (e.data.turn as Turn).user);
+	assert.deepEqual(users.map((u) => u?.requestId), [undefined, "req-steer"]);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	faux.setResponses([fauxAssistantMessage([fauxText("Idle.")])]);
+	const idle = await c.call<{ status: string }>("sessions.submit", { id: sid, text: "now idle", requestId: "req-idle", steer: true });
+	assert.equal(idle.status, "started");
+	await c.close();
+});
+
+test("a queued message sent again as a steer runs once, under its original requestId", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	faux.setResponses([fauxAssistantMessage([fauxText("word ".repeat(200).trim())]), fauxAssistantMessage([fauxText("Second.")]), fauxAssistantMessage([fauxText("Unexpected.")])]);
+	await c.call("sessions.submit", { id: sid, text: "first" });
+	await c.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	const queued = await c.call<{ status: string }>("sessions.submit", { id: sid, text: "second", requestId: "req-q" });
+	assert.equal(queued.status, "queued");
+	const steered = await c.call<{ status: string }>("sessions.submit", { id: sid, text: "second", requestId: "req-q", steer: true });
+	assert.equal(steered.status, "steered");
+	// A retry of the same call finds the work already done or in flight; nothing is added.
+	await c.call("sessions.submit", { id: sid, text: "second", requestId: "req-q", steer: true });
+	await c.waitEvent((e) => finished(sid)(e) && chatEvents(c, sid).filter((x) => x.event === "turn.finished").length === 2, 15000);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const page = await api()<{ items: Turn[] }>(`GET /sessions/${sid}/turns`);
+	assert.deepEqual(page.items.map((t) => t.user?.requestId), [undefined, "req-q"], "two turns, the second under the original id");
+	assert.equal(page.items[1]!.user?.content[0]?.text, "second");
+	await c.close();
+});
+
+test("waiting lists queued messages by their turn's requestId; a retried conversion replays the steer; Stop empties it", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	const waiting = async () => (await c.call<{ waiting: { requestId: string; mode: string }[] }>("sessions.subscribe", { id: sid })).waiting;
+	faux.setResponses([fauxAssistantMessage([fauxText("word ".repeat(200).trim())]), fauxAssistantMessage([fauxText("Second.")])]);
+	await c.call("sessions.submit", { id: sid, text: "first" });
+	await c.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	await c.call("sessions.submit", { id: sid, text: "second", requestId: "w-1" });
+	await c.call("sessions.submit", { id: sid, text: "third", requestId: "w-2" });
+	assert.deepEqual(await waiting(), [{ requestId: "w-1", mode: "queued" }, { requestId: "w-2", mode: "queued" }]);
+	await c.call("sessions.submit", { id: sid, text: "second", requestId: "w-1", steer: true });
+	assert.deepEqual(await waiting(), [{ requestId: "w-2", mode: "queued" }, { requestId: "w-1", mode: "steer" }]);
+	const retry = await c.call<{ submission: string }>("sessions.submit", { id: sid, text: "second", requestId: "w-1", steer: true });
+	assert.notEqual(retry.submission, "unanswered", "a retry reports the steer, not the withdrawn original");
+	// Stop withdraws what is queued: nothing is waiting, and a retried steer reports it unanswered.
+	await c.call("sessions.interrupt", { id: sid });
+	await c.waitEvent((e) => finished(sid)(e));
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.deepEqual(await waiting(), []);
+	const after = await c.call<{ submission: string }>("sessions.submit", { id: sid, text: "second", requestId: "w-1", steer: true });
+	assert.equal(after.submission, "unanswered");
+	await c.close();
+});
+
+test("a message leaves the waiting list when its turn starts", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	faux.setResponses([fauxAssistantMessage([fauxText("word ".repeat(100).trim())]), fauxAssistantMessage([fauxText("Second.")])]);
+	await c.call("sessions.submit", { id: sid, text: "first" });
+	await c.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	await c.call("sessions.submit", { id: sid, text: "second", requestId: "w-3" });
+	await c.waitEvent((e) => finished(sid)(e) && chatEvents(c, sid).filter((x) => x.event === "turn.finished").length === 2, 15000);
+	const snap = await c.call<{ waiting: unknown[] }>("sessions.subscribe", { id: sid });
+	assert.deepEqual(snap.waiting, []);
+	await c.close();
+});
+
 test("tool calls are items with their arguments, result, duration and status; replies split by them are separate items", async () => {
 	const c = await socket();
 	const sid = await newChat(c);

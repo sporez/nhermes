@@ -360,11 +360,23 @@ export class Sessions {
 		if (!busyNow) await this.followBot(id);
 		const live = await this.live(id);
 		const busy = live.running || (await this.engine.isBusy(row.conversation_id));
+		if (opts.whenBusy === "steer" && opts.requestId !== undefined) {
+			// A message sent earlier with this id and still queued becomes this steer; its turn keeps the original id.
+			// Every steer is Durable's `<id>:steer`, so its retries replay the steer, never the withdrawn original.
+			const queued = await this.engine.withdrawQueued(row.conversation_id, opts.requestId);
+			if (queued.result === "taken") return { status: "streaming", submission: queued.status };
+			opts = { ...opts, durableRequestId: `${opts.requestId}:steer` };
+		}
 		const r = await this.engine.submit(row.conversation_id, text, opts);
 		this.db.run("UPDATE sessions SET last_active = ? WHERE id = ?", Date.now() / 1000, id);
 		if (r.status === "done" || r.status === "unanswered") return { status: "streaming", submission: r.status };
 		if (!busy) return { status: "streaming", submission: r.status };
 		return { status: opts.whenBusy === "steer" ? "steered" : r.status === "queued" ? "queued" : "streaming", submission: r.status };
+	}
+
+	/** The owner messages Durable still holds queued in this chat, in queue order (by the id their turn will carry). */
+	waiting(id: string): Promise<{ requestId: string; mode: "queued" | "steer" }[]> {
+		return this.engine.waiting(this.require(id).conversation_id);
 	}
 
 	async interrupt(id: string): Promise<boolean> {

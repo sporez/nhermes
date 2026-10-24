@@ -15,6 +15,7 @@ import {
 	type Extension,
 	Harness,
 	type HarnessSettings,
+	InboxDoc,
 	LiveDoc,
 	MemoryStorage,
 	type Registry,
@@ -48,7 +49,10 @@ export type EngineOptions = {
 };
 
 export type SubmitOptions = {
+	/** Names the message in its turn (`user.requestId`). Also Durable's deduplication key unless `durableRequestId` is set. */
 	requestId?: string;
+	/** Durable's deduplication key when it must differ from the one the turn names (a queued message turned into a steer). */
+	durableRequestId?: string;
 	whenBusy?: "steer" | "followUp" | "reject";
 };
 
@@ -141,9 +145,35 @@ export class Engine {
 		const conv = await this.conv(id);
 		const { requestId } = options;
 		const entry = requestId === undefined ? undefined : { kind: REQUESTED_USER, data: { requestId } };
-		const sub = await conv.submit({ type: "input", content, requestId, entry, whenBusy: options.whenBusy ?? "followUp" }, ctx);
+		const sub = await conv.submit({ type: "input", content, requestId: options.durableRequestId ?? requestId, entry, whenBusy: options.whenBusy ?? "followUp" }, ctx);
 		const record = await sub.status(ctx);
 		return { submissionId: sub.id as number, status: record.status };
+	}
+
+	/**
+	 * Withdraws the message submitted with `requestId` if it is still queued behind a run. "withdrawn": it is gone, so the
+	 * caller may submit again under another id; "taken": Durable already placed it (`status`); "none": no unsettled
+	 * message has that id (unknown, or already answered or withdrawn: submitting under it is idempotent).
+	 */
+	async withdrawQueued(id: ConvId, requestId: string): Promise<{ result: "none" | "withdrawn" } | { result: "taken"; status: SubmissionRecord["status"] }> {
+		const open = (await this.harness.inspect(ctx)).submissions.find((s) => s.conversationId === cid(id) && s.requestId === requestId);
+		if (!open) return { result: "none" };
+		if (open.status === "queued" && (await this.harness.abortSubmission(open.id, ctx, cid(id))) === "aborted") return { result: "withdrawn" };
+		const now = await this.harness.submission(open.id, ctx);
+		return { result: "taken", status: now ? (await now.status(ctx)).status : open.status };
+	}
+
+	/** Messages with a request id still queued in the inbox, in queue order; `requestId` is the one their turn names. */
+	async waiting(id: ConvId): Promise<{ requestId: string; mode: "queued" | "steer" }[]> {
+		const inbox = await this.harness.snapshot(InboxDoc, cid(id), ctx);
+		const out: { requestId: string; mode: "queued" | "steer" }[] = [];
+		for (const item of inbox?.items ?? []) {
+			if (item.mode === "write") continue;
+			const entry = item.entry as { kind?: string; data?: { requestId?: unknown } } | undefined;
+			const requestId = entry?.kind === REQUESTED_USER ? entry.data?.requestId : undefined;
+			if (typeof requestId === "string") out.push({ requestId, mode: item.mode === "steer" ? "steer" : "queued" });
+		}
+		return out;
 	}
 
 	/** Resolves when the submission is answered or can no longer be. */

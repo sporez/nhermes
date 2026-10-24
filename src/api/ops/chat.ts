@@ -38,15 +38,15 @@ async function subscribe(p: Params, cx: OpContext) {
 	const missed = afterSeq === undefined ? undefined : cx.socket.missed(row.id, afterSeq);
 	if (missed) {
 		cx.socket.subscribe(row.id);
-		return { session: await sessionJson(cx.core, row), seq: hub.seq(row.id), replay: missed, approvals: approvals.pendingFor(row.id).map(approvalJson) };
+		return { session: await sessionJson(cx.core, row), seq: hub.seq(row.id), replay: missed, approvals: approvals.pendingFor(row.id).map(approvalJson), waiting: await cx.core.sessions.waiting(row.id) };
 	}
 	for (let attempt = 0; ; attempt++) {
 		const before = hub.seq(row.id);
-		const [turns, session] = await Promise.all([turnsPage(cx, row.id, undefined, limit), sessionJson(cx.core, cx.core.sessions.require(row.id))]);
+		const [turns, session, waiting] = await Promise.all([turnsPage(cx, row.id, undefined, limit), sessionJson(cx.core, cx.core.sessions.require(row.id)), cx.core.sessions.waiting(row.id)]);
 		if (hub.seq(row.id) !== before && attempt < 4) continue;
 		// Subscribed in the same synchronous step as the read is checked: later events follow it.
 		cx.socket.subscribe(row.id);
-		return { session, seq: hub.seq(row.id), turns, approvals: approvals.pendingFor(row.id).map(approvalJson) };
+		return { session, seq: hub.seq(row.id), turns, approvals: approvals.pendingFor(row.id).map(approvalJson), waiting };
 	}
 }
 
@@ -77,9 +77,10 @@ async function submit(p: Params, cx: OpContext) {
 	const answered = ids.length === 0 ? cx.core.approvals.answerWithReply(row.id, text) : undefined;
 	if (answered) return { status: "answered", approvalId: answered };
 	const requestId = p.optStr("requestId");
-	const r = await cx.core.attachments.submitWith(row.id, text, ids, (content) => cx.core.sessions.submit(row.id, content, { requestId, whenBusy: "followUp" }));
+	const steer = p.optBool("steer") ?? false;
+	const r = await cx.core.attachments.submitWith(row.id, text, ids, (content) => cx.core.sessions.submit(row.id, content, { requestId, whenBusy: steer ? "steer" : "followUp" }));
 	// `submission`: whether Durable placed it, queued it, or (a retry with the same requestId) already answered it.
-	return { status: r.status === "queued" ? "queued" : "started", submission: r.submission };
+	return { status: r.status === "queued" ? "queued" : r.status === "steered" ? "steered" : "started", submission: r.submission };
 }
 
 export const chatOps: Op[] = [
