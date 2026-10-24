@@ -321,7 +321,7 @@ export class Attachments {
 			const tokens = Math.ceil(r.text.length / CHARS_PER_TOKEN);
 			used += tokens;
 			const fence = "`".repeat(Math.max(3, longestRun(r.text, "`") + 1));
-			blocks.push(`📄 ${ref} (${tokens} tokens)\n${fence}${fenceLanguage(file.name)}\n${r.text}\n${fence}`);
+			blocks.push(`📄 ${ref} (${tokens} tokens) — ${inlined(file, bot)}\n${fence}${fenceLanguage(file.name)}\n${r.text}\n${fence}`);
 		}
 		const warning = used > soft ? `--- Context Warnings ---\n- @ context injection warning: ${used} tokens exceeds the 25% soft limit (${soft}).\n\n` : "";
 		return `${warning}--- Attached Context ---\n\n${blocks.join("\n\n")}`;
@@ -443,6 +443,15 @@ function readText(path: string, maxChars: number): { text?: string; binary: bool
 	}
 	if (text.length > maxChars) return { binary: false, size };
 	return { text, binary: false, size };
+}
+
+/**
+ * What an inlined upload is: always the whole file (one too long is not inlined at all), and where its copy is
+ * for tools. Without this a model treats the reference as a pointer and searches the disk for the original.
+ */
+function inlined(file: Uploaded, bot: Bot): string {
+	const where = HostEnvs.isRemote(bot) ? "its copy is on the gateway machine, which your tools on the remote host cannot reach" : `its copy is at \`${file.path}\``;
+	return `the user's attached file, its whole text below; ${where}. Answer from this text; do not search the disk for it or for an original.`;
 }
 
 /** Hermes' note for a file not inlined (`_on_disk_reference_block`): where it is and what to do with it. */

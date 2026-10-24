@@ -87,7 +87,12 @@ test("an uploaded text file named in a prompt is put in it; a binary or oversize
 		assert.equal(content[0]!.type === "text" && content[0]!.text, `Count the rows\n${csvRef}\n${zipRef}`, "the words stay as typed, then a line per file");
 		const ctx = content[1]!.type === "text" ? content[1]!.text : "";
 		assert.match(ctx, /^--- Attached Context ---/);
-		assert.ok(ctx.includes("📄 @file:`uploads/stock list.csv` (5 tokens)\n```csv\nname,qty\napples,3\n\n```"), ctx);
+		assert.ok(
+			ctx.includes(
+				`📄 @file:\`uploads/stock list.csv\` (5 tokens) — the user's attached file, its whole text below; its copy is at \`${t.pathOf(csv.id)}\`. Answer from this text; do not search the disk for it or for an original.\n\`\`\`csv\nname,qty\napples,3\n\n\`\`\``,
+			),
+			ctx,
+		);
 		assert.ok(ctx.includes(`📎 @file:uploads/archive.zip (application/zip, 8 B) — binary file, not inlined as text. It is available on disk at \`${t.pathOf(zip.id)}\`.`), ctx);
 		// Named again later: expanded again.
 		const later = (await t.content(`and again ${csvRef}`)) as Block[];
