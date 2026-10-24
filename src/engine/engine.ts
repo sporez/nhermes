@@ -28,6 +28,7 @@ import {
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { withCardNotes } from "../core/cards.ts";
+import { REQUESTED_USER } from "../core/turns.ts";
 import { logger } from "../log.ts";
 import { imageTokens } from "./image-tokens.ts";
 
@@ -134,10 +135,13 @@ export class Engine {
 		};
 	}
 
-	/** Text, or text and image blocks (a prompt with attached pictures). */
+	/** Text, or text and image blocks (a prompt with attached pictures). A request id is kept on the message's entry,
+	 * so its turn names it (core/turns.ts). */
 	async submit(id: ConvId, content: UserInput, options: SubmitOptions = {}): Promise<SubmitResult> {
 		const conv = await this.conv(id);
-		const sub = await conv.submit({ type: "input", content, requestId: options.requestId, whenBusy: options.whenBusy ?? "followUp" }, ctx);
+		const { requestId } = options;
+		const entry = requestId === undefined ? undefined : { kind: REQUESTED_USER, data: { requestId } };
+		const sub = await conv.submit({ type: "input", content, requestId, entry, whenBusy: options.whenBusy ?? "followUp" }, ctx);
 		const record = await sub.status(ctx);
 		return { submissionId: sub.id as number, status: record.status };
 	}

@@ -10,7 +10,7 @@ import { logger, redact } from "../log.ts";
 import type { Hub, RunStatus, UsageSummary } from "./events.ts";
 import { CARD_TOOLS, type CardDetails, cardNote } from "./cards.ts";
 import { textOf, toolPreview, userDisplay } from "./transcript.ts";
-import { cardItem, type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, userContent } from "./turns.ts";
+import { cardItem, type LivePartial, projectTurns, replyItemId, type RunRecord, toolStatus, type TurnItem, type TurnUsage, turnId, turnUser } from "./turns.ts";
 
 const log = logger("live");
 
@@ -342,7 +342,7 @@ export class LiveSession {
 		this.shows.clear();
 		this.turnUsage = undefined;
 		const at = m.timestamp ?? Date.now();
-		this.emit({ type: "turn.started", turn: { id: this.turn, status: "running", startedAt: at, endedAt: null, user: { content: userContent(m.content), at }, items: [] } });
+		this.emit({ type: "turn.started", turn: { id: this.turn, status: "running", startedAt: at, endedAt: null, user: turnUser(entry, m, at), items: [] } });
 	}
 
 	/** A model reply is complete: its reasoning and text items finish, and the tool calls it asked for start. */

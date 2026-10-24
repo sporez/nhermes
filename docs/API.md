@@ -242,7 +242,7 @@ answer, in order.
 ```json
 {
   "id": "t42", "status": "complete", "startedAt": 1761139200000, "endedAt": 1761139211000,
-  "user": {"content": [{"type": "text", "text": "How many?"}], "at": 1761139200000},
+  "user": {"content": [{"type": "text", "text": "How many?"}], "at": 1761139200000, "requestId": "6F1C…"},
   "items": [
     {"type": "reasoning", "id": "t42.1r", "text": "…", "at": 1761139200100},
     {"type": "text", "id": "t42.1t", "text": "Checking.", "at": 1761139200100},
@@ -258,7 +258,9 @@ answer, in order.
 - `status`: `running`, `complete`, `error` (with `error`), `interrupted`. `endedAt` is `null` while running,
   and for turns from before the gateway recorded run ends.
 - `user` is `null` for a turn that only carries a notice (a scheduled task's result posted into the chat,
-  a compaction marker).
+  a compaction marker). `user.requestId` is the `requestId` the message was submitted with (absent when it had
+  none), in history and in `turn.started`, so the client that sent it knows its turn, even one that waited
+  behind a run or started before a snapshot.
 - Content blocks: `{type: "text", text}`, `{type: "attachment", attachment: {id, kind, name, pages?}}`
   (`kind`: `image`, `pdf`, `file`; `id` is `null` only when an old upload's file is gone).
 - Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `card` (see

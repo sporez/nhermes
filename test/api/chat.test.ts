@@ -49,7 +49,7 @@ const api = () => http(server.port);
 const socket = () => ApiSocketClient.connect(server.port);
 type Session = { id: string; botId: string; title: string; running: boolean; model: { provider: string; id: string }; thinking: string; yolo: boolean; messageCount: number };
 type Item = { type: string; id: string; text?: string; name?: string; status?: string; args?: Record<string, unknown>; durationMs?: number | null; isError?: boolean; result?: { text: string; truncated: boolean; length: number; json?: unknown } | null };
-type Turn = { id: string; status: string; startedAt: number; endedAt: number | null; user: { content: { type: string; text?: string }[] } | null; items: Item[] };
+type Turn = { id: string; status: string; startedAt: number; endedAt: number | null; user: { content: { type: string; text?: string }[]; requestId?: string } | null; items: Item[] };
 const chatEvents = (c: ApiSocketClient, sid: string) => c.events.filter((e) => e.sessionId === sid);
 const finished = (sid: string) => (e: ApiEvent) => e.event === "turn.finished" && e.sessionId === sid;
 
@@ -87,11 +87,31 @@ test("a turn streams as turn.started → item events → turn.finished, and hist
 	assert.ok(turn.endedAt! >= turn.startedAt, "the run record gives the turn its end");
 	assert.deepEqual(turn.items.map((i) => [i.type, i.id]), [["reasoning", `${turnId}.1r`], ["text", `${turnId}.1t`]]);
 	assert.equal(turn.items[1]!.text, "Hello Neil, the gateway is working.");
+	assert.equal((events[0]!.data.turn as Turn).user?.requestId, "req-1", "the turn names the message's requestId live");
+	assert.equal(turn.user?.requestId, "req-1", "and in history");
 	// The same requestId is the same message: nothing is sent twice.
 	const again = await c.call<{ submission: string }>("sessions.submit", { id: sid, text: "say hello", requestId: "req-1" });
 	assert.equal(again.submission, "done");
 	assert.equal((await api()<{ items: Turn[] }>(`GET /sessions/${sid}/turns`)).items.length, 1);
 	await c.close();
+});
+
+test("a message that waited behind a run names its requestId when its turn starts, and in a later snapshot", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	faux.setResponses([fauxAssistantMessage([fauxText("word ".repeat(200).trim())]), fauxAssistantMessage([fauxText("Second.")])]);
+	await c.call("sessions.submit", { id: sid, text: "first" });
+	await c.waitEvent((e) => e.event === "item.delta" && e.sessionId === sid);
+	const queued = await c.call<{ status: string }>("sessions.submit", { id: sid, text: "second", requestId: "req-queued" });
+	assert.equal(queued.status, "queued");
+	await c.waitEvent((e) => finished(sid)(e) && chatEvents(c, sid).filter((x) => x.event === "turn.finished").length === 2, 15000);
+	const started = chatEvents(c, sid).filter((e) => e.event === "turn.started").map((e) => (e.data.turn as Turn).user);
+	assert.deepEqual(started.map((u) => u?.requestId), [undefined, "req-queued"], "a message sent without one names none");
+	const c2 = await socket();
+	const snap = await c2.call<{ turns: { items: Turn[] } }>("sessions.subscribe", { id: sid });
+	assert.deepEqual(snap.turns.items.map((t) => t.user?.requestId), [undefined, "req-queued"]);
+	await c.close();
+	await c2.close();
 });
 
 test("tool calls are items with their arguments, result, duration and status; replies split by them are separate items", async () => {

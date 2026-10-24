@@ -63,11 +63,21 @@ export type Turn = {
 	startedAt: number;
 	/** When it ended; null while running, and for turns from before run records were kept. */
 	endedAt: number | null;
-	user: { content: ContentBlock[]; at: number } | null;
+	/** `requestId`: the one the message was submitted with, so the client that sent it knows its turn. */
+	user: { content: ContentBlock[]; at: number; requestId?: string } | null;
 	items: TurnItem[];
 	error?: string;
 	usage?: TurnUsage;
 };
+
+/** An owner message submitted with a request id is this kind of entry, with the id as its data (engine.submit). */
+export const REQUESTED_USER = "nh.user";
+
+/** A turn's `user`: the message's content, when it was written, and the request id it was submitted with. */
+export function turnUser(entry: EntryRecord, m: { content: string | Block[]; timestamp?: number }, at: number): NonNullable<Turn["user"]> {
+	const requestId = entry.kind === REQUESTED_USER ? (entry.data as { requestId?: unknown } | undefined)?.requestId : undefined;
+	return { content: userContent(m.content), at, ...(typeof requestId === "string" ? { requestId } : {}) };
+}
 
 /** How a run ended, recorded as an `nh.run` entry after it (engine.writeRunRecord). */
 export type RunRecord = { turn: string; status: Exclude<TurnStatus, "running">; error?: string; endedAt: number };
@@ -181,7 +191,7 @@ export function projectTurns(entries: readonly EntryRecord[], live?: { running: 
 		const at = m.timestamp ?? 0;
 		if (m.role === "user") {
 			close();
-			turn = { id: turnId(entry.id as number), status: "complete", startedAt: at, endedAt: null, user: { content: userContent(m.content), at }, items: [] };
+			turn = { id: turnId(entry.id as number), status: "complete", startedAt: at, endedAt: null, user: turnUser(entry, m, at), items: [] };
 			turns.push(turn);
 			ordinal = 0;
 			continue;

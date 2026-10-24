@@ -92,7 +92,7 @@ export function itemJson(item: TurnItem) {
 }
 
 export function turnJson(turn: Turn) {
-	return { ...turn, user: turn.user ? { content: contentJson(turn.user.content), at: turn.user.at } : null, items: turn.items.map(itemJson) };
+	return { ...turn, user: turn.user ? { ...turn.user, content: contentJson(turn.user.content) } : null, items: turn.items.map(itemJson) };
 }
 
 /** A request waiting for the owner: an approval (`kind: "approval"`) or a bot's question (`kind: "question"`). */
