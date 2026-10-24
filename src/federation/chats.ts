@@ -10,6 +10,7 @@ import { cardNote } from "../core/cards.ts";
 import type { Hub } from "../core/events.ts";
 import type { SessionRow, Sessions } from "../core/sessions.ts";
 import { logger } from "../log.ts";
+import { thinkingLevel } from "./roster.ts";
 import type { ApiEvent } from "../api/socket.ts";
 import { ApiClient, RemoteError } from "../remote/api-client.ts";
 import type { Members } from "./members.ts";
@@ -146,6 +147,13 @@ export class MemberChats {
 			if (text) this.d.sessions().recordRemote(row.id, { prompt: text });
 		}
 		if (op === "sessions.subscribe") this.link(row.remote_node!).subscribed.add(row.id);
+		// The member's own model and reasoning for the chat (it may have chosen its own), for this gateway's answers.
+		const s = r.session as { model?: { provider?: unknown; id?: unknown }; thinking?: unknown } | undefined;
+		if (s && typeof s === "object") {
+			const { provider, id } = s.model ?? {};
+			const model = typeof provider === "string" && provider && typeof id === "string" && id ? `${provider}/${id}`.slice(0, 200) : undefined;
+			this.d.sessions().recordRemote(row.id, { model, thinking: thinkingLevel(s.thinking) });
+		}
 		return localize(r, bot);
 	}
 

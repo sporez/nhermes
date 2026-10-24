@@ -36,8 +36,8 @@ items with arguments, result, structured result (MCP `structuredContent`), durat
 when refused), following a chat mid-answer, approvals announced and answered on any device, interrupt,
 chat settings, commands, redaction of every new field; uploads by id (pictures, PDFs, files, as bytes or
 base64), taken back before sending, opened from history, old chats' uploads given ids; chats with a
-member's bot through this gateway (calls, events, approvals asked here, uploads kept there, a dropped link,
-an offline member), a member on the encrypted port limited to its own chats and shareable bots.
+member's bot through this gateway (calls, events, approvals asked here, uploads kept there, the member's
+reasoning level and a model or reasoning change kept there, a dropped link, an offline member), a member on the encrypted port limited to its own chats and shareable bots.
 Delegation, `peer:` agents and member bots' group chat turns run over the client API
 (`test/remote/peer.test.ts`, `test/core/delegate.test.ts`, `test/federation/rooms.test.ts`,
 `test/federation/network.test.ts`); group chats with their log pushed live (`test/api/rooms.test.ts`); bot settings, skills, rules, tool

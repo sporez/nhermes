@@ -69,7 +69,7 @@ function remoteBot(r: RemoteBot, config: Config): Bot {
 		isDefault: false,
 		instructions: "",
 		model,
-		thinking: config.defaults.thinking,
+		thinking: r.thinking ?? config.defaults.thinking,
 		toolGroups: [],
 		globalSkills: [],
 		disabledSkills: [],

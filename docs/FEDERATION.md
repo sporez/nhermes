@@ -121,7 +121,7 @@ Prerequisite for the panel and for a roster that changes while the gateway runs.
 ### F4. Roster sync and delegation
 
 - `GET /federation/roster` (member-authenticated) returns the member's non-private local bots: name,
-  display name, description, model, and whether it is online.
+  display name, description, model, reasoning level, and whether it is online.
 - Each member polls every other member's roster at start and every few minutes, and immediately after a
   join or leave notice. Last-known rosters are kept in `app.sqlite`, so a down member's bots stay listed
   as unreachable rather than vanishing.

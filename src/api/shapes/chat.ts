@@ -1,6 +1,7 @@
 // Wire shapes of the chat resources (docs/API.md "Bots", "Sessions", "Turns", "Approvals"): one serializer
 // per resource, used by lists, gets, events and snapshots alike. Times leave here as Unix milliseconds.
 import type { Core } from "../../app.ts";
+import { splitModel } from "../../config.ts";
 import type { Bot } from "../../core/bots.ts";
 import type { ApprovalRequest, UsageSummary } from "../../core/events.ts";
 import type { SessionRow } from "../../core/sessions.ts";
@@ -38,8 +39,15 @@ export async function sessionJson(core: Core, row: SessionRow) {
 	const bot = core.bots.get(row.bot);
 	let model = bot ? { provider: bot.model.provider, id: bot.model.modelId } : null;
 	let thinking = bot?.thinking ?? null;
-	// A chat that chose its own model or reasoning keeps it; the others follow their bot.
-	if (!row.remote_node && (row.model_override || row.thinking_override)) {
+	// A chat that chose its own model or reasoning keeps it; the others follow their bot. A chat with a member's
+	// bot says what the member last reported for it.
+	if (row.remote_node) {
+		if (row.remote_model) {
+			const m = splitModel(row.remote_model);
+			model = { provider: m.provider, id: m.modelId };
+		}
+		if (row.remote_thinking) thinking = row.remote_thinking as typeof thinking;
+	} else if (row.model_override || row.thinking_override) {
 		const agent = await core.engine.agentModel(row.conversation_id);
 		if (row.model_override && agent.model) model = { provider: agent.model.provider, id: agent.model.modelId };
 		if (row.thinking_override) thinking = agent.thinking as typeof thinking;

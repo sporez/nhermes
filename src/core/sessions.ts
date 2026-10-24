@@ -40,6 +40,9 @@ export type SessionRow = {
 	thinking_override: number;
 	/** Node id of the member that holds this chat's conversation (a chat with a member's bot). */
 	remote_node: string | null;
+	/** That member's model (`provider/modelId`) and reasoning level for the chat, as it last reported them. */
+	remote_model: string | null;
+	remote_thinking: string | null;
 	/** The "recent chats" prompt section as this chat first saw it; null until then. */
 	recap: string | null;
 };
@@ -160,10 +163,14 @@ export class Sessions {
 	}
 
 	/** Keeps a member chat's catalogue row current from what passes through (prompts, answers, titles). */
-	recordRemote(id: string, e: { prompt?: string; answer?: string; title?: string }): void {
+	recordRemote(id: string, e: { prompt?: string; answer?: string; title?: string; model?: string; thinking?: string }): void {
 		if (e.prompt !== undefined) this.onUserPlaced(id, e.prompt, false);
 		if (e.answer !== undefined) this.onRunFinished(id, e.answer);
 		if (e.title !== undefined && e.title.trim()) this.db.run("UPDATE sessions SET title = ? WHERE id = ?", e.title.trim(), id);
+		const row = this.get(id);
+		if (!row || ((e.model ?? row.remote_model) === row.remote_model && (e.thinking ?? row.remote_thinking) === row.remote_thinking)) return;
+		this.db.run("UPDATE sessions SET remote_model = ?, remote_thinking = ? WHERE id = ?", e.model ?? row.remote_model, e.thinking ?? row.remote_thinking, id);
+		this.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 	}
 
 	/** Records a conversation created elsewhere (a delegation's child) as a session of `botName`. */

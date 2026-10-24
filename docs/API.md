@@ -198,6 +198,8 @@ member's approval requests are asked here, as `approval.requested` events like a
 description that starts with `from <machine>:`. Uploads into such a chat are kept on the member.
 
 - `yolo` cannot be switched on for such a chat (`not_allowed`): its approvals are the member's.
+- The bot's `thinking` and the chat's `model` and `thinking` are the member's: a model or reasoning change is
+  checked and kept there, and the chat then reports what the member last said for it.
 - When the link to the member drops, a followed chat gets `session.stale`: subscribe again.
 - While the member is offline, calls about its chats answer `member_offline`; the chat list still shows
   them.

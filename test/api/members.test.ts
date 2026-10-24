@@ -15,9 +15,9 @@ import { ApiSocketClient, http } from "./client.ts";
 
 type Gw = { core: Core; server: GatewayServer; faux: ReturnType<typeof fauxProvider>; port: number };
 
-async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw> {
+async function gateway(dir: string, name: string, bots: BotConfig[], modelIds = ["faux-1"]): Promise<Gw> {
 	const d = join(dir, name);
-	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 400 });
+	const faux = fauxProvider({ provider: "faux", models: modelIds.map((id) => ({ id, reasoning: true })), tokensPerSecond: 400 });
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const core = await testCore(d, { models, config: testConfig(d, bots, { node: { name } }) });
@@ -25,10 +25,10 @@ async function gateway(dir: string, name: string, bots: BotConfig[]): Promise<Gw
 	return { core, server, faux, port: server.port };
 }
 
-async function network() {
+async function network(nasbot: Partial<BotConfig> = {}, betaModels?: string[]) {
 	const { dir, cleanup } = await tempDir();
 	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
-	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true, description: "Runs on the NAS" }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true, description: "Runs on the NAS", ...nasbot }], betaModels);
 	const { code } = a.core.members.invite();
 	await b.core.members.join(code);
 	await a.core.roster.sync();
@@ -104,6 +104,33 @@ test("the app on alpha chats with beta's bot: calls, events, approvals and histo
 			const check = () => (n.b.core.sessions.get(sid) === undefined ? resolve() : setImmediate(check));
 			check();
 		});
+	} finally {
+		await app.close();
+		await n.close();
+	}
+});
+
+test("a chat with beta's bot shows beta's reasoning and model, and a change made from alpha sticks", async () => {
+	const n = await network({ thinking: "high" }, ["faux-1", "faux-nas"]);
+	const app = await ApiSocketClient.connect(n.a.port);
+	type Chat = Session & { model: { provider: string; id: string }; thinking: string };
+	try {
+		const { items: bots } = await http(n.a.port)<{ items: { id: string; thinking: string }[] }>("GET /bots");
+		assert.equal(bots.find((x) => x.id === "nasbot-beta")?.thinking, "high", "beta's bot keeps its own level, not alpha's default");
+		const { session } = await app.call<{ session: Chat }>("sessions.create", { botId: "nasbot-beta" });
+		assert.equal(session.thinking, "high");
+		const sid = session.id;
+
+		const { session: changed } = await http(n.a.port)<{ session: Chat }>(`PATCH /sessions/${sid}`, { thinking: "low", model: { provider: "faux", id: "faux-nas" } });
+		assert.deepEqual([changed.thinking, changed.model.id], ["low", "faux-nas"], "a model only beta has is beta's to accept");
+		const onBeta = await n.b.core.engine.agentModel(n.b.core.sessions.require(sid).conversation_id);
+		assert.deepEqual([onBeta.thinking, onBeta.model?.modelId], ["low", "faux-nas"]);
+		const { session: got } = await http(n.a.port)<{ session: Chat }>(`GET /sessions/${sid}`);
+		assert.deepEqual([got.thinking, got.model.id], ["low", "faux-nas"]);
+		const listed = await http(n.a.port)<{ items: Chat[] }>("GET /sessions", { botId: "nasbot-beta" });
+		assert.equal(listed.items.find((s) => s.id === sid)?.thinking, "low");
+		const snap = await app.call<{ session: Chat }>("sessions.subscribe", { id: sid });
+		assert.deepEqual([snap.session.thinking, snap.session.model.id], ["low", "faux-nas"]);
 	} finally {
 		await app.close();
 		await n.close();

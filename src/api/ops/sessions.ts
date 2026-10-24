@@ -18,7 +18,8 @@ function ownerOnly(cx: OpContext, what: string): void {
 }
 
 /** `provider/id` or `{provider, id}`, checked against the models this gateway has. */
-function modelParam(cx: OpContext, p: Params): { provider: string; modelId: string } | undefined {
+/** A model to switch to. One for a chat with a member's bot is the member's to check (`local` false). */
+function modelParam(cx: OpContext, p: Params, local = true): { provider: string; modelId: string } | undefined {
 	const raw = p.raw.model;
 	if (raw === undefined || raw === null) return undefined;
 	let provider = "";
@@ -32,7 +33,7 @@ function modelParam(cx: OpContext, p: Params): { provider: string; modelId: stri
 		provider = typeof o.provider === "string" ? o.provider : "";
 		id = typeof o.id === "string" ? o.id : "";
 	}
-	if (!provider || !id || !cx.core.models.getModel(provider, id)) throw new ApiError("invalid_params", `There is no model ${provider ? `${provider}/` : ""}${id} on this gateway.`);
+	if (!provider || !id || (local && !cx.core.models.getModel(provider, id))) throw new ApiError("invalid_params", `There is no model ${provider ? `${provider}/` : ""}${id} on this gateway.`);
 	return { provider, modelId: id };
 }
 
@@ -79,7 +80,7 @@ async function update(p: Params, cx: OpContext) {
 	const pinned = p.optBool("pinned");
 	const archived = p.optBool("archived");
 	const yolo = p.optBool("yolo");
-	const model = modelParam(cx, p);
+	const model = modelParam(cx, p, !row.remote_node);
 	const thinking = p.optEnum("thinking", THINKING_LEVELS as readonly ThinkingLevel[]);
 	if (cx.caller.kind === "member" && (yolo !== undefined || pinned !== undefined || archived !== undefined)) throw new ApiError("not_allowed", "A network member can change only a chat's title, model and reasoning.");
 	if (row.remote_node) {

@@ -1,6 +1,7 @@
 // The network's bots. Each member publishes its shareable bots (local, not private); every member
 // fetches the others' lists on a timer and after membership changes, and keeps the last known list so an
 // offline member's bots stay listed as unreachable. Remote bots appear locally as `<bot>-<node>`.
+import { THINKING_LEVELS, type ThinkingLevel } from "../config.ts";
 import { logger } from "../log.ts";
 import type { AppDb } from "../store/db.ts";
 import type { Bot } from "../core/bots.ts";
@@ -10,9 +11,9 @@ const log = logger("roster");
 
 const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
-export type RemoteBot = { nodeId: string; node: string; bot: string; displayName: string; description: string; model: string; reachable: boolean };
+export type RemoteBot = { nodeId: string; node: string; bot: string; displayName: string; description: string; model: string; thinking?: ThinkingLevel; reachable: boolean };
 
-type Published = { name: string; display_name: string; description: string; model: string };
+type Published = { name: string; display_name: string; description: string; model: string; thinking: string };
 
 /** Text from another machine that ends up in prompts: one line, printable, bounded. */
 function clean(text: unknown, max: number): string {
@@ -23,13 +24,18 @@ function clean(text: unknown, max: number): string {
 		.slice(0, max);
 }
 
+/** A reasoning level another machine named, if it is one. */
+export function thinkingLevel(value: unknown): ThinkingLevel | undefined {
+	return THINKING_LEVELS.find((l) => l === value);
+}
+
 /** The local bots other members may use. */
 export function shareable(bots: readonly Bot[]): Bot[] {
 	return bots.filter((b) => !b.private && !b.isPeer);
 }
 
 export function publish(bots: readonly Bot[]): { bots: Published[] } {
-	return { bots: shareable(bots).map((b) => ({ name: b.name, display_name: b.displayName, description: b.description, model: `${b.model.provider}/${b.model.modelId}` })) };
+	return { bots: shareable(bots).map((b) => ({ name: b.name, display_name: b.displayName, description: b.description, model: `${b.model.provider}/${b.model.modelId}`, thinking: b.thinking })) };
 }
 
 export class Roster {
@@ -45,11 +51,11 @@ export class Roster {
 	list(): RemoteBot[] {
 		const members = new Map(this.members.list().map((m) => [m.node_id, m]));
 		return this.db
-			.all<{ node_id: string; bot: string; display_name: string; description: string; model: string }>("SELECT * FROM remote_bots ORDER BY node_id, bot")
+			.all<{ node_id: string; bot: string; display_name: string; description: string; model: string; thinking: string }>("SELECT * FROM remote_bots ORDER BY node_id, bot")
 			.flatMap((r) => {
 				const m = members.get(r.node_id);
 				if (!m) return [];
-				return [{ nodeId: r.node_id, node: m.name, bot: r.bot, displayName: r.display_name, description: r.description, model: r.model, reachable: m.reachable }];
+				return [{ nodeId: r.node_id, node: m.name, bot: r.bot, displayName: r.display_name, description: r.description, model: r.model, thinking: thinkingLevel(r.thinking), reachable: m.reachable }];
 			});
 	}
 
@@ -75,12 +81,13 @@ export class Roster {
 				this.db.run("DELETE FROM remote_bots WHERE node_id = ?", m.node_id);
 				for (const b of rows) {
 					this.db.run(
-						"INSERT INTO remote_bots (node_id, bot, display_name, description, model, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+						"INSERT INTO remote_bots (node_id, bot, display_name, description, model, thinking, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 						m.node_id,
 						b.name,
 						clean(b.display_name, 60) || b.name,
 						clean(b.description, 300),
 						clean(b.model, 120),
+						thinkingLevel(b.thinking) ?? "",
 						Date.now() / 1000,
 					);
 				}

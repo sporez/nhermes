@@ -99,7 +99,7 @@ export const chatOps: Op[] = [
 			if (!cx.socket) throw new ApiError("invalid_params", "Following a chat needs the WebSocket.");
 			cx.socket.subscribe(row.id);
 			const snap = await cx.core.memberChats.forward(row, "sessions.subscribe", { limit: p.optInt("limit", { min: 1, max: 500 }) ?? PAGE });
-			return { ...snap, session: await sessionJson(cx.core, row), approvals: cx.core.approvals.pendingFor(row.id).map(approvalJson) };
+			return { ...snap, session: await sessionJson(cx.core, cx.core.sessions.require(row.id)), approvals: cx.core.approvals.pendingFor(row.id).map(approvalJson) };
 		},
 		handle: subscribe,
 	},

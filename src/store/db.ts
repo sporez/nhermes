@@ -320,6 +320,13 @@ const MIGRATIONS: readonly string[] = [
 		last_error TEXT
 	);
 	`,
+	// 18: a member's bots' reasoning level, and the model and reasoning a member last reported for each chat
+	// with one of its bots (a chat can choose its own; the member is the authority, this is its last word)
+	`
+	ALTER TABLE remote_bots ADD COLUMN thinking TEXT NOT NULL DEFAULT '';
+	ALTER TABLE sessions ADD COLUMN remote_model TEXT;
+	ALTER TABLE sessions ADD COLUMN remote_thinking TEXT;
+	`,
 ];
 
 export type Row = Record<string, SQLInputValue>;
