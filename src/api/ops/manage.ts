@@ -8,6 +8,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { THINKING_LEVELS, type ThinkingLevel } from "../../config.ts";
 import { loadAction, pruneActions, runCheck, runRestart, runUpdate, startDoctor } from "../../core/actions.ts";
 import type { GatewayPatch } from "../../core/settings.ts";
+import { jobJson, ms, runJson } from "../../core/job-shapes.ts";
 import { type JobInput, type NotifyPolicy } from "../../core/scheduler.ts";
 import { usageReport } from "../../core/usage.ts";
 import { FILE_MAX, insideWorkspace, mimeOf, workspaceRoots } from "../../core/workspaces.ts";
@@ -17,7 +18,7 @@ import { ApiError } from "../errors.ts";
 import { botOf, localSession } from "../lookup.ts";
 import type { Op, OpContext } from "../ops.ts";
 import type { Params } from "../params.ts";
-import { actionJson, gatewaySettingsJson, jobJson, keyJson, ms, runJson, softwareJson } from "../shapes/manage.ts";
+import { actionJson, gatewaySettingsJson, keyJson, softwareJson } from "../shapes/manage.ts";
 
 const APPROVALS = ["manual", "smart", "off"] as const;
 
@@ -133,7 +134,7 @@ function jobPatch(p: Params): Partial<JobInput> {
 	return j;
 }
 
-const job = (cx: OpContext, id: string) => jobJson(cx.core, cx.core.scheduler.require(id));
+const job = (cx: OpContext, id: string) => jobJson(cx.core.scheduler, cx.core.scheduler.require(id));
 
 // ---- Files ----
 
@@ -247,7 +248,7 @@ export const manageOps: Op[] = [
 		handle: owner((p, cx) => {
 			const botId = p.optStr("botId");
 			const jobs = cx.core.scheduler.list(botId ? botOf(cx, botId).name : undefined);
-			return { items: jobs.map((j) => jobJson(cx.core, j)), nextCursor: null };
+			return { items: jobs.map((j) => jobJson(cx.core.scheduler, j)), nextCursor: null };
 		}),
 	},
 	{ name: "jobs.get", http: "GET /jobs/:id", handle: owner((p, cx) => ({ job: job(cx, p.str("id")) })) },

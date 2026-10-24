@@ -283,10 +283,16 @@ item that has `result.json`. The model is told what was shown and does not repea
 bot only when the app has a card for it, and the line that offers it names the card, for example
 `(The owner can be shown this as a Weather card: show {from: "c1a2b3"})`. The card is the tool's own (MacBridge's
 Calendar, Reminders, Contacts, Weather, Places, Travel time and MacBridge status; the map is `MCP_CARDS` in
-`src/core/cards.ts`) or, for any other tool, one by the result's shape: **List** (an object with a top-level
-array of at least one object, all with a string `id` and a string `title` or `name`) or **Facts** (an object of 1
+`src/core/cards.ts`) or, for any other tool, one by the result's shape: **List** (an object with exactly one
+top-level array, of at least one object, all with a string `id` and a string `title` or `name`; other keys may
+hold anything) or **Facts** (an object of 1
 to 30 values that are strings of at most 200 characters, finite numbers or booleans; `null` values do not
 count). Any other result has no card and no line, so the bot writes it into its reply.
+
+The scheduler tools keep their result as structured data in the client API's own shapes (see Scheduled tasks), so
+a card's `data` decodes with the types a client already has: `schedule_list` gives `{"jobs": [Job]}`,
+`schedule_create`, `schedule_update` and `schedule_run` give `{"job": Job}`, `schedule_history` gives
+`{"job": Job, "runs": [Run]}`. Their cards are "Scheduled tasks" (the list) and "Scheduled task".
 
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
