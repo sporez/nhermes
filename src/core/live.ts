@@ -41,6 +41,8 @@ export class LiveSession {
 	private blocks: string[] = [];
 	private thinking: string[] = [];
 	private streaming = false;
+	/** When the model call streaming now began (its message's timestamp): its items' `at`, live as in history. */
+	private messageAt: number | undefined;
 	/** Finished assistant texts of this run, in order. */
 	private runParts: string[] = [];
 	private runReasoning: string[] = [];
@@ -116,7 +118,7 @@ export class LiveSession {
 					if (m.role === "user") {
 						this.prompt = userDisplay(m.content);
 					} else if (m.role === "assistant") {
-						this.beginMessage();
+						this.beginMessage(m.timestamp);
 						this.applyWholeMessage(m);
 					}
 					break;
@@ -228,14 +230,16 @@ export class LiveSession {
 		if (partial) {
 			this.ordinal++;
 			this.streaming = true;
+			this.messageAt = partial.timestamp;
 			this.applyWholeMessage(partial, false);
 			this.opened = { text: this.blocks.some(Boolean), reasoning: this.thinking.some(Boolean) };
 		}
 	}
 
-	private beginMessage(): void {
+	private beginMessage(at?: number): void {
 		this.blocks = [];
 		this.thinking = [];
+		this.messageAt = at;
 		this.streaming = true;
 		this.ordinal++;
 		this.opened = { text: false, reasoning: false };
@@ -258,7 +262,7 @@ export class LiveSession {
 		const itemId = replyItemId(turn, this.ordinal, "t");
 		if (!this.opened.text) {
 			this.opened.text = true;
-			this.emit({ type: "item.started", turnId: turn, item: { type: "text", id: itemId, text: "", at: Date.now() } });
+			this.emit({ type: "item.started", turnId: turn, item: { type: "text", id: itemId, text: "", at: this.messageAt ?? Date.now() } });
 		}
 		this.emit({ type: "text.delta", text: next.slice(prev.length), turnId: turn, itemId });
 	}
@@ -271,7 +275,7 @@ export class LiveSession {
 		const itemId = replyItemId(turn, this.ordinal, "r");
 		if (!this.opened.reasoning) {
 			this.opened.reasoning = true;
-			this.emit({ type: "item.started", turnId: turn, item: { type: "reasoning", id: itemId, text: "", at: Date.now() } });
+			this.emit({ type: "item.started", turnId: turn, item: { type: "reasoning", id: itemId, text: "", at: this.messageAt ?? Date.now() } });
 		}
 		this.emit({ type: "reasoning.delta", text: next.slice(prev.length), turnId: turn, itemId });
 	}
@@ -315,7 +319,7 @@ export class LiveSession {
 		if (m.role !== "assistant") return;
 		const content = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content;
 		// Anything the stream did not show yet (an unstreamed answer) goes out as a delta first.
-		if (!this.streaming) this.beginMessage();
+		if (!this.streaming) this.beginMessage(m.timestamp);
 		content.forEach((b, i) => {
 			if (b.type === "text") this.setText(i, b.text ?? "");
 			else if (b.type === "thinking") this.setThinking(i, b.thinking ?? "");

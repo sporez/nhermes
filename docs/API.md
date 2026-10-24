@@ -267,6 +267,8 @@ answer, in order.
   (`kind`: `image`, `pdf`, `file`; `id` is `null` only when an old upload's file is gone).
 - Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `card` (see
   Cards), `notice` (`{kind, text, at}`), `error` (`{message, at}`).
+- A `reasoning` or `text` item's `at` is when its model call began: the same in `item.started`, `item.finished`
+  and history, so the time between two reply parts says how long the bot went without writing.
 - A tool item's `status`: `running`, `done`, `failed`, `blocked` (refused: the owner denied it or a rule
   did; it never ran), `unknown` (the run ended before it reported). `durationMs` is `null` when it never
   ran. `result.text` is cut at the hello's `toolResultChars` (`truncated`, `length` say so;

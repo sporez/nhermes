@@ -31,7 +31,8 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
 ## Client API (`/api/v1`, `docs/API.md`)
 
 Automated (`test/api/`): Bearer auth on HTTP and the socket, hello, errors, one operation over both
-transports, member-only operations; chats live and in history with the same turn and item ids, tool
+transports, member-only operations; chats live and in history with the same turn and item ids (and the same `at`
+for reply parts and reasoning, from when they start), tool
 items with arguments, result, structured result (MCP `structuredContent`), duration and status (blocked
 when refused), following a chat mid-answer, approvals announced and answered on any device, interrupt,
 chat settings, commands, redaction of every new field; uploads by id (pictures, PDFs, files, as bytes or

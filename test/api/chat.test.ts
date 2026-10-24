@@ -48,7 +48,7 @@ after(async () => {
 const api = () => http(server.port);
 const socket = () => ApiSocketClient.connect(server.port);
 type Session = { id: string; botId: string; title: string; running: boolean; model: { provider: string; id: string }; thinking: string; yolo: boolean; messageCount: number };
-type Item = { type: string; id: string; text?: string; name?: string; status?: string; args?: Record<string, unknown>; durationMs?: number | null; isError?: boolean; result?: { text: string; truncated: boolean; length: number; json?: unknown } | null };
+type Item = { type: string; id: string; at?: number; text?: string; name?: string; status?: string; args?: Record<string, unknown>; durationMs?: number | null; isError?: boolean; result?: { text: string; truncated: boolean; length: number; json?: unknown } | null };
 type Turn = { id: string; status: string; startedAt: number; endedAt: number | null; user: { content: { type: string; text?: string }[]; requestId?: string } | null; items: Item[] };
 const chatEvents = (c: ApiSocketClient, sid: string) => c.events.filter((e) => e.sessionId === sid);
 const finished = (sid: string) => (e: ApiEvent) => e.event === "turn.finished" && e.sessionId === sid;
@@ -143,6 +143,26 @@ test("tool calls are items with their arguments, result, duration and status; re
 	assert.equal(histTool.durationMs, tool.durationMs);
 	const full = await api()<{ text: string; json: unknown }>(`GET /sessions/${sid}/items/${tool.id}/result`);
 	assert.equal(full.text, "two items");
+	await c.close();
+});
+
+test("a reply part's `at` is when its model call began, the same when it starts, when it finishes and in history", async () => {
+	const c = await socket();
+	const sid = await newChat(c);
+	faux.setResponses([
+		fauxAssistantMessage([fauxThinking("Look first."), fauxText("Checking."), fauxToolCall("probe", { what: "list" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("There are two.")]),
+	]);
+	await c.call("sessions.submit", { id: sid, text: "how many?" });
+	await c.waitEvent(finished(sid));
+	const at = (name: string) => new Map(chatEvents(c, sid).filter((e) => e.event === name).map((e) => e.data.item as Item).filter((i) => i.type === "text" || i.type === "reasoning").map((i) => [i.id, i.at]));
+	const started = at("item.started");
+	const ended = at("item.finished");
+	const turn = (await api()<{ items: Turn[] }>(`GET /sessions/${sid}/turns`)).items.at(-1)!;
+	const history = new Map(turn.items.filter((i) => i.type === "text" || i.type === "reasoning").map((i) => [i.id, i.at]));
+	assert.equal(history.size, 3, [...history.keys()].join(","));
+	assert.deepEqual(started, history, "item.started carries the call's start, not the first word's time");
+	assert.deepEqual(ended, history);
 	await c.close();
 });
 
