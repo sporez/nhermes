@@ -234,6 +234,8 @@ test("the generic shape rule: a List needs a top-level array of objects that all
 	// List.
 	assert.equal(genericCardFor({ items: [item()] }), "List");
 	assert.equal(genericCardFor({ total: 2, tasks: [{ id: "a", name: "N" }, item()] }), "List");
+	assert.equal(genericCardFor({ items: [item()], other: [item()] }), null, "two arrays are no list");
+	assert.equal(genericCardFor({ items: [item()], meta: { a: { b: 1 } } }), "List", "other keys may hold anything");
 	assert.equal(genericCardFor({ items: [] }), null, "an empty array is no list");
 	assert.equal(genericCardFor({ items: [item(), { id: "b" }] }), null, "every element needs a title or name");
 	assert.equal(genericCardFor({ items: [item({ id: 5 })] }), null, "ids are strings");

@@ -74,19 +74,21 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * The generic card a structured result has by its shape alone, or null. The nHermes app's fallback follows this
  * exact rule (test/fixtures in both repos keep them together):
  *
- * - **List**: the data is an object (not an array) with at least one top-level property that is a non-empty array
- *   whose elements are ALL objects with a string `id` and a string `title` or a string `name`.
- * - **Facts**: otherwise, the data is an object (not an array) with 1 to 30 properties once properties whose value
- *   is `null` are left out, and every remaining value is a string of at most 200 characters, a finite number or a
- *   boolean. No nested objects or arrays.
- * - Anything else (an array at the top, nested values, an empty object): null, so no card.
+ * - **List:** the data is a JSON object with exactly ONE top-level key whose value is an array; other keys may hold
+ *   anything. That array has at least 1 element, and every element is an object with a string `id` and a string
+ *   `title` or `name`. If any element fails, it is neither List nor Facts, and there is no card. Two or more
+ *   array-valued keys means no List.
+ * - **Facts:** a JSON object where, after dropping keys whose value is null, 1 to 30 keys remain. Every value is a
+ *   string of at most 200 characters, a finite number or a boolean. Anything nested means no card.
+ * - **Anything else** (a bare top-level array, an empty object): no card, so no handle.
  */
 export function genericCardFor(data: unknown): "List" | "Facts" | null {
 	if (!isRecord(data)) return null;
 	const values = Object.values(data);
-	const listLike = (v: unknown) =>
-		Array.isArray(v) && v.length > 0 && v.every((e) => isRecord(e) && typeof e.id === "string" && (typeof e.title === "string" || typeof e.name === "string"));
-	if (values.some(listLike)) return "List";
+	const arrays = values.filter(Array.isArray);
+	if (arrays.length > 1) return null;
+	const only = arrays[0];
+	if (only) return only.length > 0 && only.every((e) => isRecord(e) && typeof e.id === "string" && (typeof e.title === "string" || typeof e.name === "string")) ? "List" : null;
 	const kept = values.filter((v) => v !== null);
 	if (kept.length < 1 || kept.length > FACTS_MAX_KEYS) return null;
 	return kept.every((v) => (typeof v === "string" && v.length <= FACT_VALUE_MAX) || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean") ? "Facts" : null;
