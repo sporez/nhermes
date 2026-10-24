@@ -279,7 +279,9 @@ answer, in order.
 A bot can show the owner a tool's result as a card. A tool that returns structured data (an MCP server's
 `structuredContent`) keeps it in the tool item's `result.json`; whether the owner sees it as a card is the
 bot's choice, made with its `show` tool, so a client draws a card only for a `card` item, not for every tool
-item that has `result.json`. The model is told what was shown and does not repeat it.
+item that has `result.json`. The model is told what was shown and does not repeat it. The bot is offered only the
+results the nHermes app draws (MacBridge's Calendar, Reminders, Contacts, Weather and Maps tools; the list is
+`DRAWN_MCP_TOOLS` in `src/core/cards.ts`), so it writes any other result into its reply.
 
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",

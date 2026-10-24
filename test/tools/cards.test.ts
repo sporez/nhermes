@@ -14,17 +14,19 @@ import { FakeMcpServer } from "../mcp/server.ts";
 
 const FAST = { connectBudgetMs: 2000, probeBudgetMs: 1500, probeGapMs: 0, pingTimeoutMs: 500, backoffBaseMs: 20, backoffCapMs: 80 };
 const TOOLS = [
-	{ name: "list_events", description: "List calendar events", inputSchema: { type: "object", properties: {} } },
+	{ name: "mac_calendar_list_events", description: "List calendar events", inputSchema: { type: "object", properties: {} } },
 	{ name: "plain", description: "No structured data", inputSchema: { type: "object", properties: {} } },
 	{ name: "broken", description: "Fails with data", inputSchema: { type: "object", properties: {} } },
+	{ name: "lookup", description: "Structured data the app has no card for", inputSchema: { type: "object", properties: {} } },
 ];
 const EVENTS = { events: [{ id: "e1", title: "Dentist" }, { id: "e2", title: "Lunch" }, { id: "e3", title: "Run" }], total: 3 };
 
 async function setup() {
 	const t = await tempDir();
 	const mcp = await FakeMcpServer.start(TOOLS);
-	mcp.behavior.set("list_events", { text: "3 events", structured: EVENTS });
+	mcp.behavior.set("mac_calendar_list_events", { text: "3 events", structured: EVENTS });
 	mcp.behavior.set("plain", { text: "just text" });
+	mcp.behavior.set("lookup", { text: "51.4, -0.1", structured: { latitude: 51.4, longitude: -0.1 } });
 	const { models, faux } = fauxModels();
 	const config = testConfig(t.dir, [{ name: "main", default: true, instructions: "test", tools: ["mcp:cal"] }], { mcp: { servers: [mcpServerConfig("cal", mcp.url, { tools: { include: ["*"], exclude: [], readOnly: ["*"] } })] } });
 	const core = await testCore(t.dir, { models, config, mcpTuning: FAST });
@@ -58,14 +60,15 @@ async function run(s: Awaited<ReturnType<typeof setup>>, steps: ReturnType<typeo
 
 const resultText = (events: SessionEvent[], id: string) => (events.find((e) => e.type === "tool.finished" && e.callId === id) as Extract<SessionEvent, { type: "tool.finished" }> | undefined)?.resultText ?? "";
 
-test("a kept, non-error structured result ends with its handle; one without structured data or with an error does not", async () => {
+test("a kept, non-error structured result the app draws ends with its handle; one without structured data, with an error or that the app does not draw does not", async () => {
 	const s = await setup();
 	try {
-		const r = await run(s, [ask(tool("mcp__cal__list_events", {}, "call_a"), tool("mcp__cal__plain", {}, "call_b"), tool("mcp__cal__broken", {}, "call_c")), fauxAssistantMessage([fauxText("ok")])]);
+		const r = await run(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_a"), tool("mcp__cal__plain", {}, "call_b"), tool("mcp__cal__broken", {}, "call_c"), tool("mcp__cal__lookup", {}, "call_d")), fauxAssistantMessage([fauxText("ok")])]);
 		assert.equal(resultText(r.events, "call_a"), `3 events\n\n(The owner can be shown this as a card: show {from: "${cardHandle("call_a")}"})`);
 		assert.equal(cardHandle("call_a"), `c${createHash("sha256").update("call_a").digest("hex").slice(0, 5)}`);
 		assert.equal(resultText(r.events, "call_b"), "just text");
 		assert.doesNotMatch(resultText(r.events, "call_c"), /card/);
+		assert.equal(resultText(r.events, "call_d"), "51.4, -0.1");
 	} finally {
 		await s.cleanup();
 	}
@@ -76,7 +79,7 @@ test("show with the reply puts a filtered card on screen and ends the run with n
 	try {
 		const handle = cardHandle("call_list");
 		const r = await run(s, [
-			ask(tool("mcp__cal__list_events", {}, "call_list")),
+			ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_list")),
 			fauxAssistantMessage([fauxText("Two things today."), tool("show", { from: handle, only: ["e1", "e3"], caption: "Today: 2 events" }, "call_show")], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("SHOULD NOT BE ASKED")]),
 		]);
@@ -84,7 +87,7 @@ test("show with the reply puts a filtered card on screen and ends the run with n
 		assert.equal(resultText(r.events, "call_show"), "Shown to the owner as a card: Today: 2 events (Dentist, Run). They can see it; don't repeat what it shows, add only what the card doesn't say.");
 
 		const data = { events: [{ id: "e1", title: "Dentist" }, { id: "e3", title: "Run" }], total: 3 };
-		const card = { type: "card", id: "call_show", kind: "result", caption: "Today: 2 events", source: { item: "call_list", name: "mcp__cal__list_events", args: {} }, data, filtered: true };
+		const card = { type: "card", id: "call_show", kind: "result", caption: "Today: 2 events", source: { item: "call_list", name: "mcp__cal__mac_calendar_list_events", args: {} }, data, filtered: true };
 		// History.
 		const { turns } = await s.core.sessions.turns(r.session.id);
 		const items = turns.at(-1)!.items;
@@ -114,7 +117,7 @@ test("show without only keeps the whole result; a batch with other tools continu
 	const s = await setup();
 	try {
 		const r = await run(s, [
-			ask(tool("mcp__cal__list_events", {}, "call_list")),
+			ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_list")),
 			ask(tool("show", { from: cardHandle("call_list"), caption: "All" }, "call_show"), tool("mcp__cal__plain", {}, "call_plain")),
 			fauxAssistantMessage([fauxText("Anything else?")]),
 		]);
@@ -133,7 +136,7 @@ test("show tells the model plainly when it cannot, and the failed call stays a v
 	const s = await setup();
 	try {
 		const r = await run(s, [
-			ask(tool("mcp__cal__list_events", {}, "call_list"), tool("mcp__cal__plain", {}, "call_plain")),
+			ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_list"), tool("mcp__cal__plain", {}, "call_plain")),
 			ask(
 				tool("show", { from: "cffff0", caption: "x" }, "s_unknown"),
 				tool("show", { from: cardHandle("call_plain"), caption: "x" }, "s_nodata"),

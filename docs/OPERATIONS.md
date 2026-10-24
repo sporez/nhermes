@@ -109,9 +109,9 @@ Vory's notification registrations (`<data>/vory/`) removes them at its next star
 
 ### Cards
 
-Calendar, Reminders and Contacts results from MacBridge (or any MCP server that returns structured data) can
-appear in the app as cards. Which ones is the bot's choice: every bot has the `show` tool, whatever its `tools:` list, and
-each result that can be a card ends with a line giving its handle. The owner sees the card with the bot's reply, and the bot is told what was shown,
+Calendar, Reminders, Contacts, Weather and Maps results from MacBridge can appear in the app as cards. Which ones is
+the bot's choice: every bot has the `show` tool, whatever its `tools:` list, and each result the app can draw as a card
+ends with a line giving its handle. Other structured results get no handle, so the bot puts what matters in its reply. The owner sees the card with the bot's reply, and the bot is told what was shown,
 so it does not repeat it. Where the app cannot draw a card (a notification, a scheduled task's summary, another
 bot's report, a group chat), the card's caption stands in for it as `[Card: <caption>]`. Cards need an app that
 lists `cards` in the hello's `features` (`docs/API.md` "Cards").

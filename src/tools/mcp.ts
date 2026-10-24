@@ -13,7 +13,7 @@ import { createToolSearchTool } from "@earendil-works/pi-durable/tool-search";
 import { type CallToolResult, type Tool as McpTool, toLlmContent } from "@earendil-works/pi-mcp";
 import type { PromptPart } from "../agent/extensions.ts";
 import type { McpServerConfig } from "../config.ts";
-import { cardableLine } from "../core/cards.ts";
+import { cardableLine, DRAWN_MCP_TOOLS } from "../core/cards.ts";
 import { matchesGlob } from "../core/policy.ts";
 import type { McpServers } from "../mcp/servers.ts";
 import { modelText } from "../mcp/outcome.ts";
@@ -168,7 +168,7 @@ export class McpTools {
 					const isError = r.result.isError === true;
 					const structured = r.result.structuredContent;
 					const keep = structured !== undefined && JSON.stringify(structured).length <= MAX_STRUCTURED_CHARS;
-					return { output: resultContent(r.result, keep && !isError ? cardableLine(api.callId) : undefined), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
+					return { output: resultContent(r.result, keep && !isError && DRAWN_MCP_TOOLS.has(t.name) ? cardableLine(api.callId) : undefined), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
 				}
 				const o = r.outcome;
 				const text = modelText({ kind: o.kind, message: redact(o.message) }, { server: c.name, tool: t.name, readOnly, timeoutS: current.timeoutS, since: r.since });

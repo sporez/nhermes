@@ -174,7 +174,7 @@ Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.
 ## Cards
 
 Automated (`test/tools/cards.test.ts`, 2026-10-23), with a fake MCP server and the faux model: the handle line
-only on a kept, non-error structured result and after the 20 KB cut; `show` resolving a handle from the
+only on a kept, non-error structured result of a tool the app draws (2026-10-24) and after the 20 KB cut; `show` resolving a handle from the
 transcript, narrowing with `only`, plain errors for an unknown handle, a result without card data, `only`
 matching nothing and a handle two results share; the run ending with the reply that shows the card (no further
 model call) while a batch with other tools continues; the card as the same turn item live (`item.started` and

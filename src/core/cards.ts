@@ -28,6 +28,29 @@ export type CardDetails = ResultCard | QuestionCard;
 /** The tools whose successful call is a card item rather than a tool item. */
 export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
 
+/**
+ * The MCP tools whose results the nHermes app draws as cards (MacBridge's), by the tool's own name on any server.
+ * Only their results get a handle. Any other result, shown, would be a bare caption, and the bot, told the owner
+ * sees the card, would leave out of its reply what it expected the card to say. Grows with the app's cards.
+ */
+export const DRAWN_MCP_TOOLS: ReadonlySet<string> = new Set([
+	"mac_bridge_status",
+	"mac_calendar_list_calendars",
+	"mac_calendar_list_events",
+	"mac_calendar_get_event",
+	"mac_calendar_create_event",
+	"mac_reminders_list_lists",
+	"mac_reminders_list_reminders",
+	"mac_reminders_get_reminder",
+	"mac_reminders_create_reminder",
+	"mac_reminders_complete_reminder",
+	"mac_contacts_search",
+	"mac_contacts_get",
+	"mac_weather_get",
+	"mac_maps_search_places",
+	"mac_maps_travel_time",
+]);
+
 /** A short name for a tool call that the model can quote: "c" and the first 5 hex characters of the call id's hash. */
 export function cardHandle(callId: string): string {
 	return `c${createHash("sha256").update(callId).digest("hex").slice(0, 5)}`;
