@@ -37,6 +37,10 @@ test("web_fetch reads pages as text; http_request fills secrets in and never ret
 		await c.until((e) => e.type === "run.finished");
 		const results = c.events.filter((e) => e.type === "tool.finished") as { resultText: string; isError: boolean }[];
 		assert.match(results[0]!.resultText, /Status\s+All green\./);
+		assert.match(results[0]!.resultText, /\n\n\(The owner can be shown this as a Page card, which shows its title, summary and picture, not what the page says: show \{from: "c[0-9a-f]{5}"\}\)$/);
+		const { turns } = await core.sessions.turns(s.id);
+		const fetched = turns.at(-1)!.items.find((i) => i.type === "tool" && i.name === "web_fetch") as unknown as { json: unknown };
+		assert.deepEqual(fetched.json, { url: `${base}/page`, status: 200, title: "x" }, "the page's own details beside the text");
 		assert.doesNotMatch(results[0]!.resultText, /evil/);
 		assert.equal(results[1]!.isError, false);
 		assert.match(results[1]!.resultText, /"state":"on"/);

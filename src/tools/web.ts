@@ -4,6 +4,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
+import { cardableResult } from "../core/cards.ts";
+import { pageMeta } from "../core/page-meta.ts";
 import { redact, registerSecret } from "../log.ts";
 import { isOwnPanel, PANEL_REFUSED } from "./own-gateway.ts";
 
@@ -130,7 +132,7 @@ export function webFeature(late: LateServices): Feature {
 			max_chars: Type.Optional(Type.Number()),
 		}),
 		replay: "safe",
-		execute: async (args, _api, ctx) => {
+		execute: async (args, api, ctx) => {
 			const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(ctx.abortSignal ? [ctx.abortSignal] : [])]);
 			const { res } = await fetchChecked({
 				url: args.url,
@@ -147,9 +149,14 @@ export function webFeature(late: LateServices): Feature {
 			const body = !args.raw && type.includes("html") ? htmlToText(text) : text;
 			const limit = Math.min(args.max_chars ?? 20_000, 100_000);
 			const out = body.length > limit ? `${body.slice(0, limit)}\n… [${body.length - limit} more characters]` : body;
+			const url = res.url || args.url;
+			const details = { url, status: res.status, ...(type.includes("html") ? pageMeta(text, url) : {}) };
+			const kept = cardableResult(api.callId, "web_fetch", details, !res.ok);
+			const note = `${res.status} ${res.statusText} ${res.url}\n\n${out}${truncated ? "\n[body over 5 MB, cut]" : ""}`;
 			return {
-				output: [{ type: "text", text: `${res.status} ${res.statusText} ${res.url}\n\n${out}${truncated ? "\n[body over 5 MB, cut]" : ""}` }],
+				output: [{ type: "text", text: kept.line ? `${note}\n\n${kept.line}` : note }],
 				isError: !res.ok,
+				details: (kept.structured === undefined ? {} : { structured: kept.structured }) as never,
 			};
 		},
 	});

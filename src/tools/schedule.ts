@@ -2,6 +2,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
+import { cardableResult } from "../core/cards.ts";
+import { jobJson, runJson } from "../core/job-shapes.ts";
 import type { JobRow, Scheduler } from "../core/scheduler.ts";
 import { describeSpec, ScheduleError } from "../core/schedule.ts";
 import { specOf } from "../core/scheduler.ts";
@@ -9,6 +11,12 @@ import type { Notifier } from "../notify/notifier.ts";
 
 function text(t: string) {
 	return { output: [{ type: "text" as const, text: t }] };
+}
+
+/** The text for the model, plus the same result as structured data (the client API's Job and Run shapes) for cards. */
+function withData(t: string, tool: string, callId: string, structured: unknown) {
+	const kept = cardableResult(callId, tool, structured);
+	return { output: [{ type: "text" as const, text: kept.line ? `${t}\n\n${kept.line}` : t }], details: { structured: kept.structured } as never };
 }
 
 /** A time as the job's local wall clock with its zone, and UTC, so nobody has to convert. */
@@ -67,7 +75,7 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 			const job = wrap(() =>
 				scheduler().create({ name: args.name, prompt: args.prompt, schedule: args.schedule, timezone: args.timezone, bot: args.bot ?? bot.name, notify: args.notify, skills: args.skills, model: args.model, deliver: args.deliver, context: args.context }),
 			);
-			return text(`Created ${describeJob(scheduler(), job)}`);
+			return withData(`Created ${describeJob(scheduler(), job)}`, "schedule_create", api.callId, { job: jobJson(scheduler(), job) });
 		},
 	});
 	const list = defineTool({
@@ -75,9 +83,9 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 		description: "List scheduled tasks (all bots, or one) with their next and last run.",
 		parameters: Type.Object({ bot: Type.Optional(Type.String()) }),
 		replay: "safe",
-		execute: async (args) => {
+		execute: async (args, api) => {
 			const jobs = scheduler().list(args.bot);
-			return text(jobs.length ? jobs.map((j) => describeJob(scheduler(), j)).join("\n") : "No scheduled tasks.");
+			return withData(jobs.length ? jobs.map((j) => describeJob(scheduler(), j)).join("\n") : "No scheduled tasks.", "schedule_list", api.callId, { jobs: jobs.map((j) => jobJson(scheduler(), j)) });
 		},
 	});
 	const update = defineTool({
@@ -93,9 +101,10 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 			context: Type.Optional(ContextMode),
 			enabled: Type.Optional(Type.Boolean()),
 		}),
-		execute: async (args) => {
+		execute: async (args, api) => {
 			const { id, ...patch } = args;
-			return text(`Updated ${describeJob(scheduler(), wrap(() => scheduler().update(id, patch)))}`);
+			const job = wrap(() => scheduler().update(id, patch));
+			return withData(`Updated ${describeJob(scheduler(), job)}`, "schedule_update", api.callId, { job: jobJson(scheduler(), job) });
 		},
 	});
 	const remove = defineTool({
@@ -111,9 +120,9 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 		name: "schedule_run",
 		description: "Start a scheduled task now (its result goes to the task's own session).",
 		parameters: Type.Object({ id: Type.String() }),
-		execute: async (args) => {
+		execute: async (args, api) => {
 			const run = await scheduler().trigger(args.id);
-			return text(`Started run ${run.id} of ${args.id}.`);
+			return withData(`Started run ${run.id} of ${args.id}.`, "schedule_run", api.callId, { job: jobJson(scheduler(), scheduler().require(args.id)) });
 		},
 	});
 	const history = defineTool({
@@ -121,12 +130,16 @@ export function scheduleFeature(late: LateServices, scheduler: () => Scheduler, 
 		description: "Recent runs of a scheduled task with their status and summary.",
 		parameters: Type.Object({ id: Type.String(), limit: Type.Optional(Type.Number()) }),
 		replay: "safe",
-		execute: async (args) => {
-			const runs = scheduler().runs(scheduler().require(args.id).id, args.limit ?? 10);
-			return text(
+		execute: async (args, api) => {
+			const job = scheduler().require(args.id);
+			const runs = scheduler().runs(job.id, args.limit ?? 10);
+			return withData(
 				runs.length
 					? runs.map((r) => `#${r.id} ${new Date(r.started_at * 1000).toISOString()} ${r.trigger} ${r.status}${r.error ? ` (${r.error})` : ""}${r.summary ? `: ${r.summary.slice(0, 200)}` : ""}`).join("\n")
 					: "No runs yet.",
+				"schedule_history",
+				api.callId,
+				{ job: jobJson(scheduler(), job), runs: runs.map((r) => runJson(r, job)) },
 			);
 		},
 	});

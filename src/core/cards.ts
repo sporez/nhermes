@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import type { EntryRecord } from "../engine/engine.ts";
 import { type Answers, ASK_TOOL, type Question } from "./questions.ts";
+import { type BuiltKind, builtTitles, titlesRepeated } from "./card-kinds.ts";
 
 /** The tool that turns a handle into a card; the one name the text fallbacks look for. */
 export const SHOW_TOOL = "show";
@@ -22,43 +23,137 @@ export type ResultCard = { kind: "result"; caption: string; source: CardSource; 
 /** What an `ask` call keeps (src/tools/ask.ts): its questions and the owner's answers, null when none came. */
 export type QuestionCard = { kind: "question"; caption: string; data: { questions: Question[]; answers: Answers | null } };
 
+/** What a successful `show {card}` keeps: a card the bot built (src/core/card-kinds.ts), no source. */
+export type BuiltCard = { kind: BuiltKind; caption: string; data: Record<string, unknown> };
+
 /** A card a call keeps in its result's details. */
-export type CardDetails = ResultCard | QuestionCard;
+export type CardDetails = ResultCard | QuestionCard | BuiltCard;
 
 /** The tools whose successful call is a card item rather than a tool item. */
 export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
 
 /**
- * The MCP tools whose results the nHermes app draws as cards (MacBridge's), by the tool's own name on any server.
- * Only their results get a handle. Any other result, shown, would be a bare caption, and the bot, told the owner
- * sees the card, would leave out of its reply what it expected the card to say. Grows with the app's cards.
+ * The MCP tools whose results the nHermes app draws as their own card (MacBridge's), by the tool's own name on any
+ * server, and the card each becomes. Grows with the app's cards.
  */
-export const DRAWN_MCP_TOOLS: ReadonlySet<string> = new Set([
-	"mac_bridge_status",
+export const MCP_CARDS: ReadonlyMap<string, string> = new Map([
+	["mac_bridge_status", "MacBridge status"],
+	["mac_calendar_list_calendars", "Calendar"],
+	["mac_calendar_list_events", "Calendar"],
+	["mac_calendar_get_event", "Calendar"],
+	["mac_calendar_create_event", "Calendar"],
+	["mac_reminders_list_lists", "Reminders"],
+	["mac_reminders_list_reminders", "Reminders"],
+	["mac_reminders_get_reminder", "Reminders"],
+	["mac_reminders_create_reminder", "Reminders"],
+	["mac_reminders_complete_reminder", "Reminders"],
+	["mac_contacts_search", "Contacts"],
+	["mac_contacts_get", "Contacts"],
+	["mac_weather_get", "Weather"],
+	["mac_maps_search_places", "Places"],
+	["mac_maps_travel_time", "Travel time"],
+]);
+
+/** The gateway's own tools whose structured results the app draws as their own card. */
+export const OWN_CARDS: ReadonlyMap<string, string> = new Map([
+	["schedule_list", "Scheduled tasks"],
+	["schedule_create", "Scheduled task"],
+	["schedule_update", "Scheduled task"],
+	["schedule_run", "Scheduled task"],
+	["schedule_history", "Scheduled task"],
+	["web_fetch", "Page"],
+]);
+
+/**
+ * Tools that list things: a result of theirs whose lists are all empty has no card, since an empty card says less
+ * than "you have none" in the reply. Matched like the cards (an MCP tool by its own name).
+ */
+const LISTING_TOOLS: ReadonlySet<string> = new Set([
 	"mac_calendar_list_calendars",
 	"mac_calendar_list_events",
-	"mac_calendar_get_event",
-	"mac_calendar_create_event",
 	"mac_reminders_list_lists",
 	"mac_reminders_list_reminders",
-	"mac_reminders_get_reminder",
-	"mac_reminders_create_reminder",
-	"mac_reminders_complete_reminder",
 	"mac_contacts_search",
-	"mac_contacts_get",
-	"mac_weather_get",
 	"mac_maps_search_places",
-	"mac_maps_travel_time",
+	"schedule_list",
 ]);
+
+/** What a card shows, where its name alone would let the bot think it shows more. Said in the handle line. */
+const CARD_SHOWS: ReadonlyMap<string, string> = new Map([["Page", "its title, summary and picture, not what the page says"]]);
+
+/** The card names a result can have, besides the dedicated ones: the app's fallback by shape. */
+export const GENERIC_CARDS = ["List", "Facts"] as const;
+
+/** Most scalar text a Facts value may hold. */
+export const FACT_VALUE_MAX = 200;
+/** Most keys a Facts object may hold (null values are not counted). */
+export const FACTS_MAX_KEYS = 30;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * The generic card a structured result has by its shape alone, or null. The nHermes app's fallback follows this
+ * exact rule (test/fixtures in both repos keep them together):
+ *
+ * - **List:** the data is a JSON object with exactly ONE top-level key whose value is an array; other keys may hold
+ *   anything. That array has at least 1 element, and every element is an object with a string `id` and a string
+ *   `title` or `name`. If any element fails, it is neither List nor Facts, and there is no card. Two or more
+ *   array-valued keys means no List.
+ * - **Facts:** a JSON object where, after dropping keys whose value is null, 1 to 30 keys remain. Every value is a
+ *   string of at most 200 characters, a finite number or a boolean. Anything nested means no card.
+ * - **Anything else** (a bare top-level array, an empty object): no card, so no handle.
+ */
+export function genericCardFor(data: unknown): "List" | "Facts" | null {
+	if (!isRecord(data)) return null;
+	const values = Object.values(data);
+	const arrays = values.filter(Array.isArray);
+	if (arrays.length > 1) return null;
+	const only = arrays[0];
+	if (only) return only.length > 0 && only.every((e) => isRecord(e) && typeof e.id === "string" && (typeof e.title === "string" || typeof e.name === "string")) ? "List" : null;
+	const kept = values.filter((v) => v !== null);
+	if (kept.length < 1 || kept.length > FACTS_MAX_KEYS) return null;
+	return kept.every((v) => (typeof v === "string" && v.length <= FACT_VALUE_MAX) || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean") ? "Facts" : null;
+}
+
+/**
+ * Which card a tool's structured result becomes: the tool's dedicated card (an MCP tool matches by its own name
+ * under `mcp__<server>__`), else the generic card of its shape, else null (no handle: the bot writes it in its reply).
+ */
+export function cardFor(toolName: string, data: unknown): string | null {
+	if (data === undefined || data === null) return null;
+	const listing = toolName.startsWith("mcp__") ? [...LISTING_TOOLS].some((t) => t.startsWith("mac_") && toolName.endsWith(`__${t}`)) : LISTING_TOOLS.has(toolName);
+	if (listing && isRecord(data)) {
+		const lists = Object.values(data).filter(Array.isArray);
+		if (lists.length > 0 && lists.every((l) => l.length === 0)) return null;
+	}
+	let dedicated = OWN_CARDS.get(toolName);
+	if (!dedicated && toolName.startsWith("mcp__")) for (const [tool, card] of MCP_CARDS) if (toolName.endsWith(`__${tool}`)) dedicated = card;
+	return dedicated ?? genericCardFor(data);
+}
+
+/** A server's or tool's structured result is kept with the call for clients (cards), up to this size; the model never sees it. */
+export const MAX_STRUCTURED_CHARS = 256 * 1024;
+
+/**
+ * The one rule for making a tool result cardable: what to keep in the call's details and the handle line to add
+ * after the model's text. Structured data is kept up to 256 KB, whatever the outcome (clients read it from the
+ * tool item); the line only when the call did not fail and the result becomes a card (`cardFor`).
+ */
+export function cardableResult(callId: string, toolName: string, structured: unknown, isError = false): { structured?: unknown; line?: string } {
+	if (structured === undefined || JSON.stringify(structured).length > MAX_STRUCTURED_CHARS) return {};
+	const card = isError ? null : cardFor(toolName, structured);
+	return { structured, ...(card ? { line: cardableLine(callId, card) } : {}) };
+}
 
 /** A short name for a tool call that the model can quote: "c" and the first 5 hex characters of the call id's hash. */
 export function cardHandle(callId: string): string {
 	return `c${createHash("sha256").update(callId).digest("hex").slice(0, 5)}`;
 }
 
-/** The line appended to the model's text of a result that can be shown as a card. */
-export function cardableLine(callId: string): string {
-	return `(The owner can be shown this as a card: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
+/** The line appended to the model's text of a result that can be shown as a card; names the card when it is known. */
+export function cardableLine(callId: string, card?: string): string {
+	const shows = card ? CARD_SHOWS.get(card) : undefined;
+	return `(The owner can be shown this as ${card ? `a ${card}` : "a"} card${shows ? `, which shows ${shows}` : ""}: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
 }
 
 /** A card's stand-in where cards are not drawn (push text, job summaries, reports, transcripts). */
@@ -152,4 +247,34 @@ export function findCardSource(entries: readonly EntryRecord[], handle: string):
 	if (!hit) throw new Error(`The result with the handle "${handle}" has nothing to draw as a card.`);
 	const call = calls.get(hit.id);
 	return { source: { item: hit.id, name: call?.name ?? "tool", args: call?.args ?? {} }, data: hit.data };
+}
+
+
+/**
+ * The handle of the result in this run that a built list or links card repeats, or undefined. A result counts when
+ * it offered a handle (`cardFor` gives it a card), came after the owner's last message, and at least 2 of the
+ * card's item titles, and at least half of them, are item titles or names of that result. The bot is told to show
+ * the result itself, which the app draws better and the bot need not retype.
+ */
+export function repeatedResult(entries: readonly EntryRecord[], data: Obj): string | undefined {
+	const titles = builtTitles(data);
+	if (titles.length === 0) return undefined;
+	const calls = new Map<string, string>();
+	let results: { id: string; names: string[] }[] = [];
+	for (const entry of entries) {
+		const m = entry.model?.[0] as (Msg & { toolName?: string }) | undefined;
+		if (!m) continue;
+		if (m.role === "user") results = [];
+		else if (m.role === "assistant" && Array.isArray(m.content)) {
+			for (const b of m.content as { type?: string; id?: string; name?: string }[]) if (b.type === "toolCall" && b.id) calls.set(b.id, b.name ?? "");
+		} else if (m.role === "toolResult" && m.toolCallId && m.details?.structured !== undefined && cardFor(m.toolName ?? calls.get(m.toolCallId) ?? "", m.details.structured)) {
+			results.push({ id: m.toolCallId, names: cardItemNames(m.details.structured) });
+		}
+	}
+	let best: { id: string; n: number } | undefined;
+	for (const r of results) {
+		const n = titlesRepeated(titles, r.names);
+		if (n >= 2 && n * 2 >= titles.length && (!best || n > best.n)) best = { id: r.id, n };
+	}
+	return best ? cardHandle(best.id) : undefined;
 }

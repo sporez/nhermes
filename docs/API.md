@@ -279,9 +279,35 @@ answer, in order.
 A bot can show the owner a tool's result as a card. A tool that returns structured data (an MCP server's
 `structuredContent`) keeps it in the tool item's `result.json`; whether the owner sees it as a card is the
 bot's choice, made with its `show` tool, so a client draws a card only for a `card` item, not for every tool
-item that has `result.json`. The model is told what was shown and does not repeat it. The bot is offered only the
-results the nHermes app draws (MacBridge's Calendar, Reminders, Contacts, Weather and Maps tools; the list is
-`DRAWN_MCP_TOOLS` in `src/core/cards.ts`), so it writes any other result into its reply.
+item that has `result.json`. The model is told what was shown and does not repeat it. A result is offered to the
+bot only when the app has a card for it, and the line that offers it names the card, for example
+`(The owner can be shown this as a Weather card: show {from: "c1a2b3"})`. The card is the tool's own (MacBridge's
+Calendar, Reminders, Contacts, Weather, Places, Travel time and MacBridge status; the map is `MCP_CARDS` in
+`src/core/cards.ts`) or, for any other tool, one by the result's shape: **List** (an object with exactly one
+top-level array, of at least one object, all with a string `id` and a string `title` or `name`; other keys may
+hold anything) or **Facts** (an object of 1
+to 30 values that are strings of at most 200 characters, finite numbers or booleans; `null` values do not
+count). Any other result has no card and no line, so the bot writes it into its reply. A listing tool's result
+whose lists are all empty (no events, no reminders, no scheduled tasks) has no card either: "you have none" reads
+better in the reply. Where a card shows less than its name suggests, the line says so: a Page card shows the page's
+title, summary and picture, not what the page says, so the bot puts the contents in words or in a card it builds.
+
+The scheduler tools keep their result as structured data in the client API's own shapes (see Scheduled tasks), so
+a card's `data` decodes with the types a client already has: `schedule_list` gives `{"jobs": [Job]}`,
+`schedule_create`, `schedule_update` and `schedule_run` give `{"job": Job}`, `schedule_history` gives
+`{"job": Job, "runs": [Run]}`. Their cards are "Scheduled tasks" (the list) and "Scheduled task".
+
+`web_fetch` keeps `{"url", "status", "title"?, "description"?, "siteName"?, "image"?}`: the final address and
+status, and, for an HTML page, what it says about itself (`<title>`, Open Graph tags, `meta description`; the picture
+is an absolute http(s) address). Its card is "Page". A failed fetch keeps the data but gets no handle.
+
+The bot picks the most specific card there is: the tool's own card (`show {from}` on a result whose line names it),
+then the generic List or Facts card of a result's shape (also `from`), then a card it builds (`show {card}`: `chart`
+for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layout nothing else fits, else words
+only. The gateway enforces one part: a built `list` or `links` card whose item titles repeat a result that offered
+a handle (at least 2 titles, and at least half) is refused with the handle to use. `show` takes exactly one of
+`from` and `card`. Fixtures: `turns-card.json` from `scripts/api-fixtures.ts` holds a result card, a `list`, a
+`schedule_list` result card, a `chart` and an `html` card.
 
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
@@ -295,6 +321,26 @@ results the nHermes app draws (MacBridge's Calendar, Reminders, Contacts, Weathe
   bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
   result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
+- `kind: "list"`, `"facts"`, `"links"`, `"chart"` and `"html"` are cards the bot built itself with `show {card}` from what it found (a
+  search, a command, several sources). They have no `source`; `data` is the card, without its kind. Strings are
+  trimmed and cut (titles at 200 characters, everything else at 500); addresses are http(s) only. Text fallback:
+  the caption, as for every card.
+  - `list`: `{"title", "subtitle"?, "items": [{"title", "detail"?, "url"?, "done"?}]}`, 1 to 50 items. `done`
+    (a boolean) shows a check state; absent for a plain list.
+  - `facts`: `{"title", "subtitle"?, "rows": [{"label", "value"}]}`, 1 to 30 rows.
+  - `links`: `{"title", "items": [{"url", "title", "note"?}]}`, 1 to 12 links.
+  - `chart`: `{"title", "subtitle"?, "type", "x": {"label"?, "kind"}, "y": {"label"?, "unit"?}, "series": [{"name",
+    "points": [{"x", "y"}]}], "notes"?}`. `type`: `bar`, `line`, `area`, `point` or `pie` (a pie has exactly one
+    series, a slice per point). `x.kind`: `category` (`x` is text), `date` (`x` is `YYYY-MM-DD` or an RFC 3339
+    time) or `number` (`x` is a number). `y` is always a finite number. 1 to 6 series and at most 300 points in all.
+  - `html`: `{"title"?, "html", "aspect"?}`: an HTML fragment (no `<html>` or `<head>`) of at most 64 KB with
+    inline `<style>` and inline SVG, for a diagram, timeline or layout; `aspect` is width divided by height
+    (0.2 to 5), a starting shape while the client lays it out. The gateway has already removed `<script>`,
+    `<iframe>`, `<object>`, `<form>` (with their content), `<embed>`, `<link>`, `<meta>`, `<base>`, every `on*`
+    attribute, `javascript:` addresses, and any `url()` or `src`/`href` that is not a `data:` address (a link keeps
+    only http(s); SVG `#fragment` references stay). A fragment that is empty after that is refused. A client must
+    still draw it with scripts off and no network, and may give it these CSS variables for the theme:
+    `--nh-canvas --nh-surface --nh-text --nh-secondary --nh-accent --nh-stroke`.
 - `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
   It has no `source`.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
