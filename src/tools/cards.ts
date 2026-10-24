@@ -20,7 +20,10 @@ export function cardsFeature(late: LateServices): Feature {
 			"Show what the owner asked for, not the lookups you made along the way. The owner sees the card, so never restate what it shows; write only what it doesn't say. " +
 			"Give exactly one of from or card. Pick the most specific card there is: " +
 			"(1) from: a tool result whose last line offers it as a card and names the card, for example \"as a Weather card: show {from: ...}\". Always prefer this, and never rebuild by hand data that such a line offers. " +
-			"(2) card: build one from what you found, with the first kind that fits: list (steps, things to buy, packages), facts (labelled values: a status or summary), links (search results, sources, pages to read). " +
+			"(2) card: build one from what you found, with the first kind that fits, in this order: chart (numbers that compare or change: bar, line, area, point, pie), " +
+			"then list (steps, things to buy), facts (labelled values: a status or summary) or links (search results, sources). " +
+			"(3) html last, only for a diagram, timeline or layout none of those fits (never for numbers): a fragment with inline <style> and inline <svg>, no scripts or remote content; " +
+			"style it with the CSS variables --nh-canvas, --nh-surface, --nh-text, --nh-secondary, --nh-accent and --nh-stroke so it matches the app in light and dark. " +
 			"A result with no such line is not offered as a card: say it in your reply, unless the owner asked to see it as a card. " +
 			"caption is one short line of yours (for example \"Groceries: 5 reminders\"); it is what the owner reads where cards can't be drawn. only (with from): ids of the items to keep, when the owner asked about some of them.",
 		parameters: Type.Object({

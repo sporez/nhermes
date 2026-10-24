@@ -310,7 +310,7 @@ is an absolute http(s) address). Its card is "Page". A failed fetch keeps the da
   bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
   result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
-- `kind: "list"`, `"facts"` and `"links"` are cards the bot built itself with `show {card}` from what it found (a
+- `kind: "list"`, `"facts"`, `"links"`, `"chart"` and `"html"` are cards the bot built itself with `show {card}` from what it found (a
   search, a command, several sources). They have no `source`; `data` is the card, without its kind. Strings are
   trimmed and cut (titles at 200 characters, everything else at 500); addresses are http(s) only. Text fallback:
   the caption, as for every card.
@@ -318,6 +318,18 @@ is an absolute http(s) address). Its card is "Page". A failed fetch keeps the da
     (a boolean) shows a check state; absent for a plain list.
   - `facts`: `{"title", "subtitle"?, "rows": [{"label", "value"}]}`, 1 to 30 rows.
   - `links`: `{"title", "items": [{"url", "title", "note"?}]}`, 1 to 12 links.
+  - `chart`: `{"title", "subtitle"?, "type", "x": {"label"?, "kind"}, "y": {"label"?, "unit"?}, "series": [{"name",
+    "points": [{"x", "y"}]}], "notes"?}`. `type`: `bar`, `line`, `area`, `point` or `pie` (a pie has exactly one
+    series, a slice per point). `x.kind`: `category` (`x` is text), `date` (`x` is `YYYY-MM-DD` or an RFC 3339
+    time) or `number` (`x` is a number). `y` is always a finite number. 1 to 6 series and at most 300 points in all.
+  - `html`: `{"title"?, "html", "aspect"?}`: an HTML fragment (no `<html>` or `<head>`) of at most 64 KB with
+    inline `<style>` and inline SVG, for a diagram, timeline or layout; `aspect` is width divided by height
+    (0.2 to 5), a starting shape while the client lays it out. The gateway has already removed `<script>`,
+    `<iframe>`, `<object>`, `<form>` (with their content), `<embed>`, `<link>`, `<meta>`, `<base>`, every `on*`
+    attribute, `javascript:` addresses, and any `url()` or `src`/`href` that is not a `data:` address (a link keeps
+    only http(s); SVG `#fragment` references stay). A fragment that is empty after that is refused. A client must
+    still draw it with scripts off and no network, and may give it these CSS variables for the theme:
+    `--nh-canvas --nh-surface --nh-text --nh-secondary --nh-accent --nh-stroke`.
 - `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
   It has no `source`.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).

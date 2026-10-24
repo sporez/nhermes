@@ -374,3 +374,25 @@ test("a built list or links card that repeats a result offered as a card is refu
 		await s.cleanup();
 	}
 });
+
+test("show {card} takes a chart and an html card; the html reaches the owner cleaned, and the description teaches the ladder and the theme variables", async () => {
+	const s = await setup();
+	try {
+		const chart = { kind: "chart", title: "Sales", type: "line", x: { kind: "date" }, series: [{ name: "2026", points: [{ x: "2026-01-01", y: 1 }, { x: "2026-02-01", y: 3 }] }] };
+		const c = await shown(s, [showMsg(chart)]);
+		const item = c.items.find((i) => i.type === "card") as unknown as { kind: string; data: { type: string; y: unknown } };
+		assert.deepEqual([item.kind, item.data.type, item.data.y], ["chart", "line", {}]);
+		const h = await shown(s, [showMsg({ kind: "html", html: '<script>x()</script><div onclick="y()" style="color:var(--nh-text)">Hi</div>' })]);
+		const html = h.items.find((i) => i.type === "card") as unknown as { kind: string; data: { html: string } };
+		assert.deepEqual([html.kind, html.data.html], ["html", '<div style="color:var(--nh-text)">Hi</div>']);
+		const bad = await shown(s, [fauxAssistantMessage([tool("show", { card: { kind: "html", html: "<script>x()</script>" }, caption: "c" } as never, "call_bad")], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("ok")])]);
+		assert.ok(!bad.items.some((i) => i.type === "card"));
+		assert.match(resultText(bad.events, "call_bad"), /Nothing is left/);
+
+		const { cardsFeature } = await import("../../src/tools/cards.ts");
+		const description = (cardsFeature({} as never).always![0] as unknown as { description: string }).description;
+		for (const needle of ["prefer", "chart", "html last", "--nh-canvas", "--nh-surface", "--nh-text", "--nh-secondary", "--nh-accent", "--nh-stroke", "never rebuild"]) assert.match(description.toLowerCase(), new RegExp(needle.toLowerCase().replace(/-/g, "\\-")), needle);
+	} finally {
+		await s.cleanup();
+	}
+});
