@@ -278,3 +278,99 @@ test("cardableResult keeps structured data up to 256 KB and adds the named handl
 	assert.deepEqual(cardableResult("c1", "x", { big: "x".repeat(256 * 1024) }), {}, "over 256 KB is not kept");
 	assert.equal(cardableLine("c1"), `(The owner can be shown this as a card: show {from: "${cardHandle("c1")}"})`);
 });
+
+const shown = async (s: Awaited<ReturnType<typeof setup>>, steps: ReturnType<typeof fauxAssistantMessage>[]) => {
+	const r = await run(s, steps);
+	const { turns } = await s.core.sessions.turns(r.session.id);
+	return { ...r, items: turns.at(-1)!.items };
+};
+const showMsg = (card: unknown, id = "call_show", extra: Record<string, unknown> = {}) => fauxAssistantMessage([fauxText("Here."), tool("show", { card, caption: "A card", ...extra } as never, id)], { stopReason: "toolUse" });
+
+test("show {card} builds a list, facts or links card with no source, and ends the run like from does", async () => {
+	const s = await setup();
+	try {
+		const list = { kind: "list", title: "Packing", items: [{ title: "Passport", done: true }, { title: "Charger", detail: "USB-C", url: "https://example.com/c" }] };
+		const r = await shown(s, [showMsg(list), fauxAssistantMessage([fauxText("SHOULD NOT BE ASKED")])]);
+		assert.equal(s.faux.state.callCount, 1);
+		assert.equal(resultText(r.events, "call_show"), "Shown to the owner as a card: A card (Passport, Charger). They can see it; don't repeat what it shows, add only what the card doesn't say.");
+		const card = r.items.find((i) => i.type === "card")!;
+		const { at: _at, ...rest } = card as typeof card & { at: number };
+		assert.deepEqual(rest, { type: "card", id: "call_show", kind: "list", caption: "A card", data: { title: "Packing", items: [{ title: "Passport", done: true }, { title: "Charger", detail: "USB-C", url: "https://example.com/c" }] } });
+		assert.ok(!("source" in card));
+		assert.equal(r.done.text, "Here.\n\n[Card: A card]");
+
+		const facts = await shown(s, [showMsg({ kind: "facts", title: "Server", subtitle: "main", rows: [{ label: "Disk", value: "42% used" }] })]);
+		assert.deepEqual((facts.items.find((i) => i.type === "card") as { kind: string; data: unknown }).data, { title: "Server", subtitle: "main", rows: [{ label: "Disk", value: "42% used" }] });
+		const links = await shown(s, [showMsg({ kind: "links", title: "Sources", items: [{ url: "https://example.com/a", title: "A", note: "first" }] })]);
+		assert.equal((links.items.find((i) => i.type === "card") as { kind: string }).kind, "links");
+	} finally {
+		await s.cleanup();
+	}
+});
+
+test("show {card} cuts over-long text and refuses wrong shapes, non-http addresses, too many items and a card that is also a handle", async () => {
+	const s = await setup();
+	try {
+		const cut = await shown(s, [showMsg({ kind: "list", title: "t".repeat(300), items: [{ title: "i".repeat(300), detail: "d".repeat(900) }] })]);
+		const data = (cut.items.find((i) => i.type === "card") as unknown as { data: { title: string; items: { title: string; detail: string }[] } }).data;
+		assert.deepEqual([data.title.length, data.items[0]!.title.length, data.items[0]!.detail.length], [200, 200, 500]);
+
+		const refused = async (args: Record<string, unknown>) => {
+			const r = await shown(s, [fauxAssistantMessage([tool("show", { caption: "c", ...args } as never, "call_bad")], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("ok")])]);
+			assert.ok(!r.items.some((i) => i.type === "card"), "no card");
+			const done = r.events.find((e) => e.type === "tool.finished" && e.callId === "call_bad") as Extract<SessionEvent, { type: "tool.finished" }>;
+			assert.equal(done.isError, true);
+			return done.resultText;
+		};
+		assert.match(await refused({ card: { kind: "list", title: "x", items: [{ title: "a", url: "ftp://example.com" }] } }), /http or https/);
+		assert.match(await refused({ card: { kind: "links", title: "x", items: [{ url: "javascript:alert(1)", title: "a" }] } }), /http or https/);
+		assert.match(await refused({ card: { kind: "list", title: "x", items: Array.from({ length: 51 }, (_, i) => ({ title: `i${i}` })) } }), /at most 50 items/);
+		assert.match(await refused({ card: { kind: "facts", title: "x", rows: Array.from({ length: 31 }, (_, i) => ({ label: `l${i}`, value: "v" })) } }), /at most 30 rows/);
+		assert.match(await refused({ card: { kind: "links", title: "x", items: Array.from({ length: 13 }, () => ({ url: "https://example.com", title: "a" })) } }), /at most 12 items/);
+		assert.match(await refused({ card: { kind: "list", title: "x", items: [] } }), /at least one|items/);
+		assert.match(await refused({ card: { kind: "list", title: "  ", items: [{ title: "a" }] } }), /title needs some text/);
+		assert.match(await refused({ card: { kind: "table", title: "x" } }), /./);
+		assert.match(await refused({}), /exactly one of from/);
+		assert.match(await refused({ from: "cabcde", card: { kind: "list", title: "x", items: [{ title: "a" }] } }), /exactly one of from/);
+		assert.match(await refused({ card: { kind: "list", title: "x", items: [{ title: "a" }] }, only: ["a"] }), /only goes with from/);
+	} finally {
+		await s.cleanup();
+	}
+});
+
+test("a built list or links card that repeats a result offered as a card is refused with its handle; a few shared titles, a result with no card, or one before the owner's last message is not", async () => {
+	const s = await setup();
+	try {
+		const same = { kind: "list", title: "Today", items: [{ title: "dentist" }, { title: "Lunch" }, { title: "Run" }] };
+		const r = await shown(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_ev")), showMsg(same), fauxAssistantMessage([fauxText("done")])]);
+		const done = r.events.find((e) => e.type === "tool.finished" && e.callId === "call_show") as Extract<SessionEvent, { type: "tool.finished" }>;
+		assert.equal(done.isError, true);
+		assert.match(done.resultText, new RegExp(`Show it with from: "${cardHandle("call_ev")}" instead\\.`));
+		assert.ok(!r.items.some((i) => i.type === "card"));
+
+		// Two of four is half: refused. One of three: allowed.
+		const half = { kind: "links", title: "x", items: [{ url: "https://example.com/1", title: "Dentist" }, { url: "https://example.com/2", title: "Run" }, { url: "https://example.com/3", title: "Other" }, { url: "https://example.com/4", title: "More" }] };
+		const refusedHalf = await shown(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_ev2")), showMsg(half), fauxAssistantMessage([fauxText("done")])]);
+		assert.equal((refusedHalf.events.find((e) => e.type === "tool.finished" && e.callId === "call_show") as Extract<SessionEvent, { type: "tool.finished" }>).isError, true);
+		const fine = await shown(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_ev3")), showMsg({ kind: "list", title: "x", items: [{ title: "Dentist" }, { title: "A" }, { title: "B" }] }, "call_ok")]);
+		assert.ok(fine.items.some((i) => i.type === "card"), "one shared title is not a repeat");
+
+		// A result the app has no card for offers no handle, so building from it is the way.
+		const mixed = await shown(s, [ask(tool("mcp__cal__lookup", {}, "call_lk")), showMsg({ kind: "list", title: "x", items: [{ title: "latitude" }, { title: "longitude" }] }, "call_ok2")]);
+		assert.ok(mixed.items.some((i) => i.type === "card"));
+
+		// Results before the owner's last message do not count.
+		const session = await s.core.sessions.create("main");
+		const c = collect(s.core.hub, session.id);
+		s.faux.setResponses([ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_old")), fauxAssistantMessage([fauxText("Three events.")])]);
+		await s.core.sessions.submit(session.id, "first");
+		await c.until((e) => e.type === "run.finished", 10000);
+		s.faux.setResponses([showMsg(same, "call_late")]);
+		await s.core.sessions.submit(session.id, "second");
+		await c.until((e) => e.type === "turn.finished" && c.events.filter((x) => x.type === "turn.finished").length === 2, 10000);
+		const { turns } = await s.core.sessions.turns(session.id);
+		assert.ok(turns.at(-1)!.items.some((i) => i.type === "card"), "the earlier turn's result is not offered now");
+	} finally {
+		await s.cleanup();
+	}
+});

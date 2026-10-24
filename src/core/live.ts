@@ -391,7 +391,7 @@ export class LiveSession {
 		if (pending && m && !m.isError && m.details?.card) {
 			const card = cardItem(callId, m.timestamp ?? Date.now(), JSON.parse(redact(JSON.stringify(m.details.card))) as CardDetails);
 			// A question asked along the way is not part of the reply the run ends with.
-			if (card.kind === "result") this.runParts.push(cardNote(card.caption));
+			if (card.kind !== "question") this.runParts.push(cardNote(card.caption));
 			this.emit({ type: "item.started", turnId: turn, item: card });
 			this.emit({ type: "item.finished", turnId: turn, item: card });
 			return;

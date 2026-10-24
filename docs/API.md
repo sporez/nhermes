@@ -310,6 +310,14 @@ is an absolute http(s) address). Its card is "Page". A failed fetch keeps the da
   bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
   result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
+- `kind: "list"`, `"facts"` and `"links"` are cards the bot built itself with `show {card}` from what it found (a
+  search, a command, several sources). They have no `source`; `data` is the card, without its kind. Strings are
+  trimmed and cut (titles at 200 characters, everything else at 500); addresses are http(s) only. Text fallback:
+  the caption, as for every card.
+  - `list`: `{"title", "subtitle"?, "items": [{"title", "detail"?, "url"?, "done"?}]}`, 1 to 50 items. `done`
+    (a boolean) shows a check state; absent for a plain list.
+  - `facts`: `{"title", "subtitle"?, "rows": [{"label", "value"}]}`, 1 to 30 rows.
+  - `links`: `{"title", "items": [{"url", "title", "note"?}]}`, 1 to 12 links.
 - `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
   It has no `source`.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).

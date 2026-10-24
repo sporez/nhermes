@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import type { EntryRecord } from "../engine/engine.ts";
 import { type Answers, ASK_TOOL, type Question } from "./questions.ts";
+import { type BuiltKind, builtTitles, titlesRepeated } from "./card-kinds.ts";
 
 /** The tool that turns a handle into a card; the one name the text fallbacks look for. */
 export const SHOW_TOOL = "show";
@@ -22,8 +23,11 @@ export type ResultCard = { kind: "result"; caption: string; source: CardSource; 
 /** What an `ask` call keeps (src/tools/ask.ts): its questions and the owner's answers, null when none came. */
 export type QuestionCard = { kind: "question"; caption: string; data: { questions: Question[]; answers: Answers | null } };
 
+/** What a successful `show {card}` keeps: a card the bot built (src/core/card-kinds.ts), no source. */
+export type BuiltCard = { kind: BuiltKind; caption: string; data: Record<string, unknown> };
+
 /** A card a call keeps in its result's details. */
-export type CardDetails = ResultCard | QuestionCard;
+export type CardDetails = ResultCard | QuestionCard | BuiltCard;
 
 /** The tools whose successful call is a card item rather than a tool item. */
 export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
@@ -220,4 +224,34 @@ export function findCardSource(entries: readonly EntryRecord[], handle: string):
 	if (!hit) throw new Error(`The result with the handle "${handle}" has nothing to draw as a card.`);
 	const call = calls.get(hit.id);
 	return { source: { item: hit.id, name: call?.name ?? "tool", args: call?.args ?? {} }, data: hit.data };
+}
+
+
+/**
+ * The handle of the result in this run that a built list or links card repeats, or undefined. A result counts when
+ * it offered a handle (`cardFor` gives it a card), came after the owner's last message, and at least 2 of the
+ * card's item titles, and at least half of them, are item titles or names of that result. The bot is told to show
+ * the result itself, which the app draws better and the bot need not retype.
+ */
+export function repeatedResult(entries: readonly EntryRecord[], data: Obj): string | undefined {
+	const titles = builtTitles(data);
+	if (titles.length === 0) return undefined;
+	const calls = new Map<string, string>();
+	let results: { id: string; names: string[] }[] = [];
+	for (const entry of entries) {
+		const m = entry.model?.[0] as (Msg & { toolName?: string }) | undefined;
+		if (!m) continue;
+		if (m.role === "user") results = [];
+		else if (m.role === "assistant" && Array.isArray(m.content)) {
+			for (const b of m.content as { type?: string; id?: string; name?: string }[]) if (b.type === "toolCall" && b.id) calls.set(b.id, b.name ?? "");
+		} else if (m.role === "toolResult" && m.toolCallId && m.details?.structured !== undefined && cardFor(m.toolName ?? calls.get(m.toolCallId) ?? "", m.details.structured)) {
+			results.push({ id: m.toolCallId, names: cardItemNames(m.details.structured) });
+		}
+	}
+	let best: { id: string; n: number } | undefined;
+	for (const r of results) {
+		const n = titlesRepeated(titles, r.names);
+		if (n >= 2 && n * 2 >= titles.length && (!best || n > best.n)) best = { id: r.id, n };
+	}
+	return best ? cardHandle(best.id) : undefined;
 }
