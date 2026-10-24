@@ -298,6 +298,14 @@ a card's `data` decodes with the types a client already has: `schedule_list` giv
 status, and, for an HTML page, what it says about itself (`<title>`, Open Graph tags, `meta description`; the picture
 is an absolute http(s) address). Its card is "Page". A failed fetch keeps the data but gets no handle.
 
+The bot picks the most specific card there is: the tool's own card (`show {from}` on a result whose line names it),
+then the generic List or Facts card of a result's shape (also `from`), then a card it builds (`show {card}`: `chart`
+for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layout nothing else fits, else words
+only. The gateway enforces one part: a built `list` or `links` card whose item titles repeat a result that offered
+a handle (at least 2 titles, and at least half) is refused with the handle to use. `show` takes exactly one of
+`from` and `card`. Fixtures: `turns-card.json` from `scripts/api-fixtures.ts` holds a result card, a `list`, a
+`schedule_list` result card, a `chart` and an `html` card.
+
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
  "caption": "Groceries: 2 reminders",

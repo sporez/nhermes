@@ -109,12 +109,24 @@ Vory's notification registrations (`<data>/vory/`) removes them at its next star
 
 ### Cards
 
-Calendar, Reminders, Contacts, Weather and Maps results from MacBridge can appear in the app as cards. Which ones is
-the bot's choice: every bot has the `show` tool, whatever its `tools:` list, and each result the app can draw as a card
-ends with a line giving its handle. Other structured results get no handle, so the bot puts what matters in its reply. The owner sees the card with the bot's reply, and the bot is told what was shown,
-so it does not repeat it. Where the app cannot draw a card (a notification, a scheduled task's summary, another
-bot's report, a group chat), the card's caption stands in for it as `[Card: <caption>]`. Cards need an app that
-lists `cards` in the hello's `features` (`docs/API.md` "Cards").
+A bot can show the owner a card in the app instead of a wall of text. Every bot has the `show` tool, whatever its
+`tools:` list, and uses it in three ways, most specific first:
+
+- **A result the app draws.** MacBridge's Calendar, Reminders, Contacts, Weather, Places, Travel time and status
+  results, the scheduled-task tools' results and a fetched page end with a line that names the card, for example
+  "(The owner can be shown this as a Weather card: show {from: ...})". Any other tool's result gets such a line when its
+  shape is a list (an object holding one list of items that each have an `id` and a `title` or `name`) or plain facts
+  (an object of up to 30 short values); anything else gets no line, so the bot puts what matters in its reply.
+- **A card the bot builds** from what it found: a `chart` for numbers, then a `list`, `facts` or `links` card. A built
+  list or links card that only repeats a result the bot could have shown as it is gets refused, with the handle to
+  use instead.
+- **A small diagram or layout** as `html`, last. The gateway removes scripts, frames, forms and remote content from it
+  before it is kept, and the app draws what is left with scripts off and no network.
+
+The owner sees the card with the bot's reply, and the bot is told what was shown, so it does not repeat it. Where the
+app cannot draw a card (a notification, a scheduled task's summary, another bot's report, a group chat), the card's
+caption stands in for it as `[Card: <caption>]`. Cards need an app that lists `cards` in the hello's `features`
+(`docs/API.md` "Cards"). Nothing to configure.
 
 ### Questions
 

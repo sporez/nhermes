@@ -2,7 +2,9 @@
 // two throwaway gateways in one network with a scripted model: no keys, no network beyond 127.0.0.1, nothing
 // kept. Usage: node scripts/api-fixtures.ts <output folder>. One JSON file per answer, and `events.jsonl` with
 // the socket frames of a turn that streams, reasons, calls a tool, asks for an approval and finishes;
-// `events-card.jsonl` and `turns-card.json` are a turn that reads a list and shows it as a card;
+// `events-card.jsonl` is a turn that reads a list and shows it as a card; `turns-card.json` holds that turn and
+// four more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart` and
+// an `html` card;
 // `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
 // the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
 // typed reply taken as a question's answer.
@@ -34,7 +36,7 @@ const reminders = defineTool({
 	parameters: Type.Object({ list: Type.String() }),
 	replay: "safe",
 	execute: async (_args, api) => ({
-		output: [{ type: "text", text: `2 reminders\n\n${cardableLine(api.callId)}` }],
+		output: [{ type: "text", text: `2 reminders\n\n${cardableLine(api.callId, "Reminders")}` }],
 		details: { structured: { reminders: [{ id: "r1", title: "Milk", completed: false }, { id: "r2", title: "Eggs", completed: false }] } },
 	}),
 });
@@ -110,6 +112,31 @@ try {
 	await app.call("sessions.submit", { id: cardChat.id, content: [{ type: "text", text: "What's on my grocery list?" }], requestId: "fixture-2" });
 	await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === cardChat.id, 15000);
 	writeFileSync(join(out, "events-card.jsonl"), `${app.events.slice(before).filter((e) => e.sessionId === cardChat.id).map((e) => JSON.stringify(e)).join("\n")}\n`);
+
+	// More turns in the same chat: a card the bot builds, a scheduler result shown, a chart and an html card.
+	const finishedTurns = () => app.events.filter((e) => e.event === "turn.finished" && e.sessionId === cardChat.id).length;
+	const turn = async (text: string, requestId: string, responses: ReturnType<typeof fauxAssistantMessage>[]) => {
+		a.faux.setResponses(responses);
+		const n = finishedTurns();
+		await app.call("sessions.submit", { id: cardChat.id, content: [{ type: "text", text }], requestId });
+		await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === cardChat.id && finishedTurns() > n, 15000);
+	};
+	const shows = (text: string, card: unknown, caption: string) => fauxAssistantMessage([fauxText(text), fauxToolCall("show", { card, caption } as never, { id: "call_show" })], { stopReason: "toolUse" });
+	await turn("What should I pack?", "fixture-2a", [
+		shows("Here is a packing list.", { kind: "list", title: "Packing", items: [{ title: "Passport", done: true }, { title: "Charger", detail: "USB-C" }, { title: "Guidebook", url: "https://example.com/guide" }] }, "Packing: 3 items"),
+	]);
+	const brief = a.core.scheduler.create({ name: "Morning brief", prompt: "Summarize the news", schedule: "0 7 * * 1-5", bot: "main" });
+	await turn("What are my scheduled tasks?", "fixture-2b", [
+		fauxAssistantMessage([fauxToolCall("schedule_list", {}, { id: "call_sched" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("One task."), fauxToolCall("show", { from: cardHandle("call_sched"), caption: "Scheduled: 1 task" }, { id: "call_show" })], { stopReason: "toolUse" }),
+	]);
+	a.core.scheduler.delete(brief.id); // so jobs.json below stays the one task it is about
+	await turn("Chart my sales", "fixture-2c", [
+		shows("Sales rose.", { kind: "chart", title: "Sales", type: "line", x: { kind: "date", label: "Day" }, y: { label: "Revenue", unit: "USD" }, series: [{ name: "2026", points: [{ x: "2026-10-01", y: 120 }, { x: "2026-10-02", y: 150.5 }, { x: "2026-10-03", y: 140 }] }] }, "Sales, 3 days"),
+	]);
+	await turn("Draw how a request flows", "fixture-2d", [
+		shows("The flow, left to right.", { kind: "html", title: "Request flow", aspect: 2.5, html: '<style>.n{fill:var(--nh-surface);stroke:var(--nh-stroke)}text{fill:var(--nh-text);font-size:12px}</style><svg viewBox="0 0 200 80" width="100%"><rect class="n" x="5" y="25" width="70" height="30" rx="6"/><text x="22" y="44">Client</text><rect class="n" x="125" y="25" width="70" height="30" rx="6"/><text x="138" y="44">Gateway</text><path d="M75 40H125" stroke="var(--nh-accent)" fill="none"/></svg><script>stolen()</script>' }, "Request flow"),
+	]);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
 
 	// A turn that asks the owner a question, waits for the answer, and carries on with it.

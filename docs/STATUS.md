@@ -185,6 +185,19 @@ writes `events-card.jsonl` and `turns-card.json`. In the nHermes app (Mac and iP
 throwaway gateways with the faux model and a fake MacBridge: cards under the reply, `only`, a bad handle, captions in
 the chat preview. Not verified: with a real MacBridge server and a real model.
 
+Phase 2 (2026-10-24), automated with the faux model and a fake MCP server, against the branch's code: the handle line
+naming the card (`test/tools/cards.test.ts`: dedicated card by tool name, the generic List and Facts shape rule with
+its edges, no handle on an error or a shape with no card, 256 KB); the scheduler tools' structured Job and Run shapes
+equal to `GET /jobs` and `GET /jobs/:id/runs` (`test/tools/schedule-cards.test.ts`); `web_fetch`'s page details from
+HTML fixtures with and without Open Graph tags (`test/core/page-meta.test.ts`, `test/core/web.test.ts`); `show {card}`
+for `list`, `facts`, `links`, `chart` and `html`, with the caps, cut text, wrong shapes, non-http addresses, exactly one
+of `from` and `card`, the refusal of a built card that repeats a result's items, and the run ending with the card
+(`test/tools/cards.test.ts`); chart validation and the html sanitizer, each dropped tag, attribute and address, the 64 KB
+cap, and inline `<style>` and `<svg>` surviving (`test/core/html-card.test.ts`). `scripts/api-fixtures.ts` also writes a
+`list`, a `schedule_list` result, a `chart` and an `html` card into `turns-card.json`. Not verified: with a real
+model (does it pick the right card and stop repeating it), and drawn in the app (the app's cards for these kinds are
+not built yet).
+
 ## Questions
 
 Automated (`test/tools/ask.test.ts`, 2026-10-23), with the faux model through the client API: a question waiting
