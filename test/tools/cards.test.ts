@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
-import { cardableLine, cardHandle, cardNotesOf, findCardSource, narrowCardData, withCardNotes } from "../../src/core/cards.ts";
+import { cardableLine, cardableResult, cardFor, cardHandle, cardNotesOf, genericCardFor, findCardSource, narrowCardData, withCardNotes } from "../../src/core/cards.ts";
 import type { SessionEvent } from "../../src/core/events.ts";
 import type { EntryRecord } from "../../src/engine/engine.ts";
 import { collect, fauxModels, mcpServerConfig, tempDir, testConfig, testCore } from "../helpers.ts";
@@ -18,6 +18,8 @@ const TOOLS = [
 	{ name: "plain", description: "No structured data", inputSchema: { type: "object", properties: {} } },
 	{ name: "broken", description: "Fails with data", inputSchema: { type: "object", properties: {} } },
 	{ name: "lookup", description: "Structured data the app has no card for", inputSchema: { type: "object", properties: {} } },
+	{ name: "pairs", description: "Structured data of a flat shape", inputSchema: { type: "object", properties: {} } },
+	{ name: "mac_weather_get", description: "Weather", inputSchema: { type: "object", properties: {} } },
 ];
 const EVENTS = { events: [{ id: "e1", title: "Dentist" }, { id: "e2", title: "Lunch" }, { id: "e3", title: "Run" }], total: 3 };
 
@@ -26,7 +28,9 @@ async function setup() {
 	const mcp = await FakeMcpServer.start(TOOLS);
 	mcp.behavior.set("mac_calendar_list_events", { text: "3 events", structured: EVENTS });
 	mcp.behavior.set("plain", { text: "just text" });
-	mcp.behavior.set("lookup", { text: "51.4, -0.1", structured: { latitude: 51.4, longitude: -0.1 } });
+	mcp.behavior.set("lookup", { text: "51.4, -0.1", structured: { place: { latitude: 51.4, longitude: -0.1 } } });
+	mcp.behavior.set("pairs", { text: "51.4, -0.1", structured: { latitude: 51.4, longitude: -0.1 } });
+	mcp.behavior.set("mac_weather_get", { text: "Sunny", structured: { temperature: 21, conditions: "sunny" } });
 	const { models, faux } = fauxModels();
 	const config = testConfig(t.dir, [{ name: "main", default: true, instructions: "test", tools: ["mcp:cal"] }], { mcp: { servers: [mcpServerConfig("cal", mcp.url, { tools: { include: ["*"], exclude: [], readOnly: ["*"] } })] } });
 	const core = await testCore(t.dir, { models, config, mcpTuning: FAST });
@@ -63,12 +67,14 @@ const resultText = (events: SessionEvent[], id: string) => (events.find((e) => e
 test("a kept, non-error structured result the app draws ends with its handle; one without structured data, with an error or that the app does not draw does not", async () => {
 	const s = await setup();
 	try {
-		const r = await run(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_a"), tool("mcp__cal__plain", {}, "call_b"), tool("mcp__cal__broken", {}, "call_c"), tool("mcp__cal__lookup", {}, "call_d")), fauxAssistantMessage([fauxText("ok")])]);
-		assert.equal(resultText(r.events, "call_a"), `3 events\n\n(The owner can be shown this as a card: show {from: "${cardHandle("call_a")}"})`);
+		const r = await run(s, [ask(tool("mcp__cal__mac_calendar_list_events", {}, "call_a"), tool("mcp__cal__plain", {}, "call_b"), tool("mcp__cal__broken", {}, "call_c"), tool("mcp__cal__lookup", {}, "call_d"), tool("mcp__cal__pairs", {}, "call_e"), tool("mcp__cal__mac_weather_get", {}, "call_f")), fauxAssistantMessage([fauxText("ok")])]);
+		assert.equal(resultText(r.events, "call_a"), `3 events\n\n(The owner can be shown this as a Calendar card: show {from: "${cardHandle("call_a")}"})`);
 		assert.equal(cardHandle("call_a"), `c${createHash("sha256").update("call_a").digest("hex").slice(0, 5)}`);
 		assert.equal(resultText(r.events, "call_b"), "just text");
 		assert.doesNotMatch(resultText(r.events, "call_c"), /card/);
 		assert.equal(resultText(r.events, "call_d"), "51.4, -0.1");
+		assert.equal(resultText(r.events, "call_e"), `51.4, -0.1\n\n(The owner can be shown this as a Facts card: show {from: "${cardHandle("call_e")}"})`, "a flat result no dedicated card covers is a Facts card");
+		assert.match(resultText(r.events, "call_f"), /as a Weather card: show \{from: "c[0-9a-f]{5}"\}\)$/);
 	} finally {
 		await s.cleanup();
 	}
@@ -221,4 +227,52 @@ test("a delegated bot's card reaches the caller as its caption", async () => {
 		await core.close();
 		await cleanup();
 	}
+});
+
+test("the generic shape rule: a List needs a top-level array of objects that all have a string id and a title or name; Facts are a flat object of 1 to 30 short scalars", () => {
+	const item = (o: Record<string, unknown> = {}) => ({ id: "a", title: "T", ...o });
+	// List.
+	assert.equal(genericCardFor({ items: [item()] }), "List");
+	assert.equal(genericCardFor({ total: 2, tasks: [{ id: "a", name: "N" }, item()] }), "List");
+	assert.equal(genericCardFor({ items: [] }), null, "an empty array is no list");
+	assert.equal(genericCardFor({ items: [item(), { id: "b" }] }), null, "every element needs a title or name");
+	assert.equal(genericCardFor({ items: [item({ id: 5 })] }), null, "ids are strings");
+	assert.equal(genericCardFor({ items: [item(), "x"] }), null);
+	assert.equal(genericCardFor([item()]), null, "a bare array is not an object holding one");
+	// Facts.
+	assert.equal(genericCardFor({ a: "x", b: 1.5, c: true, d: null }), "Facts");
+	assert.equal(genericCardFor({ a: "x".repeat(200) }), "Facts");
+	assert.equal(genericCardFor({ a: "x".repeat(201) }), null);
+	assert.equal(genericCardFor({ a: Number.POSITIVE_INFINITY }), null);
+	assert.equal(genericCardFor({ a: { b: 1 } }), null, "no nesting");
+	assert.equal(genericCardFor({ a: ["x"] }), null);
+	assert.equal(genericCardFor({}), null);
+	assert.equal(genericCardFor({ a: null }), null, "nothing but nulls says nothing");
+	assert.equal(genericCardFor(Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i]))), "Facts");
+	assert.equal(genericCardFor(Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`k${i}`, i]))), null);
+	assert.equal(genericCardFor("text"), null);
+	assert.equal(genericCardFor(null), null);
+});
+
+test("cardFor: a dedicated card by tool name (MCP by its own name on any server), else the shape's, else none", () => {
+	assert.equal(cardFor("mcp__bridge__mac_reminders_list_reminders", { x: [] }), "Reminders");
+	assert.equal(cardFor("mcp__bridge__mac_maps_travel_time", { a: [{}] }), "Travel time");
+	assert.equal(cardFor("mcp__bridge__mac_bridge_status", {}), "MacBridge status");
+	assert.equal(cardFor("schedule_list", { jobs: [] }), "Scheduled tasks");
+	assert.equal(cardFor("schedule_history", { job: {}, runs: [] }), "Scheduled task");
+	assert.equal(cardFor("web_fetch", { url: "https://example.com/", status: 200 }), "Page");
+	assert.equal(cardFor("mcp__other__web_fetch", { url: "https://example.com/", status: 200 }), "Facts", "an MCP server's tool of that name is not the gateway's");
+	assert.equal(cardFor("mcp__notes__list", { notes: [{ id: "1", title: "Milk" }] }), "List");
+	assert.equal(cardFor("mcp__notes__list", { nested: { a: 1 } }), null);
+	assert.equal(cardFor("mcp__bridge__mac_weather_get", undefined), null);
+});
+
+test("cardableResult keeps structured data up to 256 KB and adds the named handle line only for a result that is not an error and becomes a card", () => {
+	const line = (card: string) => `(The owner can be shown this as a ${card} card: show {from: "${cardHandle("c1")}"})`;
+	assert.deepEqual(cardableResult("c1", "mcp__s__mac_weather_get", { t: 1 }), { structured: { t: 1 }, line: line("Weather") });
+	assert.deepEqual(cardableResult("c1", "mcp__s__mac_weather_get", { t: 1 }, true), { structured: { t: 1 } }, "never a handle on an error");
+	assert.deepEqual(cardableResult("c1", "x", { a: { b: 1 } }), { structured: { a: { b: 1 } } }, "no card, no line");
+	assert.deepEqual(cardableResult("c1", "x", undefined), {});
+	assert.deepEqual(cardableResult("c1", "x", { big: "x".repeat(256 * 1024) }), {}, "over 256 KB is not kept");
+	assert.equal(cardableLine("c1"), `(The owner can be shown this as a card: show {from: "${cardHandle("c1")}"})`);
 });

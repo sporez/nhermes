@@ -13,7 +13,7 @@ import { createToolSearchTool } from "@earendil-works/pi-durable/tool-search";
 import { type CallToolResult, type Tool as McpTool, toLlmContent } from "@earendil-works/pi-mcp";
 import type { PromptPart } from "../agent/extensions.ts";
 import type { McpServerConfig } from "../config.ts";
-import { cardableLine, DRAWN_MCP_TOOLS } from "../core/cards.ts";
+import { cardableResult } from "../core/cards.ts";
 import { matchesGlob } from "../core/policy.ts";
 import type { McpServers } from "../mcp/servers.ts";
 import { modelText } from "../mcp/outcome.ts";
@@ -27,8 +27,6 @@ const MAX_NAME = 64;
 const MAX_DESCRIPTION = 2000;
 /** Model-facing text of one result beyond this is cut in the middle (Pi's coding agent uses the same). */
 const MAX_TEXT_BYTES = 20 * 1024;
-/** A server's structured result is kept with the call for clients (cards), up to this size; the model never sees it. */
-const MAX_STRUCTURED_CHARS = 256 * 1024;
 /** More direct tools than this from one server is worth a warning in the panel. */
 export const MANY_TOOLS = 100;
 
@@ -166,9 +164,8 @@ export class McpTools {
 				log.info("mcp call", { server: c.name, tool: t.name, outcome: r.ok ? (r.result.isError ? "tool_error" : "ok") : r.outcome.kind, ms: r.ms });
 				if (r.ok) {
 					const isError = r.result.isError === true;
-					const structured = r.result.structuredContent;
-					const keep = structured !== undefined && JSON.stringify(structured).length <= MAX_STRUCTURED_CHARS;
-					return { output: resultContent(r.result, keep && !isError && DRAWN_MCP_TOOLS.has(t.name) ? cardableLine(api.callId) : undefined), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(keep ? { structured } : {}) } };
+					const { structured, line } = cardableResult(api.callId, name, r.result.structuredContent, isError);
+					return { output: resultContent(r.result, line), isError, details: { server: c.name, tool: t.name, outcome: isError ? "tool_error" : "ok", sent: "yes", ms: r.ms, ...(structured !== undefined ? { structured } : {}) } };
 				}
 				const o = r.outcome;
 				const text = modelText({ kind: o.kind, message: redact(o.message) }, { server: c.name, tool: t.name, readOnly, timeoutS: current.timeoutS, since: r.since });

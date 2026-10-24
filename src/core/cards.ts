@@ -29,36 +29,102 @@ export type CardDetails = ResultCard | QuestionCard;
 export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
 
 /**
- * The MCP tools whose results the nHermes app draws as cards (MacBridge's), by the tool's own name on any server.
- * Only their results get a handle. Any other result, shown, would be a bare caption, and the bot, told the owner
- * sees the card, would leave out of its reply what it expected the card to say. Grows with the app's cards.
+ * The MCP tools whose results the nHermes app draws as their own card (MacBridge's), by the tool's own name on any
+ * server, and the card each becomes. Grows with the app's cards.
  */
-export const DRAWN_MCP_TOOLS: ReadonlySet<string> = new Set([
-	"mac_bridge_status",
-	"mac_calendar_list_calendars",
-	"mac_calendar_list_events",
-	"mac_calendar_get_event",
-	"mac_calendar_create_event",
-	"mac_reminders_list_lists",
-	"mac_reminders_list_reminders",
-	"mac_reminders_get_reminder",
-	"mac_reminders_create_reminder",
-	"mac_reminders_complete_reminder",
-	"mac_contacts_search",
-	"mac_contacts_get",
-	"mac_weather_get",
-	"mac_maps_search_places",
-	"mac_maps_travel_time",
+export const MCP_CARDS: ReadonlyMap<string, string> = new Map([
+	["mac_bridge_status", "MacBridge status"],
+	["mac_calendar_list_calendars", "Calendar"],
+	["mac_calendar_list_events", "Calendar"],
+	["mac_calendar_get_event", "Calendar"],
+	["mac_calendar_create_event", "Calendar"],
+	["mac_reminders_list_lists", "Reminders"],
+	["mac_reminders_list_reminders", "Reminders"],
+	["mac_reminders_get_reminder", "Reminders"],
+	["mac_reminders_create_reminder", "Reminders"],
+	["mac_reminders_complete_reminder", "Reminders"],
+	["mac_contacts_search", "Contacts"],
+	["mac_contacts_get", "Contacts"],
+	["mac_weather_get", "Weather"],
+	["mac_maps_search_places", "Places"],
+	["mac_maps_travel_time", "Travel time"],
 ]);
+
+/** The gateway's own tools whose structured results the app draws as their own card. */
+export const OWN_CARDS: ReadonlyMap<string, string> = new Map([
+	["schedule_list", "Scheduled tasks"],
+	["schedule_create", "Scheduled task"],
+	["schedule_update", "Scheduled task"],
+	["schedule_run", "Scheduled task"],
+	["schedule_history", "Scheduled task"],
+	["web_fetch", "Page"],
+]);
+
+/** The card names a result can have, besides the dedicated ones: the app's fallback by shape. */
+export const GENERIC_CARDS = ["List", "Facts"] as const;
+
+/** Most scalar text a Facts value may hold. */
+export const FACT_VALUE_MAX = 200;
+/** Most keys a Facts object may hold (null values are not counted). */
+export const FACTS_MAX_KEYS = 30;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * The generic card a structured result has by its shape alone, or null. The nHermes app's fallback follows this
+ * exact rule (test/fixtures in both repos keep them together):
+ *
+ * - **List**: the data is an object (not an array) with at least one top-level property that is a non-empty array
+ *   whose elements are ALL objects with a string `id` and a string `title` or a string `name`.
+ * - **Facts**: otherwise, the data is an object (not an array) with 1 to 30 properties once properties whose value
+ *   is `null` are left out, and every remaining value is a string of at most 200 characters, a finite number or a
+ *   boolean. No nested objects or arrays.
+ * - Anything else (an array at the top, nested values, an empty object): null, so no card.
+ */
+export function genericCardFor(data: unknown): "List" | "Facts" | null {
+	if (!isRecord(data)) return null;
+	const values = Object.values(data);
+	const listLike = (v: unknown) =>
+		Array.isArray(v) && v.length > 0 && v.every((e) => isRecord(e) && typeof e.id === "string" && (typeof e.title === "string" || typeof e.name === "string"));
+	if (values.some(listLike)) return "List";
+	const kept = values.filter((v) => v !== null);
+	if (kept.length < 1 || kept.length > FACTS_MAX_KEYS) return null;
+	return kept.every((v) => (typeof v === "string" && v.length <= FACT_VALUE_MAX) || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean") ? "Facts" : null;
+}
+
+/**
+ * Which card a tool's structured result becomes: the tool's dedicated card (an MCP tool matches by its own name
+ * under `mcp__<server>__`), else the generic card of its shape, else null (no handle: the bot writes it in its reply).
+ */
+export function cardFor(toolName: string, data: unknown): string | null {
+	if (data === undefined || data === null) return null;
+	let dedicated = OWN_CARDS.get(toolName);
+	if (!dedicated && toolName.startsWith("mcp__")) for (const [tool, card] of MCP_CARDS) if (toolName.endsWith(`__${tool}`)) dedicated = card;
+	return dedicated ?? genericCardFor(data);
+}
+
+/** A server's or tool's structured result is kept with the call for clients (cards), up to this size; the model never sees it. */
+export const MAX_STRUCTURED_CHARS = 256 * 1024;
+
+/**
+ * The one rule for making a tool result cardable: what to keep in the call's details and the handle line to add
+ * after the model's text. Structured data is kept up to 256 KB, whatever the outcome (clients read it from the
+ * tool item); the line only when the call did not fail and the result becomes a card (`cardFor`).
+ */
+export function cardableResult(callId: string, toolName: string, structured: unknown, isError = false): { structured?: unknown; line?: string } {
+	if (structured === undefined || JSON.stringify(structured).length > MAX_STRUCTURED_CHARS) return {};
+	const card = isError ? null : cardFor(toolName, structured);
+	return { structured, ...(card ? { line: cardableLine(callId, card) } : {}) };
+}
 
 /** A short name for a tool call that the model can quote: "c" and the first 5 hex characters of the call id's hash. */
 export function cardHandle(callId: string): string {
 	return `c${createHash("sha256").update(callId).digest("hex").slice(0, 5)}`;
 }
 
-/** The line appended to the model's text of a result that can be shown as a card. */
-export function cardableLine(callId: string): string {
-	return `(The owner can be shown this as a card: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
+/** The line appended to the model's text of a result that can be shown as a card; names the card when it is known. */
+export function cardableLine(callId: string, card?: string): string {
+	return `(The owner can be shown this as ${card ? `a ${card}` : "a"} card: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
 }
 
 /** A card's stand-in where cards are not drawn (push text, job summaries, reports, transcripts). */
