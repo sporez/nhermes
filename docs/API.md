@@ -294,6 +294,10 @@ a card's `data` decodes with the types a client already has: `schedule_list` giv
 `schedule_create`, `schedule_update` and `schedule_run` give `{"job": Job}`, `schedule_history` gives
 `{"job": Job, "runs": [Run]}`. Their cards are "Scheduled tasks" (the list) and "Scheduled task".
 
+`web_fetch` keeps `{"url", "status", "title"?, "description"?, "siteName"?, "image"?}`: the final address and
+status, and, for an HTML page, what it says about itself (`<title>`, Open Graph tags, `meta description`; the picture
+is an absolute http(s) address). Its card is "Page". A failed fetch keeps the data but gets no handle.
+
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
  "caption": "Groceries: 2 reminders",
