@@ -287,7 +287,10 @@ Calendar, Reminders, Contacts, Weather, Places, Travel time and MacBridge status
 top-level array, of at least one object, all with a string `id` and a string `title` or `name`; other keys may
 hold anything) or **Facts** (an object of 1
 to 30 values that are strings of at most 200 characters, finite numbers or booleans; `null` values do not
-count). Any other result has no card and no line, so the bot writes it into its reply.
+count). Any other result has no card and no line, so the bot writes it into its reply. A listing tool's result
+whose lists are all empty (no events, no reminders, no scheduled tasks) has no card either: "you have none" reads
+better in the reply. Where a card shows less than its name suggests, the line says so: a Page card shows the page's
+title, summary and picture, not what the page says, so the bot puts the contents in words or in a card it builds.
 
 The scheduler tools keep their result as structured data in the client API's own shapes (see Scheduled tasks), so
 a card's `data` decodes with the types a client already has: `schedule_list` gives `{"jobs": [Job]}`,

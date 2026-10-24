@@ -64,6 +64,23 @@ export const OWN_CARDS: ReadonlyMap<string, string> = new Map([
 	["web_fetch", "Page"],
 ]);
 
+/**
+ * Tools that list things: a result of theirs whose lists are all empty has no card, since an empty card says less
+ * than "you have none" in the reply. Matched like the cards (an MCP tool by its own name).
+ */
+const LISTING_TOOLS: ReadonlySet<string> = new Set([
+	"mac_calendar_list_calendars",
+	"mac_calendar_list_events",
+	"mac_reminders_list_lists",
+	"mac_reminders_list_reminders",
+	"mac_contacts_search",
+	"mac_maps_search_places",
+	"schedule_list",
+]);
+
+/** What a card shows, where its name alone would let the bot think it shows more. Said in the handle line. */
+const CARD_SHOWS: ReadonlyMap<string, string> = new Map([["Page", "its title, summary and picture, not what the page says"]]);
+
 /** The card names a result can have, besides the dedicated ones: the app's fallback by shape. */
 export const GENERIC_CARDS = ["List", "Facts"] as const;
 
@@ -104,6 +121,11 @@ export function genericCardFor(data: unknown): "List" | "Facts" | null {
  */
 export function cardFor(toolName: string, data: unknown): string | null {
 	if (data === undefined || data === null) return null;
+	const listing = toolName.startsWith("mcp__") ? [...LISTING_TOOLS].some((t) => t.startsWith("mac_") && toolName.endsWith(`__${t}`)) : LISTING_TOOLS.has(toolName);
+	if (listing && isRecord(data)) {
+		const lists = Object.values(data).filter(Array.isArray);
+		if (lists.length > 0 && lists.every((l) => l.length === 0)) return null;
+	}
 	let dedicated = OWN_CARDS.get(toolName);
 	if (!dedicated && toolName.startsWith("mcp__")) for (const [tool, card] of MCP_CARDS) if (toolName.endsWith(`__${tool}`)) dedicated = card;
 	return dedicated ?? genericCardFor(data);
@@ -130,7 +152,8 @@ export function cardHandle(callId: string): string {
 
 /** The line appended to the model's text of a result that can be shown as a card; names the card when it is known. */
 export function cardableLine(callId: string, card?: string): string {
-	return `(The owner can be shown this as ${card ? `a ${card}` : "a"} card: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
+	const shows = card ? CARD_SHOWS.get(card) : undefined;
+	return `(The owner can be shown this as ${card ? `a ${card}` : "a"} card${shows ? `, which shows ${shows}` : ""}: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
 }
 
 /** A card's stand-in where cards are not drawn (push text, job summaries, reports, transcripts). */

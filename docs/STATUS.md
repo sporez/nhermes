@@ -173,6 +173,13 @@ Pictures, PDFs and other files sent from Vory's composer (`src/core/attachments.
 
 ## Cards
 
+Live (2026-10-24), on a real gateway with Grok 4.7 and a real MacBridge, ten prompts: the bot showed the tool's own
+card for weather, reminders, places, a fetched page and scheduled tasks; built a list (packing, a recipe after asking
+its questions), facts (disk space), a chart (the week's highs and lows from the weather result) and an html diagram
+(SVG using the theme variables); and kept its replies to what the cards don't say. Found and fixed: a Page card was
+taken to show the page's contents (the line now says what it shows), and an empty listing was shown as an empty
+card (now it has no card). Seen: an html diagram took Grok about six minutes to write at high thinking.
+
 Automated (`test/tools/cards.test.ts`, 2026-10-23), with a fake MCP server and the faux model: the handle line
 only on a kept, non-error structured result of a tool the app draws (2026-10-24) and after the 20 KB cut; `show` resolving a handle from the
 transcript, narrowing with `only`, plain errors for an unknown handle, a result without card data, `only`

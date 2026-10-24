@@ -257,10 +257,13 @@ test("the generic shape rule: a List needs a top-level array of objects that all
 });
 
 test("cardFor: a dedicated card by tool name (MCP by its own name on any server), else the shape's, else none", () => {
-	assert.equal(cardFor("mcp__bridge__mac_reminders_list_reminders", { x: [] }), "Reminders");
+	assert.equal(cardFor("mcp__bridge__mac_reminders_list_reminders", { reminders: [{ id: "r1", title: "Milk" }], count: 1 }), "Reminders");
+	assert.equal(cardFor("mcp__bridge__mac_reminders_list_reminders", { reminders: [], count: 0 }), null, "an empty listing has no card: the reply says there are none");
+	assert.equal(cardFor("mcp__bridge__mac_weather_get", { location: { name: "x" }, alerts: [] }), "Weather", "an empty list in a tool that isn't a listing doesn't count");
 	assert.equal(cardFor("mcp__bridge__mac_maps_travel_time", { a: [{}] }), "Travel time");
 	assert.equal(cardFor("mcp__bridge__mac_bridge_status", {}), "MacBridge status");
-	assert.equal(cardFor("schedule_list", { jobs: [] }), "Scheduled tasks");
+	assert.equal(cardFor("schedule_list", { jobs: [{ id: "j1", name: "Brief" }] }), "Scheduled tasks");
+	assert.equal(cardFor("schedule_list", { jobs: [] }), null);
 	assert.equal(cardFor("schedule_history", { job: {}, runs: [] }), "Scheduled task");
 	assert.equal(cardFor("web_fetch", { url: "https://example.com/", status: 200 }), "Page");
 	assert.equal(cardFor("mcp__other__web_fetch", { url: "https://example.com/", status: 200 }), "Facts", "an MCP server's tool of that name is not the gateway's");
@@ -277,6 +280,7 @@ test("cardableResult keeps structured data up to 256 KB and adds the named handl
 	assert.deepEqual(cardableResult("c1", "x", undefined), {});
 	assert.deepEqual(cardableResult("c1", "x", { big: "x".repeat(256 * 1024) }), {}, "over 256 KB is not kept");
 	assert.equal(cardableLine("c1"), `(The owner can be shown this as a card: show {from: "${cardHandle("c1")}"})`);
+	assert.equal(cardableLine("c1", "Page"), `(The owner can be shown this as a Page card, which shows its title, summary and picture, not what the page says: show {from: "${cardHandle("c1")}"})`, "a card that shows less than its name suggests says so");
 });
 
 const shown = async (s: Awaited<ReturnType<typeof setup>>, steps: ReturnType<typeof fauxAssistantMessage>[]) => {
