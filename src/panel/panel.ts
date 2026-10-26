@@ -472,6 +472,8 @@ export class Panel {
 			running: c.sessions.runningCount(),
 			// Questions are answered in the app; the panel lists the approvals.
 			approvals: c.approvals.allPending().flatMap((a) => (a.kind !== "approval" ? [] : [{ id: a.requestId, sessionId: a.sessionId, bot: a.bot, tool: a.toolName, command: a.command, description: a.description, createdAt: a.createdAt }])),
+			// Running spaces (times in seconds, like everything else here); the owner can delete one below.
+			spaces: c.spaces.list().map((x) => ({ id: x.id, bot: x.bot, createdAt: x.createdAt / 1000, lastUsed: x.lastUsed / 1000, idleMinutes: c.config.spaces.idleMinutes })),
 			jobs: c.scheduler.list().map((j) => {
 				const last = c.scheduler.lastRun(j.id);
 				return {
@@ -480,6 +482,12 @@ export class Panel {
 				};
 			}),
 		}));
+		r.on("DELETE", "/panel/api/spaces/:id", async (q) => {
+			const space = c.spaces.list().find((x) => x.id === q.params.id);
+			if (!space) throw new HttpError(404, "That space is already gone.");
+			await c.spaces.close(space.bot, space.id);
+			return { deleted: true };
+		});
 		r.on("POST", "/panel/api/approvals/:id", (q) => {
 			const choice = obj(q.body).choice;
 			if (choice !== "once" && choice !== "session" && choice !== "always" && choice !== "deny") throw new HttpError(400, "choice must be once, session, always or deny");

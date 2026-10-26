@@ -6,6 +6,7 @@ import { statfsSync } from "node:fs";
 import { connect } from "node:net";
 import type { Core } from "../app.ts";
 import { loadConfig } from "../config.ts";
+import { defaultProbe, type SpacesProbe, spacesFindings } from "../spaces/check.ts";
 
 export type Finding = { level: "ok" | "warn" | "fail"; text: string };
 export type DoctorReport = { at: number; exitCode: number; findings: Finding[]; lines: string[] };
@@ -25,7 +26,8 @@ function tcpReachable(host: string, port: number, timeoutMs = 3000): Promise<boo
 	});
 }
 
-export async function runDoctor(c: Core): Promise<DoctorReport> {
+/** `probe` replaces the cua and systemctl commands (tests). */
+export async function runDoctor(c: Core, probe: SpacesProbe = defaultProbe(c.config.spaces.cua)): Promise<DoctorReport> {
 	const f: Finding[] = [];
 	const add = (level: Finding["level"], text: string) => f.push({ level, text });
 
@@ -99,6 +101,9 @@ export async function runDoctor(c: Core): Promise<DoctorReport> {
 	if (!c.config.review.enabled) add("ok", "Jev review is off");
 	else if (c.reviewer.active()) add("ok", "Jev review is active");
 	else add("warn", `Jev review is on but ${c.config.review.keyEnv} is not set, so every approval asks you`);
+
+	// Only with cua installed or a bot that has the spaces tools.
+	for (const x of await spacesFindings(probe, c.bots.list().some((b) => !b.isPeer && b.toolGroups.includes("spaces")))) add(x.level, x.text);
 
 	const sw = c.updates.status();
 	if (!sw.updatable) add("warn", `software updates unavailable: ${sw.reason}`);

@@ -279,6 +279,18 @@ MCP servers as tool groups (`src/mcp/`, `docs/MCP.md`):
   show, add, test, disable and rm run against the same gateways.
 - Not yet verified live against a real MCP server, nor on Vory's MCP Servers screen in the app.
 
+## Spaces
+
+Spaces (`src/spaces/`, `docs/SPACES.md`):
+
+- Automated: the panel's Status tab lists running spaces (bot, open for, last used) and deletes one without the
+  bot's name, and a space already gone is a 404 (`test/panel/spaces.test.ts`, against an in-memory cua). The doctor's
+  Spaces section reads `cua --version`, the container line of `cua runtime doctor` (gVisor, runc only, failing, or
+  unreadable) and `systemctl is-active nhermes-spaces-firewall`, is silent without cua or a bot with the spaces tools,
+  and says the firewall cannot be checked without systemd (`test/spaces/check.test.ts`, with fake commands).
+- Not verified: the panel section in a browser on a gateway with a real space; the doctor against a real cua and
+  systemd (the output formats parsed are the ones recorded in `docs/SPACES.md`).
+
 ## Models
 
 All bots default to `neuralwatt/deepseek-v4.1-flash`. The VM and the Mac agent each have their own

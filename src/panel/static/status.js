@@ -65,10 +65,22 @@ async function statusScreen() {
 				await statusScreen();
 			}) } }, "Delete"))));
 
+	const spaceRow = (x) => h("tr", {},
+		h("td", { class: "mono" }, x.id), h("td", {}, badge(x.bot)),
+		h("td", {}, ago(x.createdAt).replace(/ ago$/, "")),
+		h("td", {}, h("div", {}, ago(x.lastUsed)), h("div", { class: "muted small" }, `deleted after ${x.idleMinutes} min unused`)),
+		h("td", {}, h("button", { class: "link danger", on: { click: () => run(async () => {
+			if (!await ask(`Delete space ${x.id} of ${x.bot}? Whatever is open in it is lost.`, "Delete")) return;
+			await api("DELETE", `/spaces/${encodeURIComponent(x.id)}`);
+			await statusScreen();
+		}) } }, "Delete")));
+
 	show(h("h1", {}, "Status"),
 		h("div", { class: "card" }, h("strong", {}, String(s.running)), ` ${s.running === 1 ? "chat" : "chats"} running right now`),
 		h("h2", {}, "Waiting for you"),
 		approvals.length ? approvals : h("div", { class: "muted" }, "Nothing is waiting for approval."),
+		s.spaces.length > 0 && h("h2", {}, "Running spaces"),
+		s.spaces.length > 0 && h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Space"), h("th", {}, "Bot"), h("th", {}, "Open for"), h("th", {}, "Last used"), h("th"))), h("tbody", {}, s.spaces.map(spaceRow)))),
 		h("h2", {}, "Scheduled jobs"),
 		s.jobs.length
 			? h("div", { class: "card" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Job"), h("th", {}, "State"), h("th", { class: "hide-s" }, "Next run"), h("th", {}, "Last run"), h("th"))), h("tbody", {}, s.jobs.map(jobRow))))
