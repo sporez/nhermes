@@ -1,7 +1,8 @@
 # Spaces (plan)
 
 Status: in progress. Host setup and network isolation verified on the gateway VM (2026-10-25); the core
-(S1), picture cards (P) and the bot tools (S2) are automated-tested; not yet tried by a bot on a real space.
+(S1), picture cards (P), the bot tools (S2) and the panel and doctor (S3) are automated-tested; not yet
+tried by a bot on a real space.
 
 ## Goal
 
@@ -145,6 +146,6 @@ Cua facts worth knowing:
 - [x] P. The bot can send the owner pictures: an `image` card through `show`, from a tool result's picture (any
   screenshot) or a picture file on the bot's host, kept as a chat attachment (9945420)
 - [x] S1. `src/spaces/`: open, close, list, limits, idle deletion, sweep; tests with a fake `cua` (94aeefe)
-- [ ] S2. Desktop tools take `space`; `space_shell`, `space_copy` (no viewer card: bots show screenshots)
-- [ ] S3. Panel: running spaces with a delete button; `doctor` checks `cua`, the runtime and the firewall
+- [x] S2. Desktop tools take `space`; `space_shell`, `space_copy` (no viewer card: bots show screenshots) (a0d4049, 95937c8)
+- [x] S3. Panel: running spaces with a delete button; `doctor` checks `cua`, the runtime and the firewall (6a83adb)
 - [ ] Later: VM spaces (image tools, network isolation), pools, a live viewer link card (access tickets are secrets)
