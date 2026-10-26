@@ -1,5 +1,7 @@
 // The Memory tab. Registers itself with the shell in core.js.
-import { ago, api, ask, field, h, registerTab, run, select, show, state, toast, ui } from "./core.js";
+import { ago, api, ask, field, h, registerTab, run, select, state, toast, ui } from "./core.js";
+
+const show = registerTab("memory", memoryScreen);
 
 async function memoryScreen() {
 	const owners = [...state.bots.map((b) => b.name), ...state.spaces.map((s) => `shared:${s}`)];
@@ -58,5 +60,3 @@ async function memoryScreen() {
 			h("div", { class: "row between" }, h("label", {}, pinned, " Pin"), h("button", { class: "primary", on: { click: add } }, "Add"))),
 		items.length ? items.map(card) : h("div", { class: "notice" }, ui.memoryQ ? "Nothing matches that search." : "No memories yet."));
 }
-
-registerTab("memory", memoryScreen);

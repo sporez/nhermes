@@ -1,5 +1,7 @@
 // The Gateway tab. Registers itself with the shell in core.js.
-import { THINKING, ago, api, ask, badge, copyText, field, fill, h, loadState, refreshUpdateBadge, registerTab, run, same, select, selectable, show, showLogin, state, toast, when } from "./core.js";
+import { THINKING, ago, api, ask, badge, copyText, field, fill, h, loadState, refreshUpdateBadge, registerTab, run, same, select, selectable, showLogin, state, toast, when } from "./core.js";
+
+const show = registerTab("gateway", gatewayScreen);
 
 async function gatewayScreen() {
 	const g = state.gateway;
@@ -174,5 +176,3 @@ function softwareCard() {
 	run(async () => render(await api("GET", "/software")));
 	return h("div", { class: "card" }, h("h3", {}, "Software"), body);
 }
-
-registerTab("gateway", gatewayScreen);

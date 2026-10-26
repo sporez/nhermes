@@ -1,5 +1,7 @@
 // The Bots tab. Registers itself with the shell in core.js.
-import { AuthError, THINKING, api, ask, badge, field, h, loadState, registerTab, restartNote, run, same, select, show, state, toast, ui, when } from "./core.js";
+import { AuthError, THINKING, api, ask, badge, field, h, loadState, registerTab, restartNote, run, same, select, state, toast, ui, when } from "./core.js";
+
+const show = registerTab("bots", botsScreen);
 
 // Members' bots, as their machines report them for editing (refreshed when the Bots screen opens).
 let remoteMembers = [];
@@ -275,5 +277,3 @@ function promptCard(bot, ctx) {
 	const details = h("details", { class: "card", on: { toggle: () => details.open && load() } }, h("summary", {}, "System prompt (what a new chat gets)"), body);
 	return details;
 }
-
-registerTab("bots", botsScreen);

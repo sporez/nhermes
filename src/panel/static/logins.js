@@ -1,7 +1,9 @@
 // The Logins tab: sign a machine in to model providers (this one, or any member) from this panel. The sign-in
 // itself runs on the machine that will use it; this page only shows its code or link and sends back answers.
 // An open sign-in is followed by polling its session about once a second, until it ends or the tab is left.
-import { api, ask, badge, fill, h, registerTab, run, selectable, copyText, show, toast, ui, when } from "./core.js";
+import { api, ask, badge, fill, h, registerTab, run, selectable, copyText, toast, ui, when } from "./core.js";
+
+const show = registerTab("logins", loginsScreen);
 
 ui.loginMachine ??= "";
 ui.loginShowKeys ??= false;
@@ -194,5 +196,3 @@ function stepView(root, s, mname) {
 	const pollTimer = setInterval(() => { if (!alive()) clearInterval(pollTimer); else if (!document.hidden && sig && !/"(done|failed|cancelled)"/.test(sig.slice(0, 14))) poll(); }, 1000);
 	poll();
 }
-
-registerTab("logins", loginsScreen);

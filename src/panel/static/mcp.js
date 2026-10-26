@@ -3,7 +3,9 @@
 // /panel/api/remote/<node>/mcp). A bot gets a server through its tool group mcp:<name> in the bot editor
 // (Bots). Key values are never shown or typed here: headers reference keys from the Keys tab as
 // {{secret:NAME}}. Only this machine's servers refresh while the tab is open. Registers itself in core.js.
-import { ago, api, ask, badge, field, fill, h, pollWhile, registerTab, restartNote, run, select, show, toast, ui, when } from "./core.js";
+import { ago, api, ask, badge, field, fill, h, pollWhile, registerTab, restartNote, run, select, toast, ui, when } from "./core.js";
+
+const show = registerTab("mcp", mcpScreen, "MCP");
 
 const STATE = {
 	online: ["online", "ok"],
@@ -219,5 +221,3 @@ async function mcpScreen() {
 	// This machine's live state, but not while a form (it would lose what is typed) or a tool list is open.
 	pollWhile("mcp", () => (ui.mcpEditing === null && ui.mcpOpen === null ? drawLocal(local) : undefined), 5000);
 }
-
-registerTab("mcp", mcpScreen, "MCP");

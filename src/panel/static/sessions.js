@@ -1,5 +1,7 @@
 // The Sessions tab. Registers itself with the shell in core.js.
-import { ago, api, ask, badge, h, registerTab, run, select, show, state, ui } from "./core.js";
+import { ago, api, ask, badge, h, registerTab, run, select, state, ui } from "./core.js";
+
+const show = registerTab("sessions", sessionsScreen);
 
 const tokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`);
 const dollars = (n) => (n >= 1 ? `$${n.toFixed(2)}` : n >= 0.01 ? `$${n.toFixed(3)}` : `$${n.toFixed(4)}`);
@@ -57,5 +59,3 @@ async function sessionsScreen() {
 		h("div", { class: "field" }),
 		rows.length ? rows : h("div", { class: "notice" }, "No sessions match."));
 }
-
-registerTab("sessions", sessionsScreen);

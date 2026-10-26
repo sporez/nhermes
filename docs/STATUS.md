@@ -300,6 +300,14 @@ chat picked its own in Vory. Neuralwatt is now a catalog provider (`src/models/n
 alone brings its live list. Those `models.json` files still win while they define `neuralwatt`; remove
 that entry (or the file, and `pi.modelsPath` with it) to switch a machine to the automatic list.
 
+## Panel
+
+- A tab that finishes loading after you moved to another one (a member slow to answer) no longer draws over
+  it, and a polling tab left mid-refresh starts no timer. Verified 2026-10-26 in panel-dev with headless
+  Chrome (Playwright): `/remote` held back 1.5 s, Bots then Status clicked; before the fix Bots drew over
+  Status, after it Status stayed. Every tab still renders and the Status tab still refreshes while open.
+  No automated test: the suite has no browser.
+
 ## Open items
 
 - Pick a second VM for `ops` (real remote host) and, if wanted, move the Mac peer to a VM.

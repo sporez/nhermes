@@ -1,5 +1,7 @@
 // The Status tab. Registers itself with the shell in core.js.
-import { ago, api, ask, badge, h, loadState, pollWhile, registerTab, run, select, show, state, ui, when } from "./core.js";
+import { ago, api, ask, badge, h, loadState, pollWhile, registerTab, run, select, state, ui, when } from "./core.js";
+
+const show = registerTab("status", statusScreen);
 
 const OUTCOMES = { auto_allowed: ["auto-approved", "ok"], asked: ["sent to you", "warn"], unavailable: ["unavailable", ""] };
 const JOB_NOTIFY = { never: "never notifies", always: "notifies every run", on_error: "notifies on failure", on_change: "notifies on change", agent: "bot decides when to notify" };
@@ -88,5 +90,3 @@ async function statusScreen() {
 		reviews);
 	pollWhile("status", statusScreen, 5000);
 }
-
-registerTab("status", statusScreen);

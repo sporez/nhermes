@@ -3,8 +3,9 @@
 // and so on) and this file never imports them.
 //
 // Adding a tab:
-//   1. Create <name>.js. Import what it needs from "./core.js", define an async screen function that
-//      renders with show(...), and end the file with registerTab("<name>", screenFn[, "Label"]).
+//   1. Create <name>.js. Import what it needs from "./core.js", define an async screen function, and
+//      right after the imports write `const show = registerTab("<name>", screenFn[, "Label"]);`. The
+//      screen renders with that show(...).
 //   2. Add `import "./<name>.js";` to panel.js. Tabs appear in the order of those imports.
 //   3. Add "<name>.js" to the FILES allowlist in src/panel/panel.ts.
 // A screen that refreshes itself calls pollWhile("<name>", screenFn, ms) from inside the screen.
@@ -20,16 +21,24 @@ let timer = null;
 export let tab = "bots";
 export const ui = { bot: null, owner: null, sessionBot: "", archived: "exclude", memoryQ: "", reviewFilter: "", mcpOpen: null, mcpEditing: null };
 
-/** Adds a tab; call it once from the screen's module. `label` replaces the capitalized name in the tab bar. */
+/**
+ * Adds a tab; call it once from the screen's module. `label` replaces the capitalized name in the tab bar.
+ * Returns the screen's show(), which replaces the main view only while that tab is open: a screen that
+ * finishes loading after you moved to another tab (a member that is slow to answer) must not draw over it.
+ */
 export function registerTab(name, screen, label) {
 	TABS.push(name);
 	SCREENS[name] = screen;
 	if (label) LABELS[name] = label;
+	return (...kids) => { if (tab === name) fill(view, ...kids); };
 }
 
-/** Re-runs a screen every `ms` while its tab is open and the page is visible (one timer; route() clears it). */
+/**
+ * Re-runs a screen every `ms` while its tab is open and the page is visible (one timer; route() clears it).
+ * A screen that finishes after its tab was left starts no timer.
+ */
 export function pollWhile(name, fn, ms) {
-	if (!timer) timer = setInterval(() => { if (tab === name && !document.hidden) run(fn); }, ms);
+	if (!timer && tab === name) timer = setInterval(() => { if (tab === name && !document.hidden) run(fn); }, ms);
 }
 
 // ---- helpers ----
@@ -49,11 +58,6 @@ export function h(tag, attrs = {}, ...kids) {
 /** Replaces an element's children; like h(), it accepts lists and skips empty values (replaceChildren would show them as text). */
 export function fill(el, ...kids) {
 	el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
-}
-
-/** Replaces the main view. */
-export function show(...kids) {
-	fill(view, ...kids);
 }
 
 /**
@@ -195,6 +199,7 @@ export function stopTimer() { clearInterval(timer); timer = null; }
 
 export function showLogin() {
 	stopTimer();
+	tab = "";
 	document.getElementById("top").hidden = true;
 	const pw = h("input", { type: "password", autocomplete: "current-password", autofocus: true });
 	const err = h("div", { class: "err" });
@@ -205,7 +210,7 @@ export function showLogin() {
 			await start();
 		} catch (x) { err.textContent = x.message; }
 	};
-	show(h("form", { class: "card login", on: { submit: go } },
+	fill(view, h("form", { class: "card login", on: { submit: go } },
 		h("h1", {}, "nHermes panel"), field("Password", pw), err, h("button", { class: "primary", type: "submit" }, "Sign in")));
 }
 
@@ -220,7 +225,7 @@ export async function route() {
 	tab = TABS.includes(name) ? name : "bots";
 	stopTimer();
 	renderTabs();
-	show();
+	fill(view);
 	await run(() => SCREENS[tab]());
 }
 

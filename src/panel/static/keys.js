@@ -1,5 +1,7 @@
 // The Keys tab. Registers itself with the shell in core.js.
-import { ago, api, ask, badge, copyText, field, h, registerTab, run, selectable, show, toast } from "./core.js";
+import { ago, api, ask, badge, copyText, field, h, registerTab, run, selectable, toast } from "./core.js";
+
+const show = registerTab("keys", keysScreen);
 
 const GATEWAY_TOKEN_KEY = "NHERMES_TOKEN";
 const KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -133,5 +135,3 @@ async function keysScreen() {
 			field("Name", name), field("Value", value), addChecks.el, err,
 			h("button", { class: "primary", on: { click: add } }, "Save")));
 }
-
-registerTab("keys", keysScreen);

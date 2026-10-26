@@ -1,5 +1,7 @@
 // The Network tab. Registers itself with the shell in core.js.
-import { ago, api, ask, badge, copyText, h, loadState, registerTab, run, selectable, show, toast, when } from "./core.js";
+import { ago, api, ask, badge, copyText, h, loadState, registerTab, run, selectable, toast, when } from "./core.js";
+
+const show = registerTab("network", networkScreen);
 
 async function networkScreen() {
 	const net = await api("GET", "/network");
@@ -100,5 +102,3 @@ function joinBox(reload) {
 	});
 	return h("div", { class: "card" }, h("h3", {}, "Join a network"), h("div", { class: "row" }, h("div", { class: "grow" }, code), h("button", { on: { click: preview } }, "Preview")), result);
 }
-
-registerTab("network", networkScreen);
