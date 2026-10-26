@@ -18,7 +18,7 @@ export const CHART_TYPES = ["bar", "line", "area", "point", "pie"] as const;
 export const X_KINDS = ["category", "date", "number"] as const;
 
 /** The kinds a bot can build. */
-export const BUILT_KINDS = ["list", "facts", "links", "chart", "html"] as const;
+export const BUILT_KINDS = ["list", "facts", "links", "chart", "html", "image"] as const;
 export type BuiltKind = (typeof BUILT_KINDS)[number];
 
 const str = (description: string) => Type.String({ description });
@@ -75,6 +75,13 @@ export const CARD_SCHEMA = Type.Union([
 		},
 		{ description: "Last resort, for a diagram, timeline or layout no other kind fits (not for numbers: use chart)" },
 	),
+	Type.Object(
+		{
+			kind: Type.Literal("image"),
+			path: str("A picture file (PNG, JPEG, GIF, WebP or BMP) on your own machine"),
+		},
+		{ description: "A picture file you have, shown as it is. For a screenshot you just took, use from instead" },
+	),
 ]);
 
 type Obj = Record<string, unknown>;
@@ -121,6 +128,8 @@ function items(v: unknown, kind: string, max: number): Obj[] {
 export function buildCard(raw: unknown): { kind: BuiltKind; data: Obj } {
 	if (!isObj(raw)) throw new Error(`card must be an object with a kind: ${BUILT_KINDS.join(", ")}.`);
 	if (raw.kind === "html") return buildHtml(raw);
+	// The picture itself is read by the show tool (it needs the bot's machine); here only the path is checked.
+	if (raw.kind === "image") return { kind: "image", data: { path: required(raw.path, MAX_URL, "The picture's path") } };
 	const title = required(raw.title, MAX_TITLE, "The card's title");
 	const subtitle = text(raw.subtitle, MAX_TEXT);
 	const head = { title, ...(subtitle ? { subtitle } : {}) };

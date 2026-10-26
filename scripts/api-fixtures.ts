@@ -3,8 +3,8 @@
 // kept. Usage: node scripts/api-fixtures.ts <output folder>. One JSON file per answer, and `events.jsonl` with
 // the socket frames of a turn that streams, reasons, calls a tool, asks for an approval and finishes;
 // `events-card.jsonl` is a turn that reads a list and shows it as a card; `turns-card.json` holds that turn and
-// four more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart` and
-// an `html` card;
+// five more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
+// an `html` card and an `image` card (a screenshot, kept as an attachment);
 // `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
 // the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
 // typed reply taken as a question's answer.
@@ -14,7 +14,7 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinkin
 import { defineTool } from "@earendil-works/pi-durable";
 import { createCore } from "../src/app.ts";
 import { DEFAULT_TOOL_GROUPS } from "../src/core/bots.ts";
-import { cardableLine, cardHandle } from "../src/core/cards.ts";
+import { cardableLine, cardHandle, pictureLine } from "../src/core/cards.ts";
 import { setLogLevel } from "../src/log.ts";
 import { startServer } from "../src/server.ts";
 import { ApiSocketClient, http } from "../test/api/client.ts";
@@ -41,13 +41,22 @@ const reminders = defineTool({
 	}),
 });
 
+// A tool that returns a picture, and offers it to be shown.
+const screenshot = defineTool({
+	name: "desktop_screenshot",
+	description: "Takes a screenshot",
+	parameters: Type.Object({}),
+	replay: "safe",
+	execute: async (_args, api) => ({ output: [{ type: "text", text: `Desktop 64x48.\n\n${pictureLine(api.callId)}` }, { type: "image", data: pngBytes(64, 48).toString("base64"), mimeType: "image/png" }] }),
+});
+
 const { dir, cleanup } = await tempDir();
 const gateway = async (name: string, bots: Parameters<typeof testConfig>[1]) => {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 400 });
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const d = join(dir, name);
-	const core = await createCore(testConfig(d, bots, { node: { name } }), { models, renderPdf: async () => [pngBytes(10, 14)], features: () => [{ groups: new Map([["reminders", [reminders]]]) }] });
+	const core = await createCore(testConfig(d, bots, { node: { name } }), { models, renderPdf: async () => [pngBytes(10, 14)], features: () => [{ groups: new Map([["reminders", [reminders, screenshot]]]) }] });
 	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, api: http(server.port) };
 };
@@ -136,6 +145,10 @@ try {
 	]);
 	await turn("Draw how a request flows", "fixture-2d", [
 		shows("The flow, left to right.", { kind: "html", title: "Request flow", aspect: 2.5, html: '<style>.n{fill:var(--nh-surface);stroke:var(--nh-stroke)}text{fill:var(--nh-text);font-size:12px}</style><svg viewBox="0 0 200 80" width="100%"><rect class="n" x="5" y="25" width="70" height="30" rx="6"/><text x="22" y="44">Client</text><rect class="n" x="125" y="25" width="70" height="30" rx="6"/><text x="138" y="44">Gateway</text><path d="M75 40H125" stroke="var(--nh-accent)" fill="none"/></svg><script>stolen()</script>' }, "Request flow"),
+	]);
+	await turn("Show me the screen", "fixture-2e", [
+		fauxAssistantMessage([fauxToolCall("desktop_screenshot", {}, { id: "call_shot" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("Here it is."), fauxToolCall("show", { from: cardHandle("call_shot"), caption: "The desktop" }, { id: "call_show" })], { stopReason: "toolUse" }),
 	]);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
 

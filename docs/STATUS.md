@@ -206,6 +206,13 @@ cap, and inline `<style>` and `<svg>` surviving (`test/core/html-card.test.ts`).
 model (does it pick the right card and stop repeating it), and drawn in the app (the app's cards for these kinds are
 not built yet).
 
+Picture cards, automated (`test/tools/picture-cards.test.ts`, 2026-10-25), with the faux model and a fake MCP server:
+the handle line on a result that holds a picture (a tool's and an MCP server's); `show {from}` keeping the exact bytes
+as a chat attachment that `attachments.content` serves, refusing `only`, and a plain error when the picture is gone
+from the chat; `show {card: {kind: "image", path}}` from a file in the bot's workspace; a non-picture, a missing file
+and a file over 25 MB refused; the kept picture can't be withdrawn. Not verified: drawn in the app, with a real
+screenshot tool, or from an SSH-host bot.
+
 ## Questions
 
 Automated (`test/tools/ask.test.ts`, 2026-10-23), with the faux model through the client API: a question waiting

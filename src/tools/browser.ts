@@ -9,6 +9,7 @@ import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Locator, Page } from "playwright-core";
 import type { Feature, LateServices } from "../app.ts";
 import type { BrowserSession, Browsers } from "../computer/browser.ts";
+import { pictureLine } from "../core/cards.ts";
 import { gatewayFilesPattern } from "../core/policy.ts";
 import { FILE_REFUSED, isGatewayFileUrl, isOwnPanel, maybePanelUrl, PANEL_REFUSED } from "./own-gateway.ts";
 
@@ -210,7 +211,7 @@ export function browserFeature(late: LateServices, browsers: () => Browsers): Fe
 					writeFileSync(file, png, { mode: 0o600 });
 					return {
 						output: [
-							{ type: "text", text: `Screenshot of ${page.url()} saved on the gateway as ${file}.` },
+							{ type: "text", text: `Screenshot of ${page.url()} saved on the gateway as ${file}.\n\n${pictureLine(api.callId)}` },
 							{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
 						],
 					};

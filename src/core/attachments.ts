@@ -99,6 +99,19 @@ export class Attachments {
 		return info(this.rowByPath(sessionId, path)!);
 	}
 
+	/**
+	 * Keeps a picture the bot is showing the owner (a picture card names it by id). It is saved like an upload and
+	 * recorded as already sent, so `withdraw` leaves it alone. Plain errors for bytes that are not a picture, or too big.
+	 */
+	keepPicture(sessionId: string, bytes: Buffer, name: string | undefined): AttachmentInfo {
+		const type = imageType(bytes);
+		if (!type) throw new AttachmentError(4016, "That file is not a picture this gateway can show (PNG, JPEG, GIF, WebP or BMP).");
+		if (bytes.length > IMAGE_MAX_BYTES) throw new AttachmentError(4017, `This picture is larger than ${IMAGE_MAX_BYTES / 1024 / 1024} MB.`);
+		const path = this.save(sessionId, bytes, withExt(name, type.ext, "picture"));
+		this.record(sessionId, path, "image", type.mime, bytes.length, null, true);
+		return info(this.rowByPath(sessionId, path)!);
+	}
+
 	/** Takes back an upload that has not gone with a message yet: its file is removed. */
 	withdraw(sessionId: string, id: string): boolean {
 		const row = this.d.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ? AND session_id = ? AND withdrawn = 0", id, sessionId);

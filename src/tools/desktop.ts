@@ -6,6 +6,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
+import { pictureLine } from "../core/cards.ts";
 
 type Output = { output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; isError?: boolean };
 
@@ -84,7 +85,7 @@ export function desktopFeature(late: LateServices): Feature {
 				const data = rest.join("").trim();
 				return {
 					output: [
-						{ type: "text", text: `Desktop ${geometry.trim().replace(" ", "x")} on display ${display(api.conversationId as number)}.` },
+						{ type: "text", text: `Desktop ${geometry.trim().replace(" ", "x")} on display ${display(api.conversationId as number)}.\n\n${pictureLine(api.callId)}` },
 						{ type: "image", data, mimeType: "image/png" },
 					],
 				};

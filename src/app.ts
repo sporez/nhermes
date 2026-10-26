@@ -152,7 +152,7 @@ export type CoreOptions = {
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
-export type LateServices = { sessions: () => Sessions; bots: () => Bots; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub; /** Ports this gateway's web server answers on (its panel is on them). */ ownPorts: () => number[] };
+export type LateServices = { sessions: () => Sessions; bots: () => Bots; attachments: () => Attachments; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub; /** Ports this gateway's web server answers on (its panel is on them). */ ownPorts: () => number[] };
 
 export async function loadModels(config: Config): Promise<Models> {
 	const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
@@ -231,7 +231,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	secrets.onChange((name) => mcp.keyChanged(name));
 	mcpTools = new McpTools({ servers: mcp, toolGroups, configs: () => config.mcp.servers });
 	mcp.onToolsChanged(() => mcpTools?.republish());
-	const late: LateServices = { sessions: () => sessions!, bots: () => bots, agentFor, config, db, hub, ownPorts };
+	const late: LateServices = { sessions: () => sessions!, bots: () => bots, attachments: () => attachments, agentFor, config, db, hub, ownPorts };
 
 	const delegation = delegateExtension({
 		sessions: late.sessions,

@@ -23,8 +23,11 @@ export type ResultCard = { kind: "result"; caption: string; source: CardSource; 
 /** What an `ask` call keeps (src/tools/ask.ts): its questions and the owner's answers, null when none came. */
 export type QuestionCard = { kind: "question"; caption: string; data: { questions: Question[]; answers: Answers | null } };
 
-/** What a successful `show {card}` keeps: a card the bot built (src/core/card-kinds.ts), no source. */
-export type BuiltCard = { kind: BuiltKind; caption: string; data: Record<string, unknown> };
+/**
+ * What a successful `show {card}` keeps: a card the bot built (src/core/card-kinds.ts), no source. A picture card
+ * (`image`) names the chat's attachment that holds the picture, and has a source when it came from a tool result.
+ */
+export type BuiltCard = { kind: BuiltKind; caption: string; data: Record<string, unknown>; source?: CardSource };
 
 /** A card a call keeps in its result's details. */
 export type CardDetails = ResultCard | QuestionCard | BuiltCard;
@@ -156,6 +159,11 @@ export function cardableLine(callId: string, card?: string): string {
 	return `(The owner can be shown this as ${card ? `a ${card}` : "a"} card${shows ? `, which shows ${shows}` : ""}: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
 }
 
+/** The line appended to the model's text of a result that holds a picture the owner can be shown. */
+export function pictureLine(callId: string): string {
+	return `(The owner can be shown this picture: ${SHOW_TOOL} {from: "${cardHandle(callId)}"})`;
+}
+
 /** A card's stand-in where cards are not drawn (push text, job summaries, reports, transcripts). */
 export function cardNote(caption: string): string {
 	return `[Card: ${caption}]`;
@@ -221,15 +229,22 @@ export function shownText(caption: string, data: unknown): string {
 	return `Shown to the owner as a card: ${caption}${list}. They can see it; don't repeat what it shows, add only what the card doesn't say.`;
 }
 
+/** What the model is told after a successful `show` of a picture. */
+export function shownPictureText(caption: string): string {
+	return `Shown to the owner as a picture: ${caption}. They can see it; don't repeat what it shows, add only what the picture doesn't say.`;
+}
+
 type Msg = { role?: string; content?: unknown; toolCallId?: string; details?: { structured?: unknown } };
 
 /**
  * The tool result in a chat that a handle names, with the call that made it. Throws a plain error for a handle
  * that names nothing, a result without card data, or two results that share the handle.
  */
-export function findCardSource(entries: readonly EntryRecord[], handle: string): { source: CardSource; data: unknown } {
+export function findCardSource(entries: readonly EntryRecord[], handle: string): { source: CardSource; data: unknown; picture?: undefined } | { source: CardSource; picture: { data: string; mimeType: string }; data?: undefined } {
 	const calls = new Map<string, { name: string; args: Obj }>();
 	const hits: { id: string; data: unknown }[] = [];
+	const pictures: { id: string; picture: { data: string; mimeType: string } }[] = [];
+	let offered = false;
 	let named = 0;
 	for (const entry of entries) {
 		const m = entry.model?.[0] as Msg | undefined;
@@ -238,11 +253,24 @@ export function findCardSource(entries: readonly EntryRecord[], handle: string):
 			for (const b of m.content as { type?: string; id?: string; name?: string; arguments?: Obj }[]) if (b.type === "toolCall" && b.id) calls.set(b.id, { name: b.name ?? "tool", args: b.arguments ?? {} });
 		} else if (m.role === "toolResult" && m.toolCallId && cardHandle(m.toolCallId) === handle) {
 			named++;
+			const callId = m.toolCallId;
 			if (m.details?.structured !== undefined) hits.push({ id: m.toolCallId, data: m.details.structured });
+			else if (Array.isArray(m.content)) {
+				const blocks = m.content as { type?: string; data?: unknown; mimeType?: unknown; text?: unknown }[];
+				const image = blocks.find((b) => b.type === "image" && typeof b.data === "string" && b.data !== "");
+				if (image) pictures.push({ id: m.toolCallId, picture: { data: image.data as string, mimeType: typeof image.mimeType === "string" ? image.mimeType : "image/png" } });
+				else if (blocks.some((b) => b.type === "text" && typeof b.text === "string" && b.text.includes(pictureLine(callId)))) offered = true;
+			}
 		}
 	}
 	if (named === 0) throw new Error(`No result in this chat has the handle "${handle}". Use a handle from a tool result's "can be shown as a card" line.`);
 	if (named > 1) throw new Error(`The handle "${handle}" names more than one result in this chat, so it can't be shown. Call the tool again to get a fresh handle.`);
+	const shot = pictures[0];
+	if (shot && hits.length === 0) {
+		const call = calls.get(shot.id);
+		return { source: { item: shot.id, name: call?.name ?? "tool", args: call?.args ?? {} }, picture: shot.picture };
+	}
+	if (offered && hits.length === 0) throw new Error(`The picture of the result with the handle "${handle}" is no longer in this chat. Take the picture again, then show it.`);
 	const hit = hits[0];
 	if (!hit) throw new Error(`The result with the handle "${handle}" has nothing to draw as a card.`);
 	const call = calls.get(hit.id);

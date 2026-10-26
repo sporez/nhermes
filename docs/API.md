@@ -309,7 +309,7 @@ for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layo
 only. The gateway enforces one part: a built `list` or `links` card whose item titles repeat a result that offered
 a handle (at least 2 titles, and at least half) is refused with the handle to use. `show` takes exactly one of
 `from` and `card`. Fixtures: `turns-card.json` from `scripts/api-fixtures.ts` holds a result card, a `list`, a
-`schedule_list` result card, a `chart` and an `html` card.
+`schedule_list` result card, a `chart`, an `html` card and an `image` card.
 
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
@@ -343,6 +343,13 @@ a handle (at least 2 titles, and at least half) is refused with the handle to us
     only http(s); SVG `#fragment` references stay). A fragment that is empty after that is refused. A client must
     still draw it with scripts off and no network, and may give it these CSS variables for the theme:
     `--nh-canvas --nh-surface --nh-text --nh-secondary --nh-accent --nh-stroke`.
+- `kind: "image"` is a picture the bot shows the owner. It comes from a tool result that holds a picture (a
+  desktop or browser screenshot, an MCP tool's image; `show {from}`), and then has a `source` like a `result` card,
+  or from a picture file on the bot's machine (`show {card: {kind: "image", path}}`), and then has none.
+  `data` is `{"attachment": {"id", "kind": "image", "name", "mime", "size"}}`: the picture is kept as an
+  attachment of the chat (see Attachments), so open it with `attachments.content` and the chat's id. It counts
+  as already sent, so `sessions.detach` refuses it. PNG, JPEG, GIF, WebP or BMP, up to the hello's `imageBytes`.
+  In a member's chat the attachment is on that member, and `attachments.content` reaches it the same way.
 - `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
   It has no `source`.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
@@ -479,6 +486,8 @@ POST /api/v1/sessions/<id>/submit
   as a note saying where it is.
 - An upload belongs to its chat. It can go with more than one message; until it has gone with one,
   `sessions.detach` takes it back. Uploads are kept in the bot's workspace `uploads/` folder.
+- Attachments also come from the bot: a picture it shows the owner is kept as an attachment of the chat and
+  named by an `image` card (see Cards). It is already sent, so it can't be taken back.
 - In a turn, `user.content` names each attachment by id; `attachments.content` (with the chat's id) opens
   it. Chats from before
   uploads had ids get one when their history is read, if the file is still there.
