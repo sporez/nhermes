@@ -76,7 +76,7 @@ const SHELL_PATTERNS: Pattern[] = [
 const SENSITIVE_PATHS = [/(^|\/)\.ssh\//, /^\/etc\//, /(^|\/)\.pi\/agent\/auth\.json$/, /(^|\/)secrets\.env$/, /(^|\/)\.env$/, /^\/boot\//, /^\/dev\//];
 
 /** Tools with side effects outside the transcript (subject to "manual" mode). */
-const SIDE_EFFECT_TOOLS = new Set(["bash", "write", "edit", "http_request", "browser_type", "browser_click", "browser_press", "desktop_click", "desktop_type", "desktop_key", "notify", "schedule_create", "schedule_update", "schedule_delete"]);
+const SIDE_EFFECT_TOOLS = new Set(["bash", "write", "edit", "http_request", "browser_type", "browser_click", "browser_press", "desktop_click", "desktop_type", "desktop_key", "space_open", "space_close", "space_list", "space_shell", "space_copy", "notify", "schedule_create", "schedule_update", "schedule_delete"]);
 
 /** Tools that act on the user's OpenChamber threads: they ask in smart and manual mode, never reach a reviewer. */
 export const OPENCHAMBER_CONTROL_TOOLS: ReadonlySet<string> = new Set(["oc_approve", "oc_answer", "oc_stop", "oc_prompt", "oc_start"]);
@@ -183,6 +183,13 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 	const path = typeof call.arguments.path === "string" ? call.arguments.path : undefined;
 	if ((call.name === "write" || call.name === "edit") && path !== undefined) {
 		if (SENSITIVE_PATHS.some((re) => re.test(path)) || pc.gatewayFiles?.test(path)) reasons.push({ key: `${call.name}:sensitive`, description: "modify a sensitive file", review: false });
+	}
+	// space_copy touches a file on the bot's own machine like read (to_space) or write (from_space) does.
+	if (call.name === "space_copy") {
+		const writes = call.arguments.direction === "from_space";
+		const own = String(writes ? call.arguments.to : call.arguments.from);
+		if (writes && (SENSITIVE_PATHS.some((re) => re.test(own)) || pc.gatewayFiles?.test(own))) reasons.push({ key: "space_copy:sensitive", description: "modify a sensitive file", review: false });
+		if (!writes && pc.gatewayFiles?.test(own)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
 	}
 	if (call.name === "read" && path !== undefined && pc.gatewayFiles?.test(path)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
 	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}`, review: false });

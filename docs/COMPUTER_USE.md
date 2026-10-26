@@ -43,6 +43,26 @@ custom streaming protocol is involved.
 Verified live on the hermes VM (Debian 13, XFCE, `:0`): open Mousepad, type text, confirm it through
 the accessibility tree (5 model calls with `cerebras/gpt-oss-120b`).
 
+## Spaces (`spaces` tool group)
+
+A bot with the `spaces` group opens a disposable Linux desktop on the gateway host (a space, run by Cua; setup,
+isolation and limits in `docs/SPACES.md`), uses it and throws it away.
+
+| Tool | Does |
+|---|---|
+| `space_open` | opens a space (a few seconds) and returns its id |
+| `space_list`, `space_close` | the bot's open spaces; delete one |
+| `space_shell {space, command, timeout?}` | runs a shell line in the space as the user `cua`; output is cut to the last 20,000 characters, the exit code is shown |
+| `space_copy {space, from, to, direction}` | copies one file (up to 100 MB) between the space and the bot's own machine, `to_space` or `from_space` |
+
+Every desktop tool takes an optional `space`. With it the tool acts inside that space, on its desktop (display
+`:1`) instead of the bot's own. The `spaces` group includes the desktop tools, so a bot with only `spaces`
+can drive its spaces; without a `space` argument such a bot (any bot without the `desktop` group) is refused,
+and never reaches the gateway host's own desktop. A screenshot taken in a space offers itself to `show` like any
+other, so the owner can be shown a picture of it. A space is deleted when the bot closes it, after
+`spaces.idleMinutes` unused (never while a call is using it), or when the gateway stops. Each bot has its own
+spaces; the limits are `spaces.perBot` and `spaces.total`.
+
 ## Safety
 
 Desktop and browser actions are ordinary tool calls: they show in the nHermes app as tool calls (turn items, `docs/API.md`), can be stopped

@@ -1,9 +1,10 @@
 // Spaces: disposable Cua desktops on the gateway host that bots open, use and throw away. This owns their
 // lifecycle: open, close, list, the per-bot and per-gateway limits, deletion of idle ones, and a sweep of
 // leftovers. Nothing is persisted: `cua sb ls` is the record of what exists, and every sandbox named
-// `nhermes-*` that this process does not hold is a leftover (a crash, a restart) and gets deleted.
+// `nhermes-<tag>-*` that this process does not hold is a leftover (a crash, a restart) and gets deleted. The
+// tag comes from the gateway's data directory, so two gateways on one host never delete each other's spaces.
 // Control goes through pi-env's daemon, copied into the space and run with `cua sb exec -i`.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Connection, packagedDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
 import type { SpacesConfig } from "../config.ts";
 import { logger } from "../log.ts";
@@ -11,7 +12,6 @@ import { CuaMissing, type CuaResult, type CuaRun, cuaProblem, execCua, parseSand
 
 const log = logger("spaces");
 
-const PREFIX = "nhermes-";
 const GUEST_DAEMON = "/tmp/pi-env";
 const SWEEP_EVERY_MS = 24 * 60 * 60 * 1000;
 const CREATE_TIMEOUT_MS = 180_000;
@@ -20,6 +20,8 @@ export type SpaceInfo = { id: string; name: string; bot: string; createdAt: numb
 
 export type SpacesOptions = {
 	config: SpacesConfig;
+	/** This gateway's data directory: names its spaces apart from those of other gateways on the host. */
+	dataDir: string;
 	/** Replaces the cua command (tests). */
 	run?: CuaRun;
 	/** The local file to copy into a space as its daemon; default: pi-env's Linux build for this machine's architecture. */
@@ -32,12 +34,14 @@ export type SpacesOptions = {
 	shutdownTimeoutMs?: number;
 };
 
-type Space = SpaceInfo & { connection?: Connection; env?: RemoteExecutionEnv; envPromise?: Promise<RemoteExecutionEnv> };
+type Space = SpaceInfo & { inUse: number; connection?: Connection; env?: RemoteExecutionEnv; envPromise?: Promise<RemoteExecutionEnv> };
 
 export class Spaces {
 	private readonly config: SpacesConfig;
 	private readonly run: CuaRun;
 	private readonly now: () => number;
+	/** `nhermes-<tag>-`: what every sandbox of this gateway starts with. */
+	private readonly prefix: string;
 	private readonly spaces = new Map<string, Space>();
 	/** Opens in progress (id → bot): counted against the limits, and not leftovers. */
 	private readonly pending = new Map<string, string>();
@@ -50,6 +54,7 @@ export class Spaces {
 		this.config = options.config;
 		this.run = options.run ?? execCua(options.config.cua);
 		this.now = options.now ?? Date.now;
+		this.prefix = `nhermes-${gatewayTag(options.dataDir)}-`;
 	}
 
 	/** Starts the idle timer and the daily sweep, and sweeps once now in the background (never blocks or fails startup). */
@@ -72,7 +77,7 @@ export class Spaces {
 		if (all >= this.config.total) throw new Error(`This gateway already has ${all} space${all === 1 ? "" : "s"} open (the limit is ${this.config.total} in all). Close one with space_close, or try again when another bot is done.`);
 		let id = newId();
 		while (this.spaces.has(id) || this.pending.has(id)) id = newId();
-		const name = `${PREFIX}${botSlug(bot)}-${id}`;
+		const name = `${this.prefix}${botSlug(bot)}-${id}`;
 		this.pending.set(id, bot);
 		try {
 			const made = await this.cua(["sb", "create", this.config.image, "--name", name, "--wait", "desktop", "--json"], CREATE_TIMEOUT_MS);
@@ -82,7 +87,7 @@ export class Spaces {
 				throw new Error(`Could not open a space: ${cuaProblem(made)}`);
 			}
 			const t = this.now();
-			this.spaces.set(id, { id, name, bot, createdAt: t, lastUsed: t });
+			this.spaces.set(id, { id, name, bot, createdAt: t, lastUsed: t, inUse: 0 });
 			log.info("space opened", { id, name, bot });
 			return { id, name };
 		} finally {
@@ -104,6 +109,21 @@ export class Spaces {
 		if (s) s.lastUsed = this.now();
 	}
 
+	/**
+	 * Runs `fn` with the environment of one of the bot's spaces. While it runs the space counts as in use and is
+	 * never deleted as idle, however long the call takes; the idle clock restarts when it ends.
+	 */
+	async use<T>(bot: string, id: string, fn: (env: RemoteExecutionEnv) => Promise<T>): Promise<T> {
+		const space = this.owned(bot, id);
+		space.inUse++;
+		try {
+			return await fn(await this.env(bot, id));
+		} finally {
+			space.inUse--;
+			space.lastUsed = this.now();
+		}
+	}
+
 	/** The pi-env environment for one of the bot's spaces; the daemon is deployed and started on first use, then reused. */
 	async env(bot: string, id: string): Promise<RemoteExecutionEnv> {
 		const space = this.owned(bot, id);
@@ -119,11 +139,11 @@ export class Spaces {
 		await this.remove(this.owned(bot, id));
 	}
 
-	/** Deletes spaces unused for the idle time; returns their ids. */
+	/** Deletes spaces unused for the idle time (never one a call is using); returns their ids. */
 	async deleteIdle(): Promise<string[]> {
 		const cutoff = this.now() - this.config.idleMinutes * 60_000;
 		const gone: string[] = [];
-		for (const s of [...this.spaces.values()].filter((x) => x.lastUsed <= cutoff)) {
+		for (const s of [...this.spaces.values()].filter((x) => x.inUse === 0 && x.lastUsed <= cutoff)) {
 			try {
 				await this.remove(s);
 				log.info("idle space deleted", { id: s.id, bot: s.bot });
@@ -135,14 +155,14 @@ export class Spaces {
 		return gone;
 	}
 
-	/** Deletes every `nhermes-*` sandbox this gateway does not hold; returns their names. */
+	/** Deletes every sandbox with this gateway's prefix that it does not hold; returns their names. */
 	async sweep(): Promise<string[]> {
 		const listed = await this.cua(["sb", "ls", "--json"]);
 		if (listed.code !== 0) throw new Error(`cua could not list sandboxes: ${cuaProblem(listed)}`);
 		const known = new Set([...this.spaces.values()].map((s) => s.name));
 		const removed: string[] = [];
 		for (const name of parseSandboxNames(listed.stdout)) {
-			if (!name.startsWith(PREFIX) || known.has(name)) continue;
+			if (!name.startsWith(this.prefix) || known.has(name)) continue;
 			// A space being created is not held yet; its id ends the name.
 			if ([...this.pending.keys()].some((id) => name.endsWith(`-${id}`))) continue;
 			const r = await this.run(["sb", "rm", "-f", name]).catch((e) => ({ code: 1, stdout: "", stderr: String(e) }));
@@ -219,6 +239,11 @@ export class Spaces {
 function sweepFailed(e: unknown): void {
 	if (e instanceof CuaMissing) log.debug(SPACES_NEED_CUA);
 	else log.warn("sweeping leftover spaces failed", { error: String(e) });
+}
+
+/** Four hex characters naming one gateway's data directory. */
+export function gatewayTag(dataDir: string): string {
+	return createHash("sha256").update(dataDir).digest("hex").slice(0, 4);
 }
 
 function newId(): string {

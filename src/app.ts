@@ -50,6 +50,7 @@ import { webFeature } from "./tools/web.ts";
 import { Browsers } from "./computer/browser.ts";
 import { browserFeature } from "./tools/browser.ts";
 import { desktopFeature } from "./tools/desktop.ts";
+import { spacesFeature } from "./tools/spaces.ts";
 import { describeConfigCall, type SelfServices, selfFeature } from "./tools/self.ts";
 import { OpenChamberWatcher } from "./openchamber/watcher.ts";
 import { openchamberFeature } from "./tools/openchamber.ts";
@@ -204,7 +205,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	secrets.registerEnvironment();
 	secrets.onChange((name) => catalogs.keyChanged(name));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
-	const spaces = new Spaces({ ...options.spaces, config: config.spaces });
+	const spaces = new Spaces({ ...options.spaces, config: config.spaces, dataDir: config.dataDir });
 
 	let sessions: Sessions | undefined;
 	const toolGroups = coreToolGroups();
@@ -274,6 +275,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		},
 		pickableModels: (current) => pickableModels(models, config.modelLists.hide, current),
 	};
+	const desktop = desktopFeature(late);
 	const features = [
 		memoryFeature(late, memory),
 		skillsFeature(late, skills),
@@ -283,7 +285,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		scheduleFeature(late, () => scheduler!, () => notifier),
 		webFeature(late),
 		browserFeature(late, () => browsers),
-		desktopFeature(late),
+		desktop,
+		spacesFeature(late, desktop.groups!.get("desktop")!),
 		openchamberFeature(late, { settingsPath: options.openchamberSettingsPath }),
 		...(options.features?.(late) ?? []),
 	];

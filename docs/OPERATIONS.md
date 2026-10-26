@@ -298,9 +298,12 @@ spaces:
   idleMinutes: 30    # an unused space is deleted after this long
 ```
 
-The gateway keeps no record of spaces: at start and once a day it deletes every `nhermes-*` sandbox that
-`cua sb ls` shows and it does not hold, and closing the gateway deletes the open ones. Without `cua`, a bot
-that tries to open a space is told the host needs it.
+The gateway keeps no record of spaces: at start and once a day it deletes every sandbox named `nhermes-<tag>-*`
+that `cua sb ls` shows and it does not hold (`<tag>` is four hex characters of a hash of the gateway's data
+directory, so two gateways on one host never delete each other's spaces), and closing the gateway deletes the open ones. Without `cua`, a bot
+that tries to open a space is told the host needs it. A bot gets the tools from the **Spaces** tool group
+(`spaces`, which also holds the desktop tools for use inside a space; `docs/COMPUTER_USE.md`). Work another
+machine's member started cannot open a space; in `manual` approval mode each space tool asks.
 
 ## MCP servers
 

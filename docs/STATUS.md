@@ -213,6 +213,19 @@ from the chat; `show {card: {kind: "image", path}}` from a file in the bot's wor
 and a file over 25 MB refused; the kept picture can't be withdrawn. Not verified: drawn in the app, with a real
 screenshot tool, or from an SSH-host bot.
 
+## Spaces
+
+Spaces, automated (`test/spaces/spaces.test.ts`, `test/tools/spaces.test.ts`, 2026-10-25), with the faux model, a fake
+`cua` and the real local pi-env daemon: the core (limits, ownership, idle deletion, the sweep, which deletes only this
+gateway's `nhermes-<tag>-` names); the tools: `space_open`, `space_shell` (runs through the space's own daemon, exit
+code and stderr shown), `space_list`, `space_close`, `space_copy` both ways (folders made, a folder and a file over 100 MB
+refused); limits and foreign ids as plain tool errors; desktop tools with `space` running on display `:1` (stub
+xdotool, import) while the bot's own desktop stays `:0`; a space screenshot offering the picture card line; a bot
+without the `desktop` group refused the host's desktop; `space_open` refused for work a network member started; a space
+in use is not deleted as idle; the approval policy (space tools run in smart mode, ask in manual; `space_copy` to or from
+sensitive files asks). Not verified: on a real Cua space (the desktop tools there were run by hand in the spike, not
+through these tools), with a real model, the owner shown a space screenshot in the app.
+
 ## Questions
 
 Automated (`test/tools/ask.test.ts`, 2026-10-23), with the faux model through the client API: a question waiting

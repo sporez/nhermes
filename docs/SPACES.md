@@ -1,7 +1,7 @@
 # Spaces (plan)
 
 Status: in progress. Host setup and network isolation verified on the gateway VM (2026-10-25); the core
-(S1) and picture cards (P) are automated-tested; no bot tools yet.
+(S1), picture cards (P) and the bot tools (S2) are automated-tested; not yet tried by a bot on a real space.
 
 ## Goal
 
@@ -19,20 +19,28 @@ Decided so far:
 - **Cleanup is ours.** Cua does not expire local spaces (`--ttl` only applies to provider sandboxes), so
   nHermes deletes idle spaces and sweeps unclaimed ones at start and once a day.
 
-## Proposed design
+## Design (as built)
 
-- A `spaces` tool group. `space_open` creates a space and returns a short id and a viewer link card;
-  `space_close` deletes it; `space_list` shows the bot's open spaces.
-- The desktop tools (`src/tools/desktop.ts`) take an optional `space` argument and run in that space
-  instead of on the bot's host. `space_shell` runs a command there; `space_copy` moves a file between a
-  space and the bot's workspace.
-- Control goes through pi-env, the same daemon remote hosts use: `space_open` copies its `pi-env` binary
-  into the space and starts it with `cua sb exec -i <space> -- /tmp/pi-env` as the `Connection` command.
-  No new control protocol.
-- `src/spaces/` owns lifecycle, limits (per bot and per gateway), idle deletion and the sweep. Spaces are
-  named `nhermes-<bot>-<id>`; `cua sb ls` is the only record of what exists.
-- Opening a space is an ordinary tool call under the bot's approval policy. Work a network member started
-  cannot open one. Viewer links carry access tickets and are treated as secrets.
+- A `spaces` tool group (`src/tools/spaces.ts`): `space_open` creates a space and returns its id,
+  `space_close` deletes it, `space_list` shows the bot's open spaces, `space_shell` runs a command in one and
+  `space_copy` moves a file between a space and the bot's own machine (through the bot's execution environment,
+  so it works for SSH-host bots too). The desktop tools (`src/tools/desktop.ts`) take an optional `space`
+  argument and then run in that space on display `:1`; the group includes them. A bot without the `desktop` group
+  is refused the host's desktop when `space` is missing, on the server. Usage: `docs/COMPUTER_USE.md` "Spaces".
+- Control goes through pi-env, the same daemon remote hosts use: the first use of a space copies its `pi-env`
+  binary into it and starts it with `cua sb exec -i <space> -- /tmp/pi-env` as the `Connection` command. No new
+  control protocol.
+- `src/spaces/` owns lifecycle, limits (per bot and per gateway), idle deletion and the sweep. Spaces are named
+  `nhermes-<tag>-<bot>-<id>`, where `<tag>` is four hex characters of a hash of the gateway's data directory; the
+  sweep deletes only names with its own `nhermes-<tag>-` prefix. `cua sb ls` is the only record of what exists.
+  A call using a space counts it as in use (`Spaces.use`), and idle deletion skips it.
+- Opening a space is an ordinary tool call under the bot's approval policy: `space_open`, `space_list`,
+  `space_close`, `space_shell` and `space_copy` run in `smart` mode and ask in `manual` mode (the desktop tools
+  follow their usual policy). `space_shell` is not scanned like `bash`: a space has no route to the LAN and is
+  thrown away, so its commands (`sudo`, installs) are ordinary there; `space_copy` asks when it would write a
+  sensitive file on the bot's machine or read the gateway's own files. Work a network member started cannot open
+  a space. Tool output goes through the same secret redaction as every tool's (the guard's `afterTool`).
+- No live viewer: bots show the owner screenshots (`show {from}`). A viewer is deferred (see "Later").
 
 ## Host setup
 
@@ -137,6 +145,6 @@ Cua facts worth knowing:
 - [x] P. The bot can send the owner pictures: an `image` card through `show`, from a tool result's picture (any
   screenshot) or a picture file on the bot's host, kept as a chat attachment (9945420)
 - [x] S1. `src/spaces/`: open, close, list, limits, idle deletion, sweep; tests with a fake `cua` (94aeefe)
-- [ ] S2. Desktop tools take `space`; `space_shell`, `space_copy`; viewer card
+- [ ] S2. Desktop tools take `space`; `space_shell`, `space_copy` (no viewer card: bots show screenshots)
 - [ ] S3. Panel: running spaces with a delete button; `doctor` checks `cua`, the runtime and the firewall
-- [ ] Later: VM spaces (image tools, network isolation), pools
+- [ ] Later: VM spaces (image tools, network isolation), pools, a live viewer link card (access tickets are secrets)
