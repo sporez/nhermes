@@ -1,7 +1,7 @@
 # Spaces (plan)
 
-Status: host setup and network isolation done and verified on the gateway VM (2026-10-25); no nHermes code
-yet.
+Status: in progress. Host setup and network isolation verified on the gateway VM (2026-10-25); the core
+(S1) and picture cards (P) are automated-tested; no bot tools yet.
 
 ## Goal
 
@@ -133,8 +133,10 @@ Cua facts worth knowing:
 
 ## Steps
 
-- [x] S0. Host setup, network isolation, spike (this document)
-- [ ] S1. `src/spaces/`: open, close, list, limits, idle deletion, sweep; tests with a fake `cua`
+- [x] S0. Host setup, network isolation, spike (this document) (001ece9)
+- [x] P. The bot can send the owner pictures: an `image` card through `show`, from a tool result's picture (any
+  screenshot) or a picture file on the bot's host, kept as a chat attachment (9945420)
+- [x] S1. `src/spaces/`: open, close, list, limits, idle deletion, sweep; tests with a fake `cua` (94aeefe)
 - [ ] S2. Desktop tools take `space`; `space_shell`, `space_copy`; viewer card
 - [ ] S3. Panel: running spaces with a delete button; `doctor` checks `cua`, the runtime and the firewall
 - [ ] Later: VM spaces (image tools, network isolation), pools
