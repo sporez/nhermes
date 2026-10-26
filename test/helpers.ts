@@ -37,6 +37,8 @@ export function testConfig(dir: string, bots?: BotConfig[], extra: Partial<Confi
 		node: {},
 		panel: { enabled: true },
 		mcp: { servers: [] },
+		// A command that does not exist, so no test ever touches a real cua on the machine.
+		spaces: { cua: join(dir, "no-such-cua"), image: "linux", perBot: 2, total: 3, idleMinutes: 30 },
 		bots: bots ?? [
 			{ name: "main", displayName: "Main", default: true, instructions: "You are the main test bot." },
 			{ name: "ops", displayName: "Ops", instructions: "You are the ops test bot.", trusted: true },

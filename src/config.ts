@@ -128,7 +128,11 @@ export type Config = {
 	panel: { enabled: boolean };
 	/** MCP servers this gateway connects to (docs/MCP.md). */
 	mcp: { servers: McpServerConfig[] };
+	/** Disposable desktops bots open on this host through the cua command (docs/SPACES.md). */
+	spaces: SpacesConfig;
 };
+
+export type SpacesConfig = { cua: string; image: string; perBot: number; total: number; idleMinutes: number };
 
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
@@ -292,6 +296,22 @@ function seconds(v: unknown, where: string, fallback: number, min: number, max: 
 	return v;
 }
 
+function parseSpaces(raw: unknown): SpacesConfig {
+	const o = asRecord(raw, "spaces");
+	const count = (v: unknown, where: string, fallback: number, max: number): number => {
+		const n = seconds(v, where, fallback, 1, max);
+		if (!Number.isInteger(n)) throw new ConfigError(`${where} must be a whole number from 1 to ${max}`);
+		return n;
+	};
+	return {
+		cua: str(o.cua, "spaces.cua") ?? "cua",
+		image: str(o.image, "spaces.image") ?? "linux",
+		perBot: count(o.perBot, "spaces.perBot", 2, 20),
+		total: count(o.total, "spaces.total", 3, 50),
+		idleMinutes: seconds(o.idleMinutes, "spaces.idleMinutes", 30, 1, 1440),
+	};
+}
+
 function parseMcpServer(name: string, raw: unknown): McpServerConfig {
 	const where = `mcp server "${name}"`;
 	if (!MCP_SERVER_NAME.test(name)) throw new ConfigError(`${where}: the name must match ${MCP_SERVER_NAME}`);
@@ -452,5 +472,6 @@ export function loadConfig(configPath: string): Config {
 		panel: { enabled: asRecord(doc.panel, "panel").enabled !== false },
 		groundRules: str(doc.groundRules, "groundRules")?.trim() || undefined,
 		mcp,
+		spaces: parseSpaces(doc.spaces),
 	};
 }

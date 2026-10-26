@@ -342,6 +342,13 @@ bot messages bound it.
 - The room lives on the gateway it was created on. Every new log event is pushed to owner sockets
   (`room.event`), and `rooms.events` reads the log from any point.
 
+## Spaces (`src/spaces/`, `docs/SPACES.md`)
+
+Disposable desktops on the gateway host. `src/spaces/` owns their lifecycle (open, close, limits, idle deletion, the
+sweep of leftovers) and drives only the `cua` command line; nothing is persisted, `cua sb ls` is the record, and any
+`nhermes-*` sandbox the running gateway does not hold is a leftover. Control of a space is pi-env's daemon, copied in and
+run with `cua sb exec -i`, so a space is a `RemoteExecutionEnv` like a remote host's.
+
 ## Persistence and operations
 
 `data/` holds `durable.sqlite` (Pi Durable), `app.sqlite` (ours, with a `schema_version` table and

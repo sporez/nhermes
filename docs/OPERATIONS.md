@@ -283,6 +283,25 @@ only once they have passed it to the owner.
     tools: [openchamber, openchamber_alerts, memory, notify]
 ```
 
+## Spaces
+
+Bots can open disposable Linux desktops on the gateway host, through the `cua` command (host setup, the
+firewall and the design: `docs/SPACES.md`). Nothing needs configuring when `cua` is on the `PATH`; every key is
+optional:
+
+```yaml
+spaces:
+  cua: cua           # the command, or its full path
+  image: linux       # what `cua sb create` is given
+  perBot: 2          # open spaces one bot may have
+  total: 3           # open spaces on this gateway
+  idleMinutes: 30    # an unused space is deleted after this long
+```
+
+The gateway keeps no record of spaces: at start and once a day it deletes every `nhermes-*` sandbox that
+`cua sb ls` shows and it does not hold, and closing the gateway deletes the open ones. Without `cua`, a bot
+that tries to open a space is told the host needs it.
+
 ## MCP servers
 
 An MCP server that speaks Streamable HTTP can give tools to the bots you pick (`docs/MCP.md`). Each server is

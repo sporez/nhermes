@@ -26,6 +26,7 @@ import { type AgentChange, Engine } from "./engine/engine.ts";
 import { logger } from "./log.ts";
 import { type ProviderCatalog, ProviderCatalogs } from "./models/catalogs.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
+import { Spaces, type SpacesOptions } from "./spaces/spaces.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
 import type { Tuning } from "./mcp/connection.ts";
@@ -73,6 +74,8 @@ export type Core = {
 	toolGroups: ToolGroups;
 	deps: AgentDeps;
 	hosts: HostEnvs;
+	/** Disposable desktops bots open on this host (src/spaces/). */
+	spaces: Spaces;
 	memory: MemoryStore;
 	skills: Skills;
 	scheduler: Scheduler;
@@ -123,6 +126,8 @@ export type CoreOptions = {
 	appDbPath?: string;
 	/** Replaces SSH for remote hosts (tests connect to a local pi-env daemon). */
 	connectHost?: ConstructorParameters<typeof HostEnvs>[1];
+	/** Replaces the cua command and the daemon connection of spaces (tests). */
+	spaces?: Partial<Omit<SpacesOptions, "config">>;
 	/** Feature modules built once the late-bound services exist. */
 	features?: (late: LateServices) => Feature[];
 	/** OpenChamber's settings file (tests point this away from the real one). */
@@ -152,7 +157,7 @@ export type CoreOptions = {
 };
 
 /** Services features may reach at call time (they are created after the engine opens). */
-export type LateServices = { sessions: () => Sessions; bots: () => Bots; attachments: () => Attachments; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub; /** Ports this gateway's web server answers on (its panel is on them). */ ownPorts: () => number[] };
+export type LateServices = { sessions: () => Sessions; bots: () => Bots; attachments: () => Attachments; agentFor: (bot: Bot) => AgentChange; config: Config; db: AppDb; hub: Hub; spaces: () => Spaces; /** Ports this gateway's web server answers on (its panel is on them). */ ownPorts: () => number[] };
 
 export async function loadModels(config: Config): Promise<Models> {
 	const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
@@ -199,6 +204,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	secrets.registerEnvironment();
 	secrets.onChange((name) => catalogs.keyChanged(name));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
+	const spaces = new Spaces({ ...options.spaces, config: config.spaces });
 
 	let sessions: Sessions | undefined;
 	const toolGroups = coreToolGroups();
@@ -231,7 +237,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	secrets.onChange((name) => mcp.keyChanged(name));
 	mcpTools = new McpTools({ servers: mcp, toolGroups, configs: () => config.mcp.servers });
 	mcp.onToolsChanged(() => mcpTools?.republish());
-	const late: LateServices = { sessions: () => sessions!, bots: () => bots, attachments: () => attachments, agentFor, config, db, hub, ownPorts };
+	const late: LateServices = { sessions: () => sessions!, bots: () => bots, attachments: () => attachments, agentFor, config, db, hub, spaces: () => spaces, ownPorts };
 
 	const delegation = delegateExtension({
 		sessions: late.sessions,
@@ -405,6 +411,8 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	rooms.start();
 	// In the background: a server that is down or slow never holds up the gateway.
 	mcp.start();
+	// Also in the background: sweeps leftovers from an earlier run.
+	spaces.start();
 
 	return {
 		config,
@@ -420,6 +428,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		toolGroups,
 		deps,
 		hosts,
+		spaces,
 		memory,
 		skills,
 		scheduler,
@@ -459,6 +468,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			// down; it stays unfinished, so a restart applies Durable's replay rule to it.
 			await mcp.close();
 			hosts.close();
+			await spaces.shutdown();
 			db.close();
 		},
 	};
