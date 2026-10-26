@@ -1,4 +1,4 @@
-// What `nhermes doctor` says about spaces: cua runs, containers use gVisor, and the host firewall that keeps a
+// What the doctor says about spaces: cua runs, containers use gVisor, and the host firewall that keeps a
 // space off the LAN is active (docs/SPACES.md). Every command has a short timeout, and the commands are
 // injected so tests never run the real cua or systemctl. Output is read loosely: a format we do not recognise
 // is a warning that says so, never a failure.

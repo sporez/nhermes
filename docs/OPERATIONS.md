@@ -306,7 +306,7 @@ that tries to open a space is told the host needs it. A bot gets the tools from 
 machine's bot started cannot open a space, but your own chat relayed through a member can; in `manual` approval mode each space tool asks.
 
 The panel's Status tab lists the running spaces (bot, how long open, last used) with a Delete button for each;
-the section appears only while a space is open. `nhermes doctor` (and the panel's and app's doctor) has a Spaces
+the section appears only while a space is open. The doctor (in the app, or the client API's `actions.start` with kind `doctor`) has a Spaces
 section when `cua` is installed or a bot has the `spaces` tool group: it checks that `cua` runs, that containers
 use gVisor (a warning if they would use plain runc), and that the `nhermes-spaces-firewall` unit is active
 (on a host without systemd it says it cannot check). Each is a warning with what to do, never a failure.

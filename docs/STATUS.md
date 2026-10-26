@@ -236,8 +236,9 @@ Panel and doctor:
   unreadable) and `systemctl is-active nhermes-spaces-firewall`, is silent without cua or a bot with the spaces tools,
   and says the firewall cannot be checked without systemd (`test/spaces/check.test.ts`, with fake commands).
 - Seen in `scripts/panel-dev.ts` (fake cua, one space open), light and dark, and the in-page delete question
-  (2026-10-25). Not verified: on a gateway with a real space; the doctor against a real cua and
-  systemd (the output formats parsed are the ones recorded in `docs/SPACES.md`).
+  (2026-10-25).
+- Live (2026-10-26): on the gateway VM after updating, the doctor reports cua 0.9.0, containers under gVisor and
+  the firewall unit active. Not verified: the panel section on a gateway with a real space.
 
 ## Questions
 
