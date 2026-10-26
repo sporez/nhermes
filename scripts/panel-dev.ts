@@ -1,6 +1,6 @@
 // A throwaway two-machine network on this computer, for working on the web panel: "alpha" (port 9191)
 // and "beta" (port 9192) with a fake model, a few bots, memories, a job, a pending approval, and MCP
-// servers in each state (a fake one online, one offline, one missing its key).
+// servers in each state (a fake one online, one offline, one missing its key), and a running space (fake cua).
 // usage: node scripts/panel-dev.ts   → open http://127.0.0.1:9191/panel/   (Ctrl-C stops and deletes it)
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +17,9 @@ import { closedPort, FakeMcpServer } from "../test/mcp/server.ts";
 setLogLevel("warn");
 process.env.NHERMES_TOKEN ??= "panel-dev-token-0123456789";
 const root = mkdtempSync(join(tmpdir(), "nh-panel-"));
+// Spaces come from the tests' fake cua: a sandbox is a folder under the throwaway directory.
+process.env.FAKE_CUA_DIR = join(root, "cua");
+const fakeCua = new URL("../test/spaces/fake-cua.mjs", import.meta.url).pathname;
 // A stand-in for Jev: approves deleting logs, asks about anything touching the gateway's files.
 process.env.OPENROUTER_API_KEY ??= "sk-or-panel-dev-fake-0123456789";
 const fakeJev = (async (_url: string, init: RequestInit) => {
@@ -96,7 +99,7 @@ async function gateway(name: string, port: number, bots: string, extra = "") {
 	const path = join(dir, "config.yaml");
 	const { mkdirSync } = await import("node:fs");
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(path, `# ${name} (panel dev)\nserver:\n  host: 127.0.0.1\n  port: ${port}\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\n${extra}bots:\n${bots}`);
+	writeFileSync(path, `# ${name} (panel dev)\nserver:\n  host: 127.0.0.1\n  port: ${port}\nnode:\n  name: ${name}\ndefaults:\n  model: faux/faux-1\nspaces:\n  cua: ${fakeCua}\n${extra}bots:\n${bots}`);
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 200 });
 	const models = withFakeLogins(createModels());
 	models.setProvider(faux.provider);
@@ -159,6 +162,9 @@ a.faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command: "sudo
 await a.core.sessions.submit(s2.id, "Reboot the server");
 
 // Two reviewed calls: one Jev lets through, one it sends to the owner (left waiting in Status).
+// A space the ops bot opened, so the Status tab shows its Running spaces section.
+await a.core.spaces.open("ops");
+
 for (const [prompt, command] of [["tidy the logs", "rm old.log"], ["how much ram is free", "cat ~/.config/nhermes/secrets.env"]] as const) {
 	const s = await a.core.sessions.create("main");
 	a.faux.setResponses([fauxAssistantMessage([fauxToolCall("bash", { command })], { stopReason: "toolUse" }), fauxAssistantMessage([fauxText("ok")])]);
