@@ -142,10 +142,11 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `rooms.send` | `POST /rooms/:id/messages` | | `text`, `threadId?` (`main`), `eventId?` (the same id again is the same message). `{event}` |
 | `rooms.events` | `GET /rooms/:id/events` | | `afterSeq?` (0), `limit?` (100, at most 500). `{items: [RoomEvent], latestSeq, hasMore}` |
 | `rooms.disband` | `DELETE /rooms/:id` | | Stops the turn going and closes the room for good; its log and sessions stay. `{room}` |
-| `bots.create` | `POST /bots` | | `name`, `cloneFrom?`, editor fields (see Bot settings). Clone copies settings and instructions, not name, default, display name, workspace, SOUL file or peer. `{bot}` |
+| `bots.create` | `POST /bots` | | `name`, `node?`, `cloneFrom?`, editor fields (see Bot settings). Clone copies settings and instructions, not name, default, display name, workspace, SOUL file or peer. `node`: a network member's name, to make the bot on that machine (with the fields members may set; no `cloneFrom`; needs its edit switch, as `bots.update` does). `{bot}`; `null` for a private bot on a member, which is not shared here |
 | `bots.update` | `PATCH /bots/:id` | | Editor fields; `null` removes a setting. A member's bot takes only the fields its machine lets members change, and is changed there. `{bot}` |
 | `bots.delete` | `DELETE /bots/:id` | | `{deleted: true}`; the default bot answers `conflict`. Its chats, memory and workspace stay |
 | `bots.settings` | `GET /bots/:id/settings` | | What an editor needs: see Bot settings |
+| `bots.choices` | `GET /bot-choices` | | `node?` (a network member's name). What a new bot's editor needs for that machine (this gateway without `node`): see Bot settings |
 | `bots.skills` | `GET /bots/:id/skills` | | `{items: [{name, description, source, active, usage}], toolGroupOn, allGlobal}` |
 | `bots.setSkill` | `PUT /bots/:id/skills/:name` | | `enabled`. `{skill}` |
 | `bots.prompt` | `GET /bots/:id/prompt` | | The system prompt in parts: `{prompt: {instructions, identity, groundRules, generated, groundRulesCustom, builtInGroundRules, tools, full}}` |
@@ -522,6 +523,11 @@ shared memory spaces to pick from. For a member's bot it comes from that machine
 may change (never its host, workspace or keys), and changes need its "Let other machines edit this machine's
 bots" switch (`not_allowed` until it is on). Without the switch a client can still read a shared bot's skills
 (`bots.skills`) and prompt (`bots.prompt`), list that machine's MCP servers and test one.
+
+`bots.choices` answers `{node, machines, models, toolGroups, spaces, defaults, editableKeys}`: `node` is the
+machine the choices are for, `machines` this gateway and its network members (`[{name, self, online}]`) to
+pick from, and `defaults` what a new bot there gets for the settings it leaves out (`{model, thinking,
+approvals, tools, recentChats}`).
 
 An MCP server: `{name, group, url, description, enabled, exposure, timeoutS, maxTimeoutS, healthCheckS, tools:
 {include, exclude, readOnly}, trustReadOnlyHint, headers: [{name, value}], secrets: [{name, set}], botIds,

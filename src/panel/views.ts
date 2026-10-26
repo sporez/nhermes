@@ -4,7 +4,7 @@
 import { configView } from "../admin.ts";
 import { groundRules, personaParts, personaText } from "../agent/extensions.ts";
 import type { Core } from "../app.ts";
-import type { Bot } from "../core/bots.ts";
+import { type Bot, DEFAULT_TOOL_GROUPS } from "../core/bots.ts";
 
 /** Bots this gateway owns and edits: not members' bots, not `peer:` entries. */
 export function ownBots(c: Core): Bot[] {
@@ -30,6 +30,8 @@ export async function editorView(c: Core) {
 		models: (await modelChoices(c)).models,
 		bots: view.bots.filter((b) => own.has(b.name)),
 		spaces: [...new Set(c.config.bots.flatMap((b) => b.sharedMemory ?? []))].sort(),
+		/** What a new bot gets for the settings it leaves out. */
+		defaults: { model: c.config.defaults.model, thinking: c.config.defaults.thinking, approvals: c.config.defaults.approvals, tools: DEFAULT_TOOL_GROUPS, recentChats: 5 },
 	};
 }
 

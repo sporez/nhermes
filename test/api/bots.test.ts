@@ -58,6 +58,14 @@ test("bots: create, clone, update and delete a local bot; the default bot stays"
 		await fails(g.api("PATCH /bots/helper", { model: "faux/nope" }), "invalid_params");
 		await fails(g.api("PATCH /bots/nope", { displayName: "x" }), "bot_not_found");
 
+		type Choices = { node: string; machines: { name: string; self: boolean; online: boolean }[]; models: string[]; toolGroups: string[]; defaults: { model: string; tools: string[]; recentChats: number }; editableKeys: string[] };
+		const here = await g.api<Choices>("GET /bot-choices");
+		assert.deepEqual([here.node, here.machines, here.defaults.model, here.defaults.recentChats], ["alpha", [{ name: "alpha", self: true, online: true }], "faux/faux-1", 5]);
+		assert.ok(here.models.includes("faux/faux-1") && here.toolGroups.includes("memory") && here.defaults.tools.includes("memory") && here.editableKeys.includes("workspace"));
+		assert.equal((await g.api<Choices>("GET /bot-choices", { node: "alpha" })).node, "alpha", "its own name is this gateway");
+		await fails(g.api("GET /bot-choices", { node: "nowhere" }), "not_found");
+		await fails(g.api("POST /bots", { name: "lost", node: "nowhere" }), "not_found");
+
 		await fails(g.api("DELETE /bots/main"), "conflict", /default/);
 		assert.deepEqual(await g.api("DELETE /bots/helper"), { deleted: true });
 		assert.equal(g.core.bots.get("helper"), undefined);
@@ -200,7 +208,24 @@ test("a member's bot is edited on its own machine, once that machine allows it",
 		await assert.rejects(a.core.members.call(beta, "/federation/read/bots/secret/prompt", undefined, "GET"), (e: { status: number }) => e.status === 404);
 		assert.equal(b.core.bots.get("nasbot")!.description, "Runs on the NAS");
 
+		await fails(a.api("GET /bot-choices", { node: "beta" }), "not_allowed");
+		await fails(a.api("POST /bots", { name: "newbie", node: "beta" }), "not_allowed");
+
 		b.core.members.setAcceptsBotEdits(true);
+		// A new bot on beta: made there, with beta's choices, and listed here as beta's.
+		const there = await a.api<{ node: string; machines: { name: string; self: boolean }[]; models: string[]; defaults: { tools: string[] }; editableKeys: string[] }>("GET /bot-choices", { node: "beta" });
+		assert.deepEqual([there.node, there.machines.map((m) => [m.name, m.self])], ["beta", [["alpha", true], ["beta", false]]]);
+		assert.ok(there.models.includes("faux/faux-1") && there.defaults.tools.length > 0 && !there.editableKeys.includes("workspace"));
+		const made = await a.api<{ bot: Bot }>("POST /bots", { name: "newbie", node: "beta", displayName: "Newbie", tools: ["memory"] });
+		assert.deepEqual([made.bot.id, made.bot.kind, made.bot.displayName, made.bot.toolGroups], ["newbie-beta", "member", "Newbie", []]);
+		assert.deepEqual(b.core.bots.get("newbie")!.toolGroups, ["memory"]);
+		assert.equal(a.core.bots.get("newbie"), undefined, "nothing is made on alpha");
+		await fails(a.api("POST /bots", { name: "newbie", node: "beta" }), "invalid_params", /already exists/);
+		await fails(a.api("POST /bots", { name: "far", node: "beta", workspace: "/tmp/x" }), "invalid_params", /only on beta/);
+		await fails(a.api("POST /bots", { name: "far", node: "beta", cloneFrom: "main" }), "invalid_params");
+		const hidden = await a.api<{ bot: Bot | null }>("POST /bots", { name: "hush", node: "beta", private: true });
+		assert.equal(hidden.bot, null, "a private bot is not shared");
+		assert.equal(b.core.bots.get("hush")!.private, true);
 		const updated = await a.api<{ bot: Bot }>(`PATCH /bots/${id}`, { description: "Changed", displayName: "Nas" });
 		assert.deepEqual([updated.bot.id, updated.bot.description, updated.bot.displayName, updated.bot.kind], [id, "Changed", "Nas", "member"]);
 		assert.equal(b.core.bots.get("nasbot")!.description, "Changed");

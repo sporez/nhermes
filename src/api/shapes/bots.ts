@@ -25,6 +25,11 @@ export function settingsJson(botId: string, entry: EditorEntry, choices: Pick<Ed
 	};
 }
 
+/** What a new bot's editor picks from on one machine, and what the bot gets for what it leaves out. */
+export function choicesJson(node: string, machines: { name: string; self: boolean; online: boolean }[], view: Pick<Editor, "models" | "toolGroups" | "spaces" | "defaults">, editableKeys: string[]) {
+	return { node, machines, models: view.models, toolGroups: view.toolGroups, spaces: view.spaces, defaults: view.defaults, editableKeys };
+}
+
 export function toolGroupsJson(core: Core) {
 	return [...core.toolGroups.entries()].map(([name, tools]) => ({
 		name,

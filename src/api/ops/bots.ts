@@ -15,7 +15,7 @@ import { botOf } from "../lookup.ts";
 import type { Op, OpContext } from "../ops.ts";
 import type { Params } from "../params.ts";
 import { botJson } from "../shapes/chat.ts";
-import { type EditorEntry, mcpJson, settingsJson, toolGroupsJson } from "../shapes/bots.ts";
+import { choicesJson, type EditorEntry, mcpJson, settingsJson, toolGroupsJson } from "../shapes/bots.ts";
 
 /** Every setting of a bot's config entry the owner may change on this machine. */
 const LOCAL_KEYS = [...MEMBER_BOT_KEYS, "soulFile", "workspace", "host", "secrets", "browser", "desktop", "openchamber"];
@@ -61,9 +61,46 @@ function refreshed(cx: OpContext, bot: Bot) {
 	return botJson(cx.core, cx.core.bots.get(bot.name) ?? bot);
 }
 
+/** The network member a call names with `node`; none (or this gateway's own name) is this gateway. */
+function memberNode(p: Params, cx: OpContext): string | undefined {
+	const node = p.optStr("node")?.trim();
+	if (!node || node === cx.core.members.self().name) return undefined;
+	if (!cx.core.members.byName(node)) throw new ApiError("not_found", `There is no machine named ${node} in this gateway's network.`);
+	return node;
+}
+
+/** This gateway and its network members, for choosing where a new bot runs. */
+function machinesOf(cx: OpContext) {
+	return [{ name: cx.core.members.self().name, self: true, online: true }, ...cx.core.members.list().map((m) => ({ name: m.name, self: false, online: m.reachable }))];
+}
+
+async function choices(p: Params, cx: OpContext) {
+	const node = memberNode(p, cx);
+	if (node) {
+		const r = await manageCall<Parameters<typeof choicesJson>[2]>(cx.core, node, "GET", "/federation/manage", undefined, 10_000);
+		return choicesJson(node, machinesOf(cx), r, [...MEMBER_BOT_KEYS]);
+	}
+	return choicesJson(cx.core.members.self().name, machinesOf(cx), await editorView(cx.core), LOCAL_KEYS);
+}
+
+/** A new bot on a network member, made there with the settings members may give it. */
+async function createOnMember(p: Params, cx: OpContext, node: string, name: string) {
+	if (p.optStr("cloneFrom")) throw new ApiError("invalid_params", "cloneFrom works only for a bot on this gateway.");
+	const other = LOCAL_KEYS.filter((k) => !MEMBER_BOT_KEYS.has(k) && p.raw[k] !== undefined);
+	if (other.length > 0) throw new ApiError("invalid_params", `${other.join(", ")} can be set only on ${node}, in its own settings.`);
+	const fields = fieldsOf(p, [...MEMBER_BOT_KEYS]);
+	for (const [k, v] of Object.entries(fields)) if (v === null) delete fields[k];
+	await manageWrite(cx.core, node, "POST", "/federation/manage/bots", { ...fields, name });
+	// A private bot is not shared, so it is not listed here.
+	const bot = cx.core.bots.list().find((b) => b.remote?.node === node && b.remote.bot === name);
+	return { bot: bot ? botJson(cx.core, bot) : null };
+}
+
 async function create(p: Params, cx: OpContext) {
 	const name = p.str("name").trim();
 	if (!BOT_NAME.test(name)) throw new ApiError("invalid_params", `name: ${BOT_NAME_RULE}.`);
+	const node = memberNode(p, cx);
+	if (node) return createOnMember(p, cx, node, name);
 	let entry: BotConfig = { name };
 	const from = p.optStr("cloneFrom");
 	if (from) {
@@ -200,6 +237,7 @@ export const botOps: Op[] = [
 	{ name: "bots.update", http: "PATCH /bots/:id", handle: update },
 	{ name: "bots.delete", http: "DELETE /bots/:id", handle: remove },
 	{ name: "bots.settings", http: "GET /bots/:id/settings", handle: settings },
+	{ name: "bots.choices", http: "GET /bot-choices", handle: choices },
 	{ name: "bots.skills", http: "GET /bots/:id/skills", handle: skills },
 	{ name: "bots.setSkill", http: "PUT /bots/:id/skills/:name", handle: setSkill },
 	{ name: "bots.prompt", http: "GET /bots/:id/prompt", handle: prompt },
