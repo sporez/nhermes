@@ -240,6 +240,8 @@ test("approvals: the space tools run in smart mode and ask in manual mode; deskt
 	assert.equal(decide(call("space_copy", { space: "s-1", from: "x", to: "/etc/passwd", direction: "from_space" }), pc("smart")).action, "ask");
 	assert.equal(decide(call("space_copy", { space: "s-1", from: "/data/secrets.env", to: "k", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "ask");
 	assert.equal(decide(call("space_copy", { space: "s-1", from: "k", to: "/data/secrets.env", direction: "from_space" }), pc("smart", { gatewayFiles })).action, "ask", "writing over it");
-	assert.equal(decide(call("space_copy", { space: "s-1", from: "/etc/passwd", to: "k", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "allow", "an ordinary read");
+	assert.equal(decide(call("space_copy", { space: "s-1", from: "/home/n/.ssh/id_ed25519", to: "k", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "ask", "a key sent into a space, which reaches the internet");
+	assert.equal(decide(call("space_copy", { space: "s-1", from: "/etc/passwd", to: "k", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "ask");
+	assert.equal(decide(call("space_copy", { space: "s-1", from: "notes/report.pdf", to: "k", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "allow", "an ordinary file");
 	assert.equal(decide(call("space_copy", { space: "s-1", from: "/tmp/x", to: "/data/secrets.env", direction: "to_space" }), pc("smart", { gatewayFiles })).action, "allow", "the destination is in the space");
 });

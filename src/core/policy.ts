@@ -190,6 +190,8 @@ export function decide(call: { name: string; arguments: Record<string, unknown> 
 		const own = String(writes ? call.arguments.to : call.arguments.from);
 		if (writes && (SENSITIVE_PATHS.some((re) => re.test(own)) || pc.gatewayFiles?.test(own))) reasons.push({ key: "space_copy:sensitive", description: "modify a sensitive file", review: false });
 		if (!writes && pc.gatewayFiles?.test(own)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
+		// A space reaches the internet and its shell is not reviewed, so a sensitive file sent into one asks.
+		else if (!writes && SENSITIVE_PATHS.some((re) => re.test(own))) reasons.push({ key: "space_copy:sensitive-out", description: "send a sensitive file into a space, which can reach the internet", review: false });
 	}
 	if (call.name === "read" && path !== undefined && pc.gatewayFiles?.test(path)) reasons.push({ key: "gateway files", description: "read the gateway's own config, secrets or databases", review: true });
 	if (bot.approvals.mode === "manual" && SIDE_EFFECT_TOOLS.has(call.name)) reasons.push({ key: `tool:${call.name}`, description: `run ${call.name}`, review: false });

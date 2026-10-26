@@ -72,6 +72,8 @@ turn's notification, the iPad (installed, not yet opened).
 
 ## Security findings fixed during live testing
 
+- Found in review before release: `space_copy` could send a sensitive file (an SSH key, `/etc`) into a space without
+  asking, and a space's shell is not reviewed → sending one into a space asks (`test/tools/spaces.test.ts`).
 - A denied package install was retried by delegating to the trusted `ops` bot → delegation now never
   raises privileges (`test/core/delegate.test.ts`).
 - Untrusted bots could `sudo apt-get install` without asking → installs and `sudo` now ask.
