@@ -18,7 +18,7 @@ Keep it small. `ARCHITECTURE.md` ends with "Why not more"; read it before adding
 - The client API (the contract clients build on): `docs/API.md`; how it came to replace the Hermes layer:
   `docs/CLIENT-API.md`.
 - What is verified, and how: `docs/STATUS.md`. Phases and what is next: `docs/BACKLOG.md`.
-- Feature plans: `docs/FEDERATION.md`, `docs/REMOTE-BOT-EDITS.md`, `docs/SECRETS-AND-REVIEW.md`.
+- Feature plans: `docs/FEDERATION.md`, `docs/REMOTE-BOT-EDITS.md`, `docs/SECRETS-AND-REVIEW.md`, `docs/SPACES.md`.
 - Upstream pins and the contracts we consume: `UPSTREAM.md`. Read-only upstream clones live in
   `reference/` (gitignored; recreate them with `scripts/fetch-upstream.sh`). Read them instead of guessing
   how Pi Durable behaves. Never edit them.

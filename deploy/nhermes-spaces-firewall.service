@@ -1,0 +1,20 @@
+# systemd system unit: /etc/systemd/system/nhermes-spaces-firewall.service
+# Keeps Cua spaces off the private network (deploy/spaces-firewall.sh, docs/SPACES.md). Runs with Docker
+# and again whenever Docker restarts.
+# Enable with: sudo install -m 755 deploy/spaces-firewall.sh /usr/local/sbin/nhermes-spaces-firewall
+#              sudo cp deploy/nhermes-spaces-firewall.service /etc/systemd/system/
+#              sudo systemctl daemon-reload && sudo systemctl enable --now nhermes-spaces-firewall
+[Unit]
+Description=nHermes: keep Cua spaces off the private network
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/nhermes-spaces-firewall start
+ExecStop=/usr/local/sbin/nhermes-spaces-firewall stop
+
+[Install]
+WantedBy=docker.service
