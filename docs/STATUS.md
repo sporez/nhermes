@@ -223,7 +223,7 @@ gateway's `nhermes-<tag>-` names); the tools: `space_open`, `space_shell` (runs 
 code and stderr shown), `space_list`, `space_close`, `space_copy` both ways (folders made, a folder and a file over 100 MB
 refused); limits and foreign ids as plain tool errors; desktop tools with `space` running on display `:1` (stub
 xdotool, import) while the bot's own desktop stays `:0`; a space screenshot offering the picture card line; a bot
-without the `desktop` group refused the host's desktop; `space_open` refused for work a network member started; a space
+without the `desktop` group refused the host's desktop; `space_open` refused for work a network member's bot started and allowed in the owner's chat relayed from a member; a space
 in use is not deleted as idle; the approval policy (space tools run in smart mode, ask in manual; `space_copy` to or from
 sensitive files asks). Not verified: on a real Cua space (the desktop tools there were run by hand in the spike, not
 through these tools), with a real model, the owner shown a space screenshot in the app.

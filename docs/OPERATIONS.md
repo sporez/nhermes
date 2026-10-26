@@ -303,7 +303,7 @@ that `cua sb ls` shows and it does not hold (`<tag>` is four hex characters of a
 directory, so two gateways on one host never delete each other's spaces), and closing the gateway deletes the open ones. Without `cua`, a bot
 that tries to open a space is told the host needs it. A bot gets the tools from the **Spaces** tool group
 (`spaces`, which also holds the desktop tools for use inside a space; `docs/COMPUTER_USE.md`). Work another
-machine's member started cannot open a space; in `manual` approval mode each space tool asks.
+machine's bot started cannot open a space, but your own chat relayed through a member can; in `manual` approval mode each space tool asks.
 
 The panel's Status tab lists the running spaces (bot, how long open, last used) with a Delete button for each;
 the section appears only while a space is open. `nhermes doctor` (and the panel's and app's doctor) has a Spaces

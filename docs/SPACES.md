@@ -39,8 +39,9 @@ Decided so far:
   `space_close`, `space_shell` and `space_copy` run in `smart` mode and ask in `manual` mode (the desktop tools
   follow their usual policy). `space_shell` is not scanned like `bash`: a space has no route to the LAN and is
   thrown away, so its commands (`sudo`, installs) are ordinary there; `space_copy` asks when it would write a
-  sensitive file on the bot's machine or read the gateway's own files. Work a network member started cannot open
-  a space. Tool output goes through the same secret redaction as every tool's (the guard's `afterTool`).
+  sensitive file on the bot's machine, read the gateway's own files, or send a sensitive file into a space. Work
+  a network member's bot started cannot open a space; the owner's own chat relayed from a member can (the app
+  talks to one gateway at a time). Tool output goes through the same secret redaction as every tool's (the guard's `afterTool`).
 - No live viewer: bots show the owner screenshots (`show {from}`). A viewer is deferred (see "Later").
 
 ## Host setup

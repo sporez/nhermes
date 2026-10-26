@@ -174,8 +174,9 @@ export function guardExtension(deps: AgentDeps): Extension {
 					if (needsTrust(call.name, args, bot.name) && !effective.trusted) {
 						return { block: `${call.name} is only available to trusted work: ${fromMember ? "a network member started this" : chain.some((b) => !b.trusted) ? "a bot that is not trusted delegated it" : "this bot is not trusted"}` };
 					}
-					// Opening a space starts software on this host: work another machine started cannot.
-					if (call.name === "space_open" && fromMember) return { block: "space_open is not available to work another machine started" };
+					// Opening a space starts software on this host: work another machine's bot started cannot. The
+					// owner's own chat relayed from a member can, since the app talks to one gateway at a time.
+					if (call.name === "space_open" && fromMember && !relayed) return { block: "space_open is not available to work another machine started" };
 					// Configuration never changes in a run nobody attends, or in work another machine started. The
 					// owner's chat relayed from a member is asked like a local one when this machine lets other
 					// machines edit its bots; the card reaches the owner through the member.

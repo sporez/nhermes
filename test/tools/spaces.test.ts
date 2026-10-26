@@ -164,12 +164,23 @@ test("a bot without the desktop group is refused the host's desktop but can driv
 	}
 });
 
-test("work a network member started cannot open a space", async () => {
+test("work a network member's bot started cannot open a space", async () => {
 	const s = await setup();
 	try {
 		const r = await run(s, [ask(call("space_open", {}, "o"))], { source: "member:node-a" });
 		assert.match(finished(r.events, "o").resultText, /space_open is not available to work another machine started/);
 		assert.equal(s.core.spaces.list().length, 0);
+	} finally {
+		await s.cleanup();
+	}
+});
+
+test("the owner's chat relayed from a member can open a space", async () => {
+	const s = await setup();
+	try {
+		const r = await run(s, [ask(call("space_open", {}, "o"))], { source: "member:node-a:owner" });
+		assert.doesNotMatch(finished(r.events, "o").resultText, /not available/);
+		assert.equal(s.core.spaces.list().length, 1);
 	} finally {
 		await s.cleanup();
 	}
