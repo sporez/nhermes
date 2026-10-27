@@ -50,7 +50,8 @@ export type TurnItem =
 	  }
 	/** What the owner was shown with the `show` tool, or asked with `ask` (core/cards.ts); replaces that call's tool item. */
 	| ({ type: "card"; id: string; at: number } & CardDetails)
-	| { type: "notice"; id: string; kind: "notice" | "compaction"; text: string; at: number }
+	/** `call`: the `delegate` call whose background task the notice is about. */
+	| { type: "notice"; id: string; kind: "notice" | "compaction"; text: string; at: number; call?: string }
 	| { type: "error"; id: string; message: string; at: number };
 
 export type TurnStatus = "running" | "complete" | "error" | "interrupted";
@@ -63,20 +64,51 @@ export type Turn = {
 	startedAt: number;
 	/** When it ended; null while running, and for turns from before run records were kept. */
 	endedAt: number | null;
-	/** `requestId`: the one the message was submitted with, so the client that sent it knows its turn. */
-	user: { content: ContentBlock[]; at: number; requestId?: string } | null;
+	/** `requestId`: the one the message was submitted with, so the client that sent it knows its turn.
+	 * `from`: set when the gateway posted the message for someone other than the owner. */
+	user: { content: ContentBlock[]; at: number; requestId?: string; from?: MessageFrom } | null;
 	items: TurnItem[];
 	error?: string;
 	usage?: TurnUsage;
 };
 
-/** An owner message submitted with a request id is this kind of entry, with the id as its data (engine.submit). */
-export const REQUESTED_USER = "nh.user";
+/**
+ * Who posted a message that is not the owner's: a bot answering a task it was handed in the background
+ * (`call`: the `delegate` call that handed it over; `failed`: it could not finish, and the text says why), or a
+ * scheduled task's run.
+ */
+export type MessageFrom = { kind: "delegate"; bot: string; task: string; call?: string; failed?: true } | { kind: "schedule"; job: string; name: string };
 
-/** A turn's `user`: the message's content, when it was written, and the request id it was submitted with. */
+/**
+ * A message submitted with a request id, or posted for someone other than the owner, is this kind of entry
+ * (engine.submit, the delegation reporters). `header` is the bracketed line the model reads before the text;
+ * clients get `from` instead.
+ */
+export const REQUESTED_USER = "nh.user";
+export type UserEntryData = { requestId?: string; from?: MessageFrom; header?: string };
+
+/** A turn's `user`: the message's content, when it was written, the request id it was submitted with, and who posted it. */
 export function turnUser(entry: EntryRecord, m: { content: string | Block[]; timestamp?: number }, at: number): NonNullable<Turn["user"]> {
-	const requestId = entry.kind === REQUESTED_USER ? (entry.data as { requestId?: unknown } | undefined)?.requestId : undefined;
-	return { content: userContent(m.content), at, ...(typeof requestId === "string" ? { requestId } : {}) };
+	const data = entry.kind === REQUESTED_USER ? (entry.data as UserEntryData | undefined) : undefined;
+	const requestId = data?.requestId;
+	const content = data?.header ? withoutHeader(m.content, data.header) : m.content;
+	return { content: userContent(content), at, ...(typeof requestId === "string" ? { requestId } : {}), ...(data?.from ? { from: fromShown(data.from) } : {}) };
+}
+
+const fromShown = (from: MessageFrom): MessageFrom => (from.kind === "delegate" ? { ...from, task: redact(from.task) } : from);
+
+/** The entry a message is submitted with, when it has a request id or is posted for someone else. */
+export function userEntry(data: UserEntryData): { kind: typeof REQUESTED_USER; data: UserEntryData } | undefined {
+	const set = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as UserEntryData;
+	return Object.keys(set).length === 0 ? undefined : { kind: REQUESTED_USER, data: set };
+}
+
+function withoutHeader(content: string | Block[], header: string): string | Block[] {
+	if (typeof content === "string") return content.startsWith(header) ? content.slice(header.length) : content;
+	const i = content.findIndex((b) => b.type === "text");
+	const text = content[i]?.text;
+	if (text === undefined || !text.startsWith(header)) return content;
+	return content.map((b, n) => (n === i ? { ...b, text: text.slice(header.length) } : b));
 }
 
 /** How a run ended, recorded as an `nh.run` entry after it (engine.writeRunRecord). */
@@ -179,12 +211,12 @@ export function projectTurns(entries: readonly EntryRecord[], live?: { running: 
 	};
 	for (const entry of entries) {
 		if (entry.kind === "pi.compaction" || entry.kind === "nh.notice") {
-			const d = (entry.data ?? {}) as { text?: string; at?: string };
+			const d = (entry.data ?? {}) as { text?: string; at?: string; call?: string };
 			const at = entry.kind === "nh.notice" && d.at ? Number(d.at) * 1000 : (turn?.endedAt ?? turn?.startedAt ?? 0);
 			const text = entry.kind === "pi.compaction" ? "Earlier messages were summarized to save context." : (d.text ?? "");
 			if (!text) continue;
 			close();
-			turns.push({ id: `n${entry.id}`, status: "complete", startedAt: at, endedAt: at, user: null, items: [{ type: "notice", id: `n${entry.id}`, kind: entry.kind === "pi.compaction" ? "compaction" : "notice", text: redact(text), at }] });
+			turns.push({ id: `n${entry.id}`, status: "complete", startedAt: at, endedAt: at, user: null, items: [{ type: "notice", id: `n${entry.id}`, kind: entry.kind === "pi.compaction" ? "compaction" : "notice", text: redact(text), at, ...(d.call ? { call: d.call } : {}) }] });
 			continue;
 		}
 		const m = entry.model?.[0] as Msg | undefined;

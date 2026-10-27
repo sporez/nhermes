@@ -34,7 +34,7 @@ export function chatEvent(e: SessionEvent): { event: string; data: Record<string
 		case "usage":
 			return { event: "usage.updated", data: { usage: usageJson(e.usage) } };
 		case "notice":
-			return { event: "session.notice", data: { kind: e.message.startsWith("Compressing") ? "compacting" : "notice", text: redact(e.message) } };
+			return { event: "session.notice", data: { kind: e.message.startsWith("Compressing") ? "compacting" : "notice", text: redact(e.message), ...(e.call ? { call: e.call } : {}) } };
 		default:
 			return undefined;
 	}

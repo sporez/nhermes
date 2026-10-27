@@ -29,7 +29,7 @@ import {
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { withCardNotes } from "../core/cards.ts";
-import { REQUESTED_USER } from "../core/turns.ts";
+import { type MessageFrom, REQUESTED_USER, userEntry } from "../core/turns.ts";
 import { logger } from "../log.ts";
 import { imageTokens } from "./image-tokens.ts";
 
@@ -54,6 +54,8 @@ export type SubmitOptions = {
 	/** Durable's deduplication key when it must differ from the one the turn names (a queued message turned into a steer). */
 	durableRequestId?: string;
 	whenBusy?: "steer" | "followUp" | "reject";
+	/** Posted for someone other than the owner: its turn names them in `user.from`, without the model's `header`. */
+	from?: { from: MessageFrom; header: string };
 };
 
 export type SubmitResult = { submissionId: number; status: SubmissionRecord["status"] };
@@ -144,7 +146,7 @@ export class Engine {
 	async submit(id: ConvId, content: UserInput, options: SubmitOptions = {}): Promise<SubmitResult> {
 		const conv = await this.conv(id);
 		const { requestId } = options;
-		const entry = requestId === undefined ? undefined : { kind: REQUESTED_USER, data: { requestId } };
+		const entry = userEntry({ requestId, ...options.from });
 		const sub = await conv.submit({ type: "input", content, requestId: options.durableRequestId ?? requestId, entry, whenBusy: options.whenBusy ?? "followUp" }, ctx);
 		const record = await sub.status(ctx);
 		return { submissionId: sub.id as number, status: record.status };
@@ -212,8 +214,10 @@ export class Engine {
 		return withCardNotes((msg?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join(""), msg?.content);
 	}
 
-	async abort(id: ConvId): Promise<void> {
-		await (await this.conv(id)).abort(ctx);
+	/** Stops the run. `background`: also the work it left running in the background (tasks it handed to other bots,
+	 * a compaction), which an ordinary abort does not reach. */
+	async abort(id: ConvId, options: { background?: boolean } = {}): Promise<void> {
+		await (await this.conv(id)).abort(ctx, options);
 	}
 
 	async compact(id: ConvId, instructions?: string): Promise<void> {

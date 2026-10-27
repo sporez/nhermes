@@ -22,7 +22,9 @@ import { type Approvals, fromMachine } from "../core/approvals.ts";
 import type { Bot, Bots } from "../core/bots.ts";
 import { withCardNotes } from "../core/cards.ts";
 import type { Sessions } from "../core/sessions.ts";
+import { type MessageFrom, userEntry } from "../core/turns.ts";
 import type { Members } from "../federation/members.ts";
+import { ApiClient } from "../remote/api-client.ts";
 import { createPeerSession, type PeerTarget, runOnPeer } from "../remote/peer.ts";
 
 export type DelegateDeps = {
@@ -34,6 +36,8 @@ export type DelegateDeps = {
 	/** The root chat a session's approvals are asked in. */
 	attentionSession: (sessionId: string) => string;
 	members: () => Members;
+	/** Tells the caller's chat that a task handed over in the background was stopped (a notice naming the call). */
+	stopped: (conversationId: number, text: string, call: string) => Promise<void>;
 };
 
 /** Where a bot on another machine is reached: a network member (pair secret) or a configured peer (token). */
@@ -51,6 +55,31 @@ function peerTarget(deps: DelegateDeps, target: Bot): PeerTarget {
 
 function textOf(message: AssistantMessage | undefined): string {
 	return withCardNotes((message?.content ?? []).flatMap((c) => (c.type === "text" ? [c.text] : [])).join(""), message?.content);
+}
+
+/** What a delegated task came to: the bot's answer, or why it could not finish. */
+type Report = { text: string; failed?: true };
+
+/**
+ * The message that posts a report into the caller's chat. The model reads a bracketed line naming the bot and
+ * the task before the text (tools/memory.ts and agent/extensions.ts recognise it as not the owner's); the chat shows
+ * the text alone, marked as the bot's (`user.from`).
+ */
+function reportInput(bot: string, task: string, call: string | undefined, report: Report | string, requestId: string) {
+	// A report decided before reports carried their outcome is the whole message already.
+	const r: Report = typeof report === "string" ? { text: report } : report;
+	const header = typeof report === "string" ? "" : r.failed ? `[${bot} could not finish the delegated task: "${task.slice(0, 200)}"]\n\n` : `[Result from bot "${bot}" for the task you delegated: "${task.slice(0, 200)}"]\n\n`;
+	const from: MessageFrom = { kind: "delegate", bot, task: task.slice(0, 1000), ...(call ? { call } : {}), ...(r.failed ? { failed: true as const } : {}) };
+	return { type: "input", content: header + r.text, whenBusy: "followUp", requestId, entry: userEntry({ from, header }) } as const;
+}
+
+const failure = (error: unknown): Report => ({ text: error instanceof Error ? error.message : String(error), failed: true });
+
+/** A background task ended without an answer (Stop, or its bot's chat was stopped): the caller's chat says so. */
+async function noteStopped(deps: DelegateDeps, conversationId: number, input: { bot: string; call?: string }): Promise<void> {
+	if (!input.call) return;
+	const name = deps.bots().get(input.bot)?.displayName ?? input.bot;
+	await deps.stopped(conversationId, `Stopped the task handed to ${name}.`, input.call).catch(() => undefined);
 }
 
 function depth(sessions: Sessions, sessionId: string): number {
@@ -73,10 +102,11 @@ const Anchor = defineTask<null, { phase: "done" }, null>({
 	abort: (_t, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
 });
 
-type ReporterInput = { bot: string; childId: number; task: string };
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
+/** `call`: the `delegate` call that handed the task over (absent for tasks handed over before reports named it). */
+type ReporterInput = { bot: string; childId: number; task: string; call?: string };
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: Report | string };
 
-const Reporter = defineTask<ReporterInput, ReporterState, null>({
+const reporter = (deps: DelegateDeps) => defineTask<ReporterInput, ReporterState, null>({
 	name: "nh.delegate-reporter",
 	version: 1,
 	initial: () => ({ phase: "deliver" }),
@@ -86,27 +116,32 @@ const Reporter = defineTask<ReporterInput, ReporterState, null>({
 			const sub = await child.submit({ type: "input", content: task.input.task, requestId: `delegate:${task.id}` }, ctx);
 			const settled = await sub.wait(ctx);
 			await runtime.commit(async (tx) => {
-				const next = (report?: string) => ({ status: "running", checkpoint: { phase: "report", report } }) as const;
-				if (settled.status === "unanswered") return next(settled.reason === "aborted" ? undefined : `[${task.input.bot} could not finish the delegated task: ${settled.reason}]`);
+				const next = (report?: Report) => ({ status: "running", checkpoint: { phase: "report", report } }) as const;
+				if (settled.status === "unanswered") return next(settled.reason === "aborted" ? undefined : failure(settled.reason));
 				if (settled.type !== "input") return next();
 				const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined;
-				return next(`[Result from bot "${task.input.bot}" for the task you delegated: "${task.input.task.slice(0, 200)}"]\n\n${textOf(answer)}`);
+				return next({ text: textOf(answer) });
 			}, ctx);
 		},
 		report: async (task, runtime, ctx) => {
 			const report = task.state.checkpoint.report;
 			if (report !== undefined) {
 				const caller = (await runtime.conversation(runtime.conversationId, ctx))!;
-				await caller.submit({ type: "input", content: report, whenBusy: "followUp", requestId: `delegate-report:${task.id}` }, ctx);
+				await caller.submit(reportInput(task.input.bot, task.input.task, task.input.call, report, `delegate-report:${task.id}`), ctx);
+			} else {
+				await noteStopped(deps, runtime.conversationId as number, task.input);
 			}
 			await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), ctx);
 		},
 	},
-	abort: (_t, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
+	abort: async (task, runtime, ctx) => {
+		await noteStopped(deps, runtime.conversationId as number, task.input);
+		await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx);
+	},
 });
 
-type RemoteInput = { bot: string; task: string; key: string; attention: string };
-type RemoteState = { phase: "start" } | { phase: "wait"; sessionId: string } | { phase: "report"; report: string };
+type RemoteInput = { bot: string; task: string; key: string; attention: string; call?: string };
+type RemoteState = { phase: "start" } | { phase: "wait"; sessionId: string } | { phase: "report"; report: Report | string };
 
 /**
  * wait: false for a bot on another machine. A background task (owned by the caller's conversation)
@@ -115,8 +150,6 @@ type RemoteState = { phase: "start" } | { phase: "wait"; sessionId: string } | {
  * sent twice. The answer, or why there is none, is posted back into the caller's chat.
  */
 function remoteReporter(deps: DelegateDeps) {
-	const report = (bot: string, task: string, text: string) => `[Result from bot "${bot}" for the task you delegated: "${task.slice(0, 200)}"]\n\n${text}`;
-	const failed = (bot: string, error: unknown) => `[${bot} could not finish the delegated task: ${error instanceof Error ? error.message : String(error)}]`;
 	return defineTask<RemoteInput, RemoteState, null>({
 		name: "nh.delegate-remote",
 		version: 1,
@@ -129,14 +162,14 @@ function remoteReporter(deps: DelegateDeps) {
 					if (!target?.isPeer) throw new Error(`${task.input.bot} is no longer in the network`);
 					next = { phase: "wait", sessionId: await createPeerSession(peerTarget(deps, target)) };
 				} catch (error) {
-					next = { phase: "report", report: failed(task.input.bot, error) };
+					next = { phase: "report", report: failure(error) };
 				}
 				await runtime.commit(() => ({ status: "running", checkpoint: next }), ctx);
 			},
 			wait: async (task, runtime, ctx) => {
 				const { bot, attention } = task.input;
 				const checkpoint = task.state.checkpoint as Extract<RemoteState, { phase: "wait" }>;
-				let text: string;
+				let report: Report;
 				try {
 					const target = deps.bots().get(bot);
 					if (!target?.isPeer) throw new Error(`${bot} is no longer in the network`);
@@ -159,26 +192,44 @@ function remoteReporter(deps: DelegateDeps) {
 						timeoutMs: 24 * 3600_000,
 						maxAttempts: 1000,
 					});
-					text = report(bot, task.input.task, r.text);
+					report = { text: r.text };
 				} catch (error) {
 					if (ctx.abortSignal?.aborted) throw error;
-					text = failed(bot, error);
+					report = failure(error);
 				}
-				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "report", report: text } }), ctx);
+				await runtime.commit(() => ({ status: "running", checkpoint: { phase: "report", report } }), ctx);
 			},
 			report: async (task, runtime, ctx) => {
 				const checkpoint = task.state.checkpoint as Extract<RemoteState, { phase: "report" }>;
 				const caller = (await runtime.conversation(runtime.conversationId, ctx))!;
-				await caller.submit({ type: "input", content: checkpoint.report, whenBusy: "followUp", requestId: `delegate-report:${task.id}` }, ctx);
+				await caller.submit(reportInput(task.input.bot, task.input.task, task.input.call, checkpoint.report, `delegate-report:${task.id}`), ctx);
 				await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), ctx);
 			},
 		},
-		abort: (_t, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
+		abort: async (task, runtime, ctx) => {
+			// Stopped while the other machine works on it: stop it there too. Best effort and not awaited, so an
+			// offline machine does not hold up the owner's Stop.
+			const checkpoint = task.state.checkpoint;
+			const target = deps.bots().get(task.input.bot);
+			if (checkpoint.phase === "wait" && target?.isPeer) {
+				void (async () => {
+					const c = await ApiClient.open(peerTarget(deps, target), task.input.bot);
+					try {
+						await c.call("sessions.interrupt", { id: checkpoint.sessionId }, 10_000);
+					} finally {
+						c.close();
+					}
+				})().catch(() => undefined);
+			}
+			await noteStopped(deps, runtime.conversationId as number, task.input);
+			await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx);
+		},
 	});
 }
 
 export function delegateExtension(deps: DelegateDeps): { extension: Extension; tools: ToolRegistration[] } {
 	const RemoteReporter = remoteReporter(deps);
+	const Reporter = reporter(deps);
 	const tool = defineTool({
 		name: "delegate",
 		description:
@@ -206,7 +257,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 			if (target.isPeer && args.wait === false) {
 				const attention = deps.attentionSession(caller.id);
 				await api.commit(async (tx) => {
-					await tx.createTask(RemoteReporter, { bot: target.name, task: args.task, key: `delegate:${api.taskId}`, attention }, { ownership: { kind: "conversation" }, background: true });
+					await tx.createTask(RemoteReporter, { bot: target.name, task: args.task, key: `delegate:${api.taskId}`, attention, call: api.callId }, { ownership: { kind: "conversation" }, background: true });
 				}, ctx);
 				await api.details({ peer: target.name, background: true }, ctx);
 				return { output: [{ type: "text", text: `Delegated to ${target.name} on another machine. Its answer will arrive as a new message.` }] };
@@ -247,7 +298,7 @@ export function delegateExtension(deps: DelegateDeps): { extension: Extension; t
 					const anchor = await tx.createTask(Anchor, null, background);
 					const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
 					await configure(tx, child.id, change);
-					await tx.createTask(Reporter, { bot: target.name, childId: child.id as number, task: args.task }, background);
+					await tx.createTask(Reporter, { bot: target.name, childId: child.id as number, task: args.task, call: api.callId }, background);
 					return child.id as number;
 				}, ctx);
 				const row = sessions.register(childId, target.name, { kind: "delegate", parentId: caller.id, title, source: "delegate" });

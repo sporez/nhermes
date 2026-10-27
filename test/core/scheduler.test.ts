@@ -47,6 +47,10 @@ test("a due job runs in its own session without a client and records history; th
 		assert.equal(session.kind, "job");
 		assert.equal(session.bot, "ops");
 		assert.equal(session.title, "Disk check");
+		// The chat shows the task's prompt, marked as the task's, without the lines the model reads before it.
+		const [first] = (await core.sessions.turns(session.id)).turns;
+		assert.deepEqual(first?.user?.from, { kind: "schedule", job: job.id, name: "Disk check" });
+		assert.deepEqual(first?.user?.content, [{ type: "text", text: "Check disk usage" }]);
 		await until(() => notifier.sent.length > 0 || undefined);
 		assert.deepEqual(notifier.sent[0], { title: "Disk check", message: "All disks below 70%.", priority: 0, sessionId: session.id, bot: "ops" });
 

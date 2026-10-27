@@ -126,7 +126,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.unsubscribe` | socket only | yes | `id` |
 | `sessions.submit` | `POST /sessions/:id/submit` | yes | `text`, or `content`: blocks `{type: "text", text}` and `{type: "attachment", id}`; `requestId?`, `steer?` (boolean). `{status: "started" \| "queued" \| "steered", submission}`. A chat that is answering queues the message, unless `steer` is true: then it is placed after the running reply's current tool round (or at its end, if the reply finishes first) and the status is `steered`; `started` when nothing was running. Attachments and `requestId` work as without `steer`, and the steered turn names the `requestId` in `user.requestId`. **Queued to steer:** `steer: true` with the `requestId` of a message that is still `queued` withdraws that message and places the content of this call as a steer, so it runs now and once; its turn still names the original `requestId`. If that message was placed meanwhile, nothing is sent again and the status is `started` (`submission` is `placed` or `done`). Resend the same words and attachment ids. The same `requestId` is the same message, never sent twice; `submission` is `done` when a retry finds it already answered. While a bot's question waits in the chat, words without attachments answer it instead: `{status: "answered", approvalId}` (see Questions) |
 | `sessions.steer` | `POST /sessions/:id/steer` | yes | `text`. Placed after the current tool round. `{status: "steered" \| "started"}` |
-| `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. It also withdraws every message still queued behind the run: those never run, and their `requestId`s never get a turn, so clients should show them as not sent. `{interrupted}` |
+| `sessions.interrupt` | `POST /sessions/:id/interrupt` | yes | Stops the run and withdraws its approvals. It also stops the tasks the chat's bot handed to other bots in the background (on this machine or another), so their answers never arrive and start another run; the chat gets a notice for each (`call` names it). It also withdraws every message still queued behind the run: those never run, and their `requestId`s never get a turn, so clients should show them as not sent. `{interrupted}` |
 | `sessions.compact` | `POST /sessions/:id/compact` | yes | `instructions?`. `{started: true}` |
 | `sessions.usage` | `GET /sessions/:id/usage` | yes | `{usage}` |
 | `sessions.context` | `GET /sessions/:id/context` | yes | `{parts: [{id, label, tokens}], used, max, percent, estimated, model}` |
@@ -264,10 +264,18 @@ answer, in order.
   a compaction marker). `user.requestId` is the `requestId` the message was submitted with (absent when it had
   none), in history and in `turn.started`, so the client that sent it knows its turn, even one that waited
   behind a run or started before a snapshot.
+- `user.from` is set when the gateway posted the message for someone other than the owner; absent for the
+  owner's own messages. `{kind: "delegate", bot, task, call, failed?}`: a bot's answer to a task this chat's
+  bot handed it in the background (`delegate` with `wait: false`); `bot` is the bot's name as in the `delegate`
+  call's `args.bot`, `task` what it was asked (up to 1000 characters), `call` the `delegate` call's tool item
+  `id`, and `failed: true` when it could not finish, with the reason as the text. `{kind: "schedule", job,
+  name}`: a scheduled task's run, with the task's prompt as the text. The content is what was posted, without
+  the line the model reads before it.
 - Content blocks: `{type: "text", text}`, `{type: "attachment", attachment: {id, kind, name, pages?}}`
   (`kind`: `image`, `pdf`, `file`; `id` is `null` only when an old upload's file is gone).
 - Items: `reasoning`, `text` (one reply part; a run with tool calls has several), `tool`, `card` (see
-  Cards), `notice` (`{kind, text, at}`), `error` (`{message, at}`).
+  Cards), `notice` (`{kind, text, at, call?}`), `error` (`{message, at}`). A notice with `call` says that the
+  background task handed over by that `delegate` call (the tool item's `id`) was stopped without an answer.
 - A `reasoning` or `text` item's `at` is when its model call began: the same in `item.started`, `item.finished`
   and history, so the time between two reply parts says how long the bot went without writing.
 - A tool item's `status`: `running`, `done`, `failed`, `blocked` (refused: the owner denied it or a rule
@@ -447,7 +455,7 @@ A followed chat's events (with `sessionId` and `seq`):
 | `item.finished` | `{turnId, item}`: the whole finished item |
 | `turn.finished` | `{turnId, status, endedAt, error?, usage?}` |
 | `usage.updated` | `{usage}` |
-| `session.notice` | `{kind: "compacting" \| "notice", text}` |
+| `session.notice` | `{kind: "compacting" \| "notice", text, call?}`; `call` as on a notice item |
 | `session.stale` | `{}`: events of this chat may have been missed (a member's link dropped); subscribe again |
 
 Every owner socket also gets, without subscribing:

@@ -248,6 +248,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		approvals: () => approvals,
 		attentionSession: (id) => rootSession(sessions!, id),
 		members: () => members,
+		stopped: async (conversationId, text, call) => {
+			const row = sessions!.byConversation(conversationId);
+			await engine.writeNotice(conversationId, text, { at: String(Date.now() / 1000), call });
+			if (row) hub.publish(row.id, { type: "notice", message: text, call });
+		},
 	});
 	toolGroups.set("delegate", delegation.tools);
 	const memory = new MemoryStore(db);

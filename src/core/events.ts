@@ -60,7 +60,8 @@ export type SessionEvent =
 	| { type: "title"; title: string }
 	| { type: "approval.requested"; request: ApprovalRequest }
 	| { type: "approval.resolved"; requestId: string; choice: string; reason: "answered" | "timeout" | "cancelled" }
-	| { type: "notice"; message: string };
+	/** `call`: the `delegate` call whose background task this notice is about (a task Stop ended). */
+	| { type: "notice"; message: string; call?: string };
 
 /** `sessionId`: the one session that changed, when there is one (a client then fetches just that row). */
 export type GlobalEvent =

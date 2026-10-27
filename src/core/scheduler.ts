@@ -345,11 +345,12 @@ export class Scheduler {
 		return Promise.race([p, new Promise<RunRow>((r) => setTimeout(() => r(this.d.db.get<RunRow>("SELECT * FROM job_runs WHERE id = ?", runId)!), timeoutMs).unref())]);
 	}
 
-	private jobPrompt(job: JobRow, occurrence: string): string {
+	/** What the model reads before the task's prompt; the chat shows the prompt alone, marked as the task's. */
+	private jobHeader(job: JobRow, occurrence: string): string {
 		const when = occurrence.startsWith("manual:") ? `run by hand at ${occurrence.slice(7)}` : `scheduled for ${occurrence}`;
 		const agentNotify = job.notify === "agent" ? "\n\nIf the result is something the owner should know about now, call the notify tool with a short message; otherwise do not." : "";
 		const thread = job.context === "continue" ? " Earlier runs of this task are above in this thread: use them (what you already reported, what changed since) and do not repeat what the owner was already told unless it changed." : "";
-		return `[Scheduled task "${job.name}" (${when}).${thread} Nobody is watching this run: work autonomously, and finish with a short report of what you found or did.]${agentNotify}\n\n${job.prompt}`;
+		return `[Scheduled task "${job.name}" (${when}).${thread} Nobody is watching this run: work autonomously, and finish with a short report of what you found or did.]${agentNotify}\n\n`;
 	}
 
 	private ensureSession(job: JobRow) {
@@ -393,7 +394,9 @@ export class Scheduler {
 
 	/** The submission for a run: submitting again with the same request id returns the existing one. */
 	private async submissionOf(convId: number, requestId: string, job: JobRow, occurrence: string): Promise<number> {
-		const r = await this.d.engine.submit(convId, this.jobPrompt(job, occurrence), { requestId, whenBusy: "followUp" });
+		const header = this.jobHeader(job, occurrence);
+		const from = { from: { kind: "schedule" as const, job: job.id, name: job.name }, header };
+		const r = await this.d.engine.submit(convId, header + job.prompt, { requestId, whenBusy: "followUp", from });
 		return r.submissionId;
 	}
 

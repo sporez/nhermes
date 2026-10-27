@@ -216,9 +216,54 @@ test("wait: false to a member's bot returns at once; the answer arrives later as
 		if (second.type !== "run.started") return;
 		assert.match(second.prompt, /Scrub finished: 0 errors\./);
 		await ev.until((e) => e.type === "run.finished" && e !== first, 15000);
+		const report = (await a.core.sessions.turns(s.id)).turns.find((t) => t.user?.from);
+		assert.deepEqual(report?.user?.from, { kind: "delegate", bot: "nasbot-beta", task: "Scrub the pool and report", call: tool?.type === "tool.finished" ? tool.callId : "" });
+		assert.deepEqual(report?.user?.content, [{ type: "text", text: "Scrub finished: 0 errors." }]);
 		const onB = b.core.sessions.list("nasbot", { limit: 10, offset: 0, archived: "include", order: "recent" });
 		assert.equal(onB.total, 1);
 		assert.equal((await b.core.sessions.rows(onB.rows[0]!.id)).filter((r) => r.role === "user").length, 1, "submitted once");
+	} finally {
+		for (const g of [a, b]) {
+			await g.server.close();
+			await g.core.close();
+		}
+		await cleanup();
+	}
+});
+
+test("Stop in the calling chat stops a background task on the member too", async () => {
+	const { dir, cleanup } = await tempDir();
+	const a = await gateway(dir, "alpha", [{ name: "main", default: true }]);
+	const b = await gateway(dir, "beta", [{ name: "nasbot", default: true }]);
+	try {
+		await link(a, b);
+		const s = await a.core.sessions.create("main");
+		const ev = collect(a.core.hub, s.id);
+		a.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("delegate", { bot: "nasbot-beta", task: "Scrub the pool and report", wait: false })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("I asked the NAS bot.")]),
+		]);
+		// beta works until it is stopped.
+		let started!: () => void;
+		const working = new Promise<void>((r) => (started = r));
+		b.faux.setResponses([
+			(_ctx, options) => {
+				started();
+				return new Promise<never>((_, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+			},
+		]);
+		await a.core.sessions.submit(s.id, "have the NAS bot scrub the pool");
+		await ev.until((e) => e.type === "run.finished", 15000);
+		await working;
+		const onB = b.core.sessions.list("nasbot", { limit: 10, offset: 0, archived: "include", order: "recent" }).rows[0]!;
+		assert.equal(await b.core.engine.isBusy(onB.conversation_id), true);
+
+		await a.core.sessions.interrupt(s.id);
+		await b.core.engine.waitForIdle(onB.conversation_id);
+		await a.core.engine.waitForIdle(a.core.sessions.require(s.id).conversation_id);
+		const turns = (await a.core.sessions.turns(s.id)).turns;
+		assert.equal(turns.filter((t) => t.user).length, 1, "no report started another run");
+		assert.ok(turns.some((t) => t.items.some((i) => i.type === "notice" && i.call)), "the chat says the task was stopped");
 	} finally {
 		for (const g of [a, b]) {
 			await g.server.close();

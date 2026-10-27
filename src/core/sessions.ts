@@ -383,7 +383,9 @@ export class Sessions {
 		const row = this.require(id);
 		this.approvals.cancelSession(id);
 		const busy = await this.engine.isBusy(row.conversation_id);
-		if (busy) await this.engine.abort(row.conversation_id);
+		// Stop means everything this chat started: tasks handed to other bots in the background too, so their
+		// answers do not arrive later and start another run.
+		await this.engine.abort(row.conversation_id, { background: true });
 		return busy;
 	}
 

@@ -17,7 +17,7 @@ The original Hermes was removed from the hermes VM and the Mac on 2026-10-16. On
 | 5 | Disconnect, restart, recover | ✅ mid-answer, pending approval, job mid-run | ✅ sessions survive service restarts | |
 | 6 | Second agent, own identity/model/skills/memory | ✅ | ✅ `ops`, `desktop` | |
 | 7 | Remote VM administration | ✅ (pi-env daemon) | ✅ `ops` runs on the hermes VM itself (no `host:`) and reaches `pm` and `proxy` with its own SSH key, following the `homelab-vms` skill | Bot `host.ssh` stays available for a bot that should live on another machine |
-| 8 | Delegation and result | ✅ foreground, background, approvals routed to root chat, no privilege escalation | ✅ main → ops, main → mac (peer) | |
+| 8 | Delegation and result | ✅ foreground, background, approvals routed to root chat, no privilege escalation, Stop reaches background tasks, answers marked `user.from` | ✅ main → ops, main → mac (peer) | |
 | 9 | SKILL.md skill | ✅ | ✅ `disk-report` loaded and followed | |
 | 10 | Memory across sessions, search, sharing | ✅ incl. boundaries | ✅ remember in one chat, recall in another | |
 | 11 | Recurring task from agent/Vory, unattended, history | ✅ | ✅ created from chat, Run now from the cron API, history | |

@@ -2,7 +2,8 @@
 // and approvals inside a delegated task reaching the chat the owner is in.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall, type SimpleStreamOptions, type TranscriptContext } from "@earendil-works/pi-ai";
+import type { FauxResponseFactory } from "@earendil-works/pi-ai/providers/faux";
 import { collect, fauxModels, tempDir, testConfig, testCore } from "../helpers.ts";
 
 test("foreground delegation: ops answers in its own session, main gets the result", async () => {
@@ -67,6 +68,83 @@ test("background delegation: the answer arrives later as a new message in the ca
 		assert.ok(rows.some((r) => r.role === "user" && r.text.startsWith('[Result from bot "ops"')));
 		const ops = core.sessions.list("ops", { limit: 10, offset: 0, archived: "include", order: "recent" });
 		assert.equal(ops.rows[0]?.kind, "delegate");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+/** A first user message that reads `task` is the delegated bot's child chat. */
+const isChild = (ctx: TranscriptContext, task: string) => {
+	const first = ctx.messages.find((m) => m.role === "user");
+	const text = typeof first?.content === "string" ? first.content : first?.content.find((b) => b.type === "text")?.text;
+	return text === task;
+};
+/** A model call that never answers until it is aborted. */
+const hang = (options: SimpleStreamOptions | undefined) =>
+	new Promise<never>((_, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+
+test("a background task's answer is marked as the bot's in the caller's chat, without the model's preamble", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models });
+	try {
+		const s = await core.sessions.create("main");
+		const c = collect(core.hub, s.id);
+		const respond: FauxResponseFactory = (ctx) => {
+			if (isChild(ctx, "Rotate the logs")) return fauxAssistantMessage([fauxText("Rotated 4 logs.")]);
+			const delegated = ctx.messages.some((m) => m.role === "toolResult");
+			return delegated ? fauxAssistantMessage([fauxText("Noted.")]) : fauxAssistantMessage([fauxToolCall("delegate", { bot: "ops", task: "Rotate the logs", wait: false })], { stopReason: "toolUse" });
+		};
+		faux.setResponses([respond, respond, respond, respond]);
+		await core.sessions.submit(s.id, "have ops rotate logs in the background");
+		const second = await c.until((e) => e.type === "run.started" && e.prompt.startsWith('[Result from bot "ops"'), 10000);
+		assert.equal(second.type, "run.started");
+		await core.engine.waitForIdle(core.sessions.require(s.id).conversation_id);
+		const { turns } = await core.sessions.turns(s.id);
+		const report = turns.find((t) => t.user?.from);
+		const call = c.events.find((e) => e.type === "tool.finished" && e.name === "delegate");
+		assert.ok(call?.type === "tool.finished");
+		assert.deepEqual(report?.user?.from, { kind: "delegate", bot: "ops", task: "Rotate the logs", call: call.callId }, "names the call that handed it over");
+		assert.deepEqual(report?.user?.content, [{ type: "text", text: "Rotated 4 logs." }]);
+		assert.equal(turns[0]?.user?.from, undefined, "the owner's own message has no from");
+	} finally {
+		await core.close();
+		await cleanup();
+	}
+});
+
+test("Stop also stops a task handed to another bot in the background: its answer never arrives", async () => {
+	const { dir, cleanup } = await tempDir();
+	const { models, faux } = fauxModels();
+	const core = await testCore(dir, { models });
+	try {
+		const s = await core.sessions.create("main");
+		const c = collect(core.hub, s.id);
+		const respond: FauxResponseFactory = (ctx, options) => {
+			// ops works on the task, and main keeps working after handing it over, until they are stopped.
+			if (isChild(ctx, "Read the whole forum")) return hang(options);
+			const delegated = ctx.messages.some((m) => m.role === "toolResult");
+			return delegated ? hang(options) : fauxAssistantMessage([fauxToolCall("delegate", { bot: "ops", task: "Read the whole forum", wait: false })], { stopReason: "toolUse" });
+		};
+		faux.setResponses([respond, respond, respond, respond]);
+		await core.sessions.submit(s.id, "have ops read the forum");
+		const handed = await c.until((e) => e.type === "tool.finished", 10000);
+		if (handed.type !== "tool.finished") return;
+		const child = core.sessions.list("ops", { limit: 10, offset: 0, archived: "include", order: "recent" }).rows[0]!;
+		assert.equal(await core.engine.isBusy(child.conversation_id), true, "ops is working");
+
+		assert.equal(await core.sessions.interrupt(s.id), true);
+		assert.equal(await core.engine.isBusy(child.conversation_id), false, "ops was stopped too");
+		await core.engine.waitForIdle(core.sessions.require(s.id).conversation_id);
+		const { turns } = await core.sessions.turns(s.id);
+		assert.equal(turns.filter((t) => t.user).length, 1, "no report started another run");
+		assert.equal(c.events.filter((e) => e.type === "run.started").length, 1);
+		// The chat says the task was stopped, live and in history, naming the call that handed it over.
+		const note = turns.flatMap((t) => t.items).find((i) => i.type === "notice");
+		assert.deepEqual(note?.type === "notice" && { text: note.text, call: note.call }, { text: "Stopped the task handed to Ops.", call: handed.callId });
+		assert.ok(turns[0]?.items.some((i) => i.type === "tool" && i.id === handed.callId), "the call id is the turn's tool item id");
+		assert.ok(c.events.some((e) => e.type === "notice" && e.call === handed.callId));
 	} finally {
 		await core.close();
 		await cleanup();
