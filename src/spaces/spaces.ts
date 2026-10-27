@@ -5,6 +5,7 @@
 // tag comes from the gateway's data directory, so two gateways on one host never delete each other's spaces.
 // Control goes through pi-env's daemon, copied into the space and run with `cua sb exec -i`. The owner watches a
 // space through Cua's own viewer (`viewLink`; src/spaces/viewer.ts serves it), and a watched space is never idle.
+// While the owner has a control view open, the bot's desktop input in that space is refused (src/tools/desktop.ts).
 import { createHash, randomBytes } from "node:crypto";
 import { Connection, packagedDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
 import type { SpacesConfig } from "../config.ts";
@@ -22,13 +23,19 @@ const CREATE_TIMEOUT_MS = 180_000;
  */
 export const VIEW_TTL_S = 600;
 
-export type SpaceInfo = { id: string; name: string; bot: string; createdAt: number; lastUsed: number; watching: number };
+/** `watching`: open views of it; `controlling`: those of them with control (the owner's mouse and keys). */
+export type SpaceInfo = { id: string; name: string; bot: string; createdAt: number; lastUsed: number; watching: number; controlling: number };
 
 /** A viewer link from Cua: the space's viewer port on this host's loopback, and the URL fragment holding its ticket. */
 export type ViewLink = { port: number; fragment: string; expiresAt: number };
 
 /** A space that is not (or no longer) open; `message` is for the owner. */
 export class SpaceGone extends Error {}
+
+/** What the bot is told while the owner has taken control of one of its spaces. */
+export function ownerHasControl(id: string): string {
+	return `The owner has taken control of space ${id} and is using its mouse and keyboard. Don't click, type, scroll, focus or launch anything there until they hand it back (they close the view or switch to watching); screenshots, reading windows and space_shell still work. Tell them what you were about to do, or wait for their next message.`;
+}
 
 export type SpacesOptions = {
 	config: SpacesConfig;
@@ -100,7 +107,7 @@ export class Spaces {
 				throw new Error(`Could not open a space: ${cuaProblem(made)}`);
 			}
 			const t = this.now();
-			this.spaces.set(id, { id, name, bot, createdAt: t, lastUsed: t, inUse: 0, watching: 0 });
+			this.spaces.set(id, { id, name, bot, createdAt: t, lastUsed: t, inUse: 0, watching: 0, controlling: 0 });
 			log.info("space opened", { id, name, bot });
 			return { id, name };
 		} finally {
@@ -112,7 +119,7 @@ export class Spaces {
 	list(bot?: string): SpaceInfo[] {
 		return [...this.spaces.values()]
 			.filter((s) => bot === undefined || s.bot === bot)
-			.map(({ id, name, bot: b, createdAt, lastUsed, watching }) => ({ id, name, bot: b, createdAt, lastUsed, watching }))
+			.map(({ id, name, bot: b, createdAt, lastUsed, watching, controlling }) => ({ id, name, bot: b, createdAt, lastUsed, watching, controlling }))
 			.sort((a, b) => a.createdAt - b.createdAt);
 	}
 
@@ -169,19 +176,27 @@ export class Spaces {
 
 	/**
 	 * Counts a viewer of a space until the returned function is called: a watched space is never deleted as idle,
-	 * and its idle clock restarts when the last viewer leaves. Undefined when the space is gone.
+	 * and its idle clock restarts when the last viewer leaves. A viewer with `control` also holds the space's desktop
+	 * for the owner (`controlled`). Undefined when the space is gone.
 	 */
-	watch(id: string): (() => void) | undefined {
+	watch(id: string, opts: { control: boolean }): (() => void) | undefined {
 		const space = this.spaces.get(id);
 		if (!space) return undefined;
 		space.watching++;
+		if (opts.control) space.controlling++;
 		let done = false;
 		return () => {
 			if (done) return;
 			done = true;
 			space.watching--;
+			if (opts.control) space.controlling--;
 			space.lastUsed = this.now();
 		};
+	}
+
+	/** Whether the owner has a control view of the space open right now. */
+	controlled(id: string): boolean {
+		return (this.spaces.get(id)?.controlling ?? 0) > 0;
 	}
 
 	/** Called with a space's id once it is deleted (closed, idle, or at shutdown). */

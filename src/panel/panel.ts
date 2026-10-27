@@ -473,7 +473,7 @@ export class Panel {
 			// Questions are answered in the app; the panel lists the approvals.
 			approvals: c.approvals.allPending().flatMap((a) => (a.kind !== "approval" ? [] : [{ id: a.requestId, sessionId: a.sessionId, bot: a.bot, tool: a.toolName, command: a.command, description: a.description, createdAt: a.createdAt }])),
 			// Running spaces (times in seconds, like everything else here); the owner can delete one below.
-			spaces: c.spaces.list().map((x) => ({ id: x.id, bot: x.bot, createdAt: x.createdAt / 1000, lastUsed: x.lastUsed / 1000, watching: x.watching, idleMinutes: c.config.spaces.idleMinutes })),
+			spaces: c.spaces.list().map((x) => ({ id: x.id, bot: x.bot, createdAt: x.createdAt / 1000, lastUsed: x.lastUsed / 1000, watching: x.watching, controlling: x.controlling, idleMinutes: c.config.spaces.idleMinutes })),
 			jobs: c.scheduler.list().map((j) => {
 				const last = c.scheduler.lastRun(j.id);
 				return {

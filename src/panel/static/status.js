@@ -82,7 +82,7 @@ async function statusScreen() {
 	const spaceRow = (x) => h("tr", {},
 		h("td", { class: "mono" }, x.id), h("td", {}, badge(x.bot)),
 		h("td", {}, ago(x.createdAt).replace(/ ago$/, "")),
-		h("td", {}, h("div", {}, x.watching > 0 ? "being watched" : ago(x.lastUsed)), h("div", { class: "muted small" }, `deleted after ${x.idleMinutes} min unused`)),
+		h("td", {}, h("div", {}, x.controlling > 0 ? "you have control" : x.watching > 0 ? "being watched" : ago(x.lastUsed)), h("div", { class: "muted small" }, `deleted after ${x.idleMinutes} min unused`)),
 		h("td", {}, h("div", { class: "row" },
 			h("button", { class: "link", on: { click: () => watch(x, false) } }, "Watch"),
 			h("button", { class: "link", on: { click: () => watch(x, true) } }, "Take control"),

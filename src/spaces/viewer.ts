@@ -80,6 +80,8 @@ type Grant = {
 	expiresAt: number;
 	/** The local space it shows; absent when the space is on a member. */
 	space?: string;
+	/** The view takes the owner's input: while its socket is open, the bot's desktop input there is refused. */
+	control?: boolean;
 	/** The member this grant was made for: only it may use it, and only on the encrypted port. */
 	member?: string;
 	sockets: Set<Duplex>;
@@ -115,7 +117,7 @@ export class SpaceViewer {
 	 */
 	async open(bot: string, space: string, opts: { control: boolean; member?: string }): Promise<{ path: string; expiresAt: number }> {
 		const link = await this.d.spaces.viewLink(bot, space, opts.control);
-		const key = this.grant({ upstream: { host: "127.0.0.1", port: link.port, prefix: "" }, expiresAt: link.expiresAt, space, ...(opts.member ? { member: opts.member } : {}) });
+		const key = this.grant({ upstream: { host: "127.0.0.1", port: link.port, prefix: "" }, expiresAt: link.expiresAt, space, control: opts.control, ...(opts.member ? { member: opts.member } : {}) });
 		log.info("space view opened", { space, bot, control: opts.control, ...(opts.member ? { member: opts.member } : {}) });
 		return { path: `${opts.member ? MEMBER_VIEW_PREFIX : VIEW_PREFIX}${key}/viewer/#${link.fragment}`, expiresAt: link.expiresAt };
 	}
@@ -179,7 +181,7 @@ export class SpaceViewer {
 		for (const [k, v] of Object.entries(passHeaders(req, upstream))) lines.push(`${k}: ${String(v)}`);
 		lines.push("connection: Upgrade", "upgrade: websocket");
 		const up = upstream.tls ? tls.connect({ ...upstream.tls, host: upstream.host, port: upstream.port }) : net.connect(upstream.port, upstream.host);
-		const release = grant.space ? this.d.spaces.watch(grant.space) : undefined;
+		const release = grant.space ? this.d.spaces.watch(grant.space, { control: grant.control === true }) : undefined;
 		grant.sockets.add(socket);
 		const done = () => {
 			grant.sockets.delete(socket);

@@ -305,7 +305,7 @@ that tries to open a space is told the host needs it. A bot gets the tools from 
 (`spaces`, which also holds the desktop tools for use inside a space; `docs/COMPUTER_USE.md`). Work another
 machine's bot started cannot open a space, but your own chat relayed through a member can; in `manual` approval mode each space tool asks.
 
-The panel's Status tab lists the running spaces (bot, how long open, last used or "being watched") with Watch,
+The panel's Status tab lists the running spaces (bot, how long open, last used, "being watched" or "you have control") with Watch,
 Take control and Delete buttons for each; Watch and Take control open the space's live desktop in a new tab. A bot
 offers the same view in a chat with `space_view`, and the app opens it through the gateway it is connected to,
 also for a member's bot (`docs/SPACES.md` "Live viewer"). The view is served on the main port under

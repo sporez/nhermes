@@ -27,8 +27,8 @@ test("the owner sees running spaces and deletes one; a space already gone is a 4
 		now += 120_000;
 		core.spaces.touch(a.id);
 		now += 60_000;
-		const status = (await (await call("GET", "/status")).json()) as { spaces: { id: string; bot: string; createdAt: number; lastUsed: number; watching: number; idleMinutes: number }[] };
-		assert.deepEqual(status.spaces, [{ id: a.id, bot: "main", createdAt: 1000, lastUsed: 1120, watching: 0, idleMinutes: 30 }]);
+		const status = (await (await call("GET", "/status")).json()) as { spaces: { id: string; bot: string; createdAt: number; lastUsed: number; watching: number; controlling: number; idleMinutes: number }[] };
+		assert.deepEqual(status.spaces, [{ id: a.id, bot: "main", createdAt: 1000, lastUsed: 1120, watching: 0, controlling: 0, idleMinutes: 30 }]);
 		const view = (await (await call("POST", `/spaces/${a.id}/view`, { control: true })).json()) as { path: string };
 		assert.match(view.path, /^\/spaces\/view\/[A-Za-z0-9_-]{24}\/viewer\/#ticket=T$/);
 		assert.equal((await call("POST", "/spaces/s-0000/view")).status, 404);

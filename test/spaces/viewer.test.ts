@@ -202,6 +202,14 @@ test("a watched space is not deleted as idle; closing a space ends its views", a
 		const { view } = await http(s.port)<View>(`POST /sessions/${chat.id}/spaces/${space}/view`);
 		const ws = await socket(`ws://127.0.0.1:${s.port}${keyed(view.path)}/media?ticket=M`);
 		assert.equal(s.core.spaces.list()[0]?.watching, 1);
+		assert.equal(s.core.spaces.controlled(space), false, "watching is not control");
+		const { view: control } = await http(s.port)<View>(`POST /sessions/${chat.id}/spaces/${space}/view`, { control: true });
+		const hands = await socket(`ws://127.0.0.1:${s.port}${keyed(control.path)}/media?ticket=M`);
+		assert.deepEqual([s.core.spaces.list()[0]?.watching, s.core.spaces.controlled(space)], [2, true], "a control view's socket holds the space for the owner");
+		hands.close();
+		await closed(hands);
+		await new Promise<void>((r) => setImmediate(r));
+		assert.equal(s.core.spaces.controlled(space), false, "closing it hands the space back");
 
 		s.skew.ms = 31 * 60_000;
 		assert.deepEqual(await s.core.spaces.deleteIdle(), [], "watched: kept");

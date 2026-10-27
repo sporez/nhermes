@@ -256,7 +256,10 @@ Live viewer (`docs/SPACES.md` "Live viewer"):
   closing the space closes its views; the app on one gateway watches a member's bot's space through it (page,
   calls and media socket over TLS-PSK), and a view the member made for another member is refused. `space_view`
   makes a `space` card holding only the space's id and the run carries on. The panel opens a view of a running
-  space and reports whether it is watched.
+  space and reports whether it is watched. While a control view's socket is open the space counts as held by the
+  owner (a watch-only view does not), and closing it hands it back; while held, the bot's click, type and launch in
+  that space are refused with a message saying the owner has control (nothing reaches the desktop), its screenshot,
+  `space_shell` and `space_list` say so, and after release its click works again.
 - Live (2026-10-27), on the gateway VM with Cua 0.9.0: the checks in `docs/SPACES.md` (a space refuses calls
   without its token; viewer tickets are scoped; the viewer works under a path prefix, sandboxed, in WebKit and
   Chromium; control clicks reach the desktop and watch-only clicks do not), then this gateway's code on a Mac with

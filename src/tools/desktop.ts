@@ -1,13 +1,15 @@
 // Desktop automation on an X11 desktop, through the bot's execution environment (the gateway host or
 // an SSH host), or, with the `space` argument, inside one of the bot's spaces (src/spaces/; display :1).
-// A bot without the `desktop` group may only use its spaces, never the host's own desktop. Established tools only: ImageMagick `import` for screenshots, `xdotool` for mouse and
-// keyboard, `wmctrl` for windows, AT-SPI (python3-pyatspi) for the accessibility tree. Prerequisites
-// and limits: docs/COMPUTER_USE.md.
+// A bot without the `desktop` group may only use its spaces, never the host's own desktop. While the owner has taken
+// control of a space, input there (click, type, key, scroll, focus, launch) is refused and reading calls say so.
+// Established tools only: ImageMagick `import` for screenshots, `xdotool` for mouse and keyboard, `wmctrl` for
+// windows, AT-SPI (python3-pyatspi) for the accessibility tree. Prerequisites and limits: docs/COMPUTER_USE.md.
 import type { Context } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
 import { pictureLine } from "../core/cards.ts";
+import { ownerHasControl } from "../spaces/spaces.ts";
 
 type Output = { output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; isError?: boolean };
 
@@ -54,11 +56,15 @@ type Env = NonNullable<ToolExecutionApi["env"]>;
 export function desktopFeature(late: LateServices): Feature {
 	const display = (conversationId: number, space: string | undefined) => (space ? SPACE_DISPLAY : (late.sessions().botOf(conversationId)?.config.desktop?.display ?? ":0"));
 
-	/** Runs `fn` against the host desktop's environment, or the space's (which then counts as in use). */
-	const withTarget = async <T>(api: ToolExecutionApi, space: string | undefined, fn: (env: Env) => Promise<T>): Promise<T> => {
+	/**
+	 * Runs `fn` against the host desktop's environment, or the space's (which then counts as in use). `input`: the
+	 * call clicks, types or otherwise acts, which is refused in a space the owner has taken control of.
+	 */
+	const withTarget = async <T>(api: ToolExecutionApi, space: string | undefined, fn: (env: Env) => Promise<T>, input = false): Promise<T> => {
 		const bot = late.sessions().botOf(api.conversationId as number);
 		if (space) {
 			if (!bot) throw new Error("this conversation has no bot");
+			if (input && late.spaces().controlled(space)) throw new Error(ownerHasControl(space));
 			return late.spaces().use(bot.name, space, fn);
 		}
 		// Enforced here, not only by which tools a bot is offered: a spaces-only bot never reaches the host's desktop.
@@ -67,7 +73,7 @@ export function desktopFeature(late: LateServices): Feature {
 		return fn(api.env);
 	};
 
-	const sh = async (api: ToolExecutionApi, ctx: Context, script: string, timeoutMs = 20_000, space?: string): Promise<{ code: number; out: string }> => {
+	const sh = async (api: ToolExecutionApi, ctx: Context, script: string, timeoutMs = 20_000, space?: string, input = false): Promise<{ code: number; out: string }> => {
 		const prefix = `export DISPLAY=${sq(display(api.conversationId as number, space))}; export XAUTHORITY="\${XAUTHORITY:-$HOME/.Xauthority}"; `;
 		let out = "";
 		const controller = new AbortController();
@@ -79,16 +85,18 @@ export function desktopFeature(late: LateServices): Feature {
 				const r = await env.exec(prefix + script, { onOutput: (t: string) => void (out += t) }, withAbortSignal(controller.signal, ctx));
 				if (!r.ok) throw new Error(`desktop command failed: ${JSON.stringify(r.error).slice(0, 300)}`);
 				return { code: r.value.exitCode ?? 0, out };
-			});
+			}, input);
 		} finally {
 			clearTimeout(timer);
 		}
 	};
-	const run = async (api: ToolExecutionApi, ctx: Context, script: string, done: string, space?: string): Promise<Output> => {
-		const r = await sh(api, ctx, script, 20_000, space);
+	const run = async (api: ToolExecutionApi, ctx: Context, script: string, done: string, space?: string, input = false): Promise<Output> => {
+		const r = await sh(api, ctx, script, 20_000, space, input);
 		if (r.code !== 0) return { output: [{ type: "text", text: `Failed (exit ${r.code}): ${r.out.trim().slice(0, 2000)}` }], isError: true };
-		return { output: [{ type: "text", text: r.out.trim() ? `${done}\n${r.out.trim().slice(0, 4000)}` : done }] };
+		return { output: [{ type: "text", text: `${r.out.trim() ? `${done}\n${r.out.trim().slice(0, 4000)}` : done}${controlNote(space)}` }] };
 	};
+	/** A line for a reading call in a space the owner has taken control of, so the bot knows before it acts. */
+	const controlNote = (space: string | undefined) => (space && late.spaces().controlled(space) ? `\n\n${ownerHasControl(space)}` : "");
 	const space = { space: Type.Optional(Type.String({ description: "Act in this space (its id from space_open) instead of the bot's own desktop." })) };
 
 	const tools = [
@@ -104,7 +112,7 @@ export function desktopFeature(late: LateServices): Feature {
 				const data = rest.join("").trim();
 				return {
 					output: [
-						{ type: "text", text: `Desktop ${geometry.trim().replace(" ", "x")} on display ${display(api.conversationId as number, a.space)}.\n\n${pictureLine(api.callId)}` },
+						{ type: "text", text: `Desktop ${geometry.trim().replace(" ", "x")} on display ${display(api.conversationId as number, a.space)}.${controlNote(a.space)}\n\n${pictureLine(api.callId)}` },
 						{ type: "image", data, mimeType: "image/png" },
 					],
 				};
@@ -116,7 +124,7 @@ export function desktopFeature(late: LateServices): Feature {
 			parameters: Type.Object({ ...space, x: Type.Number(), y: Type.Number(), button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("middle"), Type.Literal("right")])), double: Type.Optional(Type.Boolean()) }),
 			execute: async (a, api, ctx) => {
 				const b = a.button === "right" ? 3 : a.button === "middle" ? 2 : 1;
-				return run(api, ctx, `xdotool mousemove --sync ${Math.round(a.x)} ${Math.round(a.y)} click ${a.double ? "--repeat 2 " : ""}${b}`, `Clicked ${a.button ?? "left"} at ${Math.round(a.x)},${Math.round(a.y)}.`, a.space);
+				return run(api, ctx, `xdotool mousemove --sync ${Math.round(a.x)} ${Math.round(a.y)} click ${a.double ? "--repeat 2 " : ""}${b}`, `Clicked ${a.button ?? "left"} at ${Math.round(a.x)},${Math.round(a.y)}.`, a.space, true);
 			},
 		}),
 		defineTool({
@@ -124,13 +132,13 @@ export function desktopFeature(late: LateServices): Feature {
 			description: "Type text into the focused window as keystrokes.",
 			parameters: Type.Object({ ...space, text: Type.String() }),
 			execute: async (a, api, ctx) =>
-				run(api, ctx, `printf %s ${sq(Buffer.from(a.text).toString("base64"))} | base64 -d | xdotool type --delay 15 --file -`, `Typed ${a.text.length} characters.`, a.space),
+				run(api, ctx, `printf %s ${sq(Buffer.from(a.text).toString("base64"))} | base64 -d | xdotool type --delay 15 --file -`, `Typed ${a.text.length} characters.`, a.space, true),
 		}),
 		defineTool({
 			name: "desktop_key",
 			description: "Press a key or chord in the focused window, xdotool names: Return, Escape, Tab, ctrl+l, alt+F4, super, ctrl+shift+t, …",
 			parameters: Type.Object({ ...space, keys: Type.String() }),
-			execute: async (a, api, ctx) => run(api, ctx, `xdotool key --clearmodifiers -- ${a.keys.split(/\s+/).map(sq).join(" ")}`, `Pressed ${a.keys}.`, a.space),
+			execute: async (a, api, ctx) => run(api, ctx, `xdotool key --clearmodifiers -- ${a.keys.split(/\s+/).map(sq).join(" ")}`, `Pressed ${a.keys}.`, a.space, true),
 		}),
 		defineTool({
 			name: "desktop_scroll",
@@ -138,7 +146,7 @@ export function desktopFeature(late: LateServices): Feature {
 			parameters: Type.Object({ ...space, direction: Type.Union([Type.Literal("up"), Type.Literal("down")]), clicks: Type.Optional(Type.Number()), x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()) }),
 			execute: async (a, api, ctx) => {
 				const move = a.x !== undefined && a.y !== undefined ? `xdotool mousemove --sync ${Math.round(a.x)} ${Math.round(a.y)}; ` : "";
-				return run(api, ctx, `${move}xdotool click --repeat ${Math.min(Math.max(a.clicks ?? 5, 1), 50)} ${a.direction === "up" ? 4 : 5}`, `Scrolled ${a.direction}.`, a.space);
+				return run(api, ctx, `${move}xdotool click --repeat ${Math.min(Math.max(a.clicks ?? 5, 1), 50)} ${a.direction === "up" ? 4 : 5}`, `Scrolled ${a.direction}.`, a.space, true);
 			},
 		}),
 		defineTool({
@@ -153,8 +161,8 @@ export function desktopFeature(late: LateServices): Feature {
 			description: "Bring a window to the front by id (from desktop_windows) or by part of its title.",
 			parameters: Type.Object({ ...space, id: Type.Optional(Type.String()), title: Type.Optional(Type.String()) }),
 			execute: async (a, api, ctx) => {
-				if (a.id) return run(api, ctx, `wmctrl -ia ${sq(a.id)}`, `Focused window ${a.id}.`, a.space);
-				if (a.title) return run(api, ctx, `wmctrl -a ${sq(a.title)}`, `Focused the window titled like "${a.title}".`, a.space);
+				if (a.id) return run(api, ctx, `wmctrl -ia ${sq(a.id)}`, `Focused window ${a.id}.`, a.space, true);
+				if (a.title) return run(api, ctx, `wmctrl -a ${sq(a.title)}`, `Focused the window titled like "${a.title}".`, a.space, true);
 				throw new Error("give id or title");
 			},
 		}),
@@ -164,7 +172,7 @@ export function desktopFeature(late: LateServices): Feature {
 			parameters: Type.Object({ ...space, command: Type.String() }),
 			execute: async (a, api, ctx) => {
 				const program = a.command.trim().split(/\s+/)[0] ?? "";
-				return run(api, ctx, `command -v ${sq(program)} >/dev/null || { echo "${program.replace(/"/g, "")}: not installed"; exit 127; }; setsid -f sh -c ${sq(`${a.command} >/dev/null 2>&1`)}; sleep 2; wmctrl -l | tail -5`, `Started: ${a.command}. Newest windows:`, a.space);
+				return run(api, ctx, `command -v ${sq(program)} >/dev/null || { echo "${program.replace(/"/g, "")}: not installed"; exit 127; }; setsid -f sh -c ${sq(`${a.command} >/dev/null 2>&1`)}; sleep 2; wmctrl -l | tail -5`, `Started: ${a.command}. Newest windows:`, a.space, true);
 			},
 		}),
 		defineTool({

@@ -10,6 +10,7 @@ import { defineTool, type ToolExecutionApi, type ToolRegistration } from "@earen
 import type { Feature, LateServices } from "../app.ts";
 import { type SpaceCard, SPACE_VIEW_TOOL } from "../core/cards.ts";
 import { redactJson } from "../core/turns.ts";
+import { ownerHasControl } from "../spaces/spaces.ts";
 
 /** The largest file space_copy moves. */
 export const COPY_MAX_BYTES = 100 * 1024 * 1024;
@@ -51,7 +52,7 @@ export function spacesFeature(late: LateServices, desktop: ToolRegistration[]): 
 			if (mine.length === 0) return text("You have no open spaces.");
 			const now = Date.now();
 			const mins = (ms: number) => `${Math.max(0, Math.round(ms / 60_000))} min`;
-			return text(mine.map((s) => `${s.id}: open ${mins(now - s.createdAt)}, unused ${mins(now - s.lastUsed)}`).join("\n"));
+			return text(mine.map((s) => `${s.id}: open ${mins(now - s.createdAt)}, unused ${mins(now - s.lastUsed)}${s.controlling ? "; the owner has taken control of it" : s.watching ? "; the owner is watching it" : ""}`).join("\n"));
 		},
 	});
 
@@ -99,7 +100,7 @@ export function spacesFeature(late: LateServices, desktop: ToolRegistration[]): 
 				dropped += Math.max(0, out.length - OUTPUT_KEEP);
 				out = out.slice(-OUTPUT_KEEP);
 			}
-			const shown = `${dropped ? `[earlier output cut: ${dropped} characters]\n` : ""}${out.trimEnd()}`;
+			const shown = `${dropped ? `[earlier output cut: ${dropped} characters]\n` : ""}${out.trimEnd()}${late.spaces().controlled(a.space) ? `\n\n${ownerHasControl(a.space)}` : ""}`;
 			if (!r.ok) return text(`${shown}\n\nThe command did not finish: ${r.error.code === "timeout" ? `it ran longer than ${timeout} seconds` : r.error.message}`.trim(), true);
 			const code = r.value.exitCode ?? 0;
 			return text(`${shown}${shown ? "\n\n" : ""}Exit code ${code}.`, code !== 0);
@@ -144,7 +145,8 @@ export function spacesFeature(late: LateServices, desktop: ToolRegistration[]): 
 		name: SPACE_VIEW_TOOL,
 		description:
 			"Give the owner a card that opens a live view of one of your spaces, so they can watch what you do there and take control of it when they choose (for a sign-in, a captcha, or to help). " +
-			"Use it when the owner asks to watch, or before something they may want to see or do themselves. You can keep working after it. A space being watched is not deleted as unused.",
+			"Use it when the owner asks to watch, or before something they may want to see or do themselves. You can keep working after it. A space being watched is not deleted as unused. " +
+			"While they have taken control, your clicks, typing and launches in that space are refused until they hand it back.",
 		parameters: Type.Object({
 			space: Type.String({ description: "The space id from space_open" }),
 			caption: Type.Optional(Type.String({ description: "One short line saying what is happening in it" })),

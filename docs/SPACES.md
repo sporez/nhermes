@@ -196,7 +196,12 @@ Design (as built):
   (`Spaces.watch`). Idle deletion skips a space while one is open, and its idle clock restarts when the last
   closes. The bot's own `space_close` and gateway shutdown still delete it, and close its views.
 - **Control.** `control: true` mints without `--view-only` and with `--files none`: mouse, keys and clipboard reach
-  the space; files and microphone stay off. A control ticket still cannot start processes, take screenshots or
+  the space; files and microphone stay off. While a control view's socket is open (`Spaces.controlled`), the bot's
+  desktop input in that space (click, type, key, scroll, focus, launch) is refused with a message saying the owner
+  has taken control and to wait for them, and its screenshots, window and accessibility reads, `space_shell` and
+  `space_list` say so too. Closing the view or switching to watching hands it back. The bot is told when it next acts
+  in the space, not the moment the owner takes over: a message pushed into the chat would start a run of an idle
+  bot. A control ticket still cannot start processes, take screenshots or
   read files: those methods are refused by cua-spacesd and are not on the gateway's list either.
 - **Ticket lifetime.** Ten minutes (`VIEW_TTL_S`). A connected viewer keeps going past it; Cua's viewer reconnects
   a dropped socket with the same ticket until it expires, then ends. The gateway's key opens new connections
@@ -232,5 +237,6 @@ Checks on the gateway VM (2026-10-27, Cua 0.9.0, a `linux` container space):
 - [x] V1-V3, gateway side: `sessions.viewSpace` (watch and control), the pass-through route, the `space` card and
   `space_view`, watching skips idle deletion, a member's bot through its member, panel Watch and Take control
 - [ ] V4. App: the `space` card, Watch and Take control in a full-screen web view
-- [ ] Later: tell the bot when the owner takes control (today it is not told)
+- [x] The bot is told when the owner has taken control: its input in the space is refused while a control view is
+  open, and its reading calls say so
 - [ ] Later: VM spaces (image tools, network isolation), pools

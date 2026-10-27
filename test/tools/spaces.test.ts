@@ -128,6 +128,41 @@ test("space_view gives the owner a space card holding only the space's id, and t
 	}
 });
 
+test("while the owner has taken control of a space, the bot's input there is refused and its reading calls say so", async () => {
+	const s = await setup({ tools: { main: ["spaces"] } });
+	try {
+		let r = await run(s, [ask(call("space_open", {}, "o"))]);
+		const id = opened(r.events, "o");
+		const release = s.core.spaces.watch(id, { control: true })!;
+		r = await run(s, [
+			ask(
+				call("desktop_click", { space: id, x: 5, y: 6 }, "click"),
+				call("desktop_type", { space: id, text: "hi" }, "type"),
+				call("desktop_launch", { space: id, command: "xfce4-terminal" }, "launch"),
+				call("desktop_screenshot", { space: id }, "shot"),
+				call("space_shell", { space: id, command: "echo ok" }, "sh"),
+				call("space_list", {}, "ls"),
+			),
+		]);
+		for (const c of ["click", "type", "launch"]) {
+			assert.equal(finished(r.events, c).isError, true, c);
+			assert.match(finished(r.events, c).resultText, new RegExp(`owner has taken control of space ${id}.*Don't click, type`, "s"), c);
+		}
+		assert.doesNotMatch(s.log(), /mousemove|type|xfce4-terminal/, "no input reached the space's desktop");
+		assert.match(finished(r.events, "shot").resultText, /owner has taken control/);
+		assert.equal(finished(r.events, "shot").isError, false);
+		assert.match(finished(r.events, "sh").resultText, /^ok\n\nThe owner has taken control/);
+		assert.match(finished(r.events, "ls").resultText, /the owner has taken control of it$/);
+
+		release();
+		r = await run(s, [ask(call("desktop_click", { space: id, x: 5, y: 6 }, "again"))]);
+		assert.equal(finished(r.events, "again").resultText, "Clicked left at 5,6.");
+		assert.match(s.log(), /^:1 mousemove --sync 5 6 click 1$/m);
+	} finally {
+		await s.cleanup();
+	}
+});
+
 test("the per-bot limit and a foreign or unknown id come back as plain tool errors", async () => {
 	const s = await setup({ spaces: { perBot: 1 }, tools: { main: ["spaces"], other: ["spaces"] } });
 	try {

@@ -54,7 +54,7 @@ isolation and limits in `docs/SPACES.md`), uses it and throws it away.
 | `space_list`, `space_close` | the bot's open spaces; delete one |
 | `space_shell {space, command, timeout?}` | runs a shell line in the space as the user `cua`; output is cut to the last 20,000 characters, the exit code is shown |
 | `space_copy {space, from, to, direction}` | copies one file (up to 100 MB) between the space and the bot's own machine, `to_space` or `from_space` |
-| `space_view {space, caption?}` | gives the owner a card to watch the space live and take control of it; the bot carries on |
+| `space_view {space, caption?}` | gives the owner a card to watch the space live and take control of it; the bot carries on. While the owner has control, the bot's clicks, typing and launches there are refused, and its screenshots and `space_shell` say so |
 
 Every desktop tool takes an optional `space`. With it the tool acts inside that space, on its desktop (display
 `:1`) instead of the bot's own. The `spaces` group includes the desktop tools, so a bot with only `spaces`

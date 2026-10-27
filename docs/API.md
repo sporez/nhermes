@@ -391,7 +391,9 @@ space's id makes a view of it and answers `{view: {path, expiresAt}}`:
   desktop live. It needs no token; the path's key and the ticket in its fragment are the credential, so treat the
   path as a secret: never log it, keep it, or share it. Make a new view each time the owner opens one.
 - `control: true` lets the owner's clicks, keys and clipboard reach the space (to sign in, solve a captcha, or
-  help); without it the view only watches. Files and the microphone are always off.
+  help); without it the view only watches. Files and the microphone are always off. While a control view is
+  showing, the bot's own clicks and typing in that space are refused and it is told the owner has control; closing
+  the view, or switching to a watch-only one, hands the space back.
 - `expiresAt` (milliseconds) is when the view stops opening new connections, about 10 minutes on. A view already
   showing carries on. A view that drops after that ends; make a new one.
 - While a view is open, the space is not deleted as unused. The bot's own `space_close` and the gateway stopping
