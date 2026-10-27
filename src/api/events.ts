@@ -9,6 +9,7 @@ import { identifyAttachments } from "./ops/attachments.ts";
 import type { Caller } from "./ops.ts";
 import { approvalJson, itemJson, sessionJson, turnJson, usageJson } from "./shapes/chat.ts";
 import { roomEventJson, roomJson } from "./shapes/rooms.ts";
+import { spaceJson } from "./shapes/spaces.ts";
 import type { ApiEvent } from "./socket.ts";
 
 const log = logger("api-events");
@@ -35,6 +36,8 @@ export function chatEvent(e: SessionEvent): { event: string; data: Record<string
 			return { event: "usage.updated", data: { usage: usageJson(e.usage) } };
 		case "notice":
 			return { event: "session.notice", data: { kind: e.message.startsWith("Compressing") ? "compacting" : "notice", text: redact(e.message), ...(e.call ? { call: e.call } : {}) } };
+		case "spaces":
+			return { event: "spaces.changed", data: { spaces: e.spaces.map(spaceJson) } };
 		default:
 			return undefined;
 	}

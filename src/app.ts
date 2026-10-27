@@ -375,6 +375,11 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	);
 	mcpTools.attach(engine.registry);
 	sessions = new Sessions(engine, db, bots, hub, approvals, agentFor, (m) => logins.modelOutcome(m));
+	// The chats of a bot that are followed hear about its spaces; one space belongs to all of the bot's chats.
+	spaces.onChanged((bot) => {
+		const list = spaces.list(bot);
+		for (const id of hub.followed()) if (sessions?.get(id)?.bot === bot) hub.publish(id, { type: "spaces", spaces: list });
+	});
 	const attachments = new Attachments({ db, bots, sessions: late.sessions, engine, renderPdf: options.renderPdf });
 	const memberChats = new MemberChats({ sessions: late.sessions, bots, members, approvals, hub, finished: (id, t) => push.remoteFinished(id, t) });
 	members.onRevoke(() => memberChats.dropGone());

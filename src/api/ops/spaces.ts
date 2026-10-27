@@ -1,11 +1,20 @@
-// Live views of a bot's spaces (docs/API.md "Spaces"): the link behind a `space` card, made when the owner opens
-// it. A member's bot's space is viewed through this gateway too: the member makes the view for this gateway and
-// it is served here (src/spaces/viewer.ts), so the app only ever talks to the gateway it is connected to.
+// A bot's open spaces and live views of them (docs/API.md "Watching a space"): the list a client pins in every chat
+// with the bot (`spaces.changed` keeps it current), and the link behind a `space` card, made when the owner opens
+// it. A member's bot's space is viewed through this gateway too: the member makes the view for this gateway and it
+// is served here (src/spaces/viewer.ts), so the app only ever talks to the gateway it is connected to.
 import { ApiError } from "../errors.ts";
 import { localSession } from "../lookup.ts";
 import type { Op } from "../ops.ts";
+import { spaceJson } from "../shapes/spaces.ts";
 
 export const spaceOps: Op[] = [
+	{
+		name: "sessions.spaces",
+		http: "GET /sessions/:id/spaces",
+		members: true,
+		forward: true,
+		handle: (p, cx) => ({ spaces: cx.core.spaces.list(localSession(cx, p.str("id")).bot).map(spaceJson) }),
+	},
 	{
 		name: "sessions.viewSpace",
 		http: "POST /sessions/:id/spaces/:space/view",

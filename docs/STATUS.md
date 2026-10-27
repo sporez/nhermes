@@ -259,7 +259,12 @@ Live viewer (`docs/SPACES.md` "Live viewer"):
   space and reports whether it is watched. While a control view's socket is open the space counts as held by the
   owner (a watch-only view does not), and closing it hands it back; while held, the bot's click, type and launch in
   that space are refused with a message saying the owner has control (nothing reaches the desktop), its screenshot,
-  `space_shell` and `space_list` say so, and after release its click works again.
+  `space_shell` and `space_list` say so, and after release its click works again. `sessions.spaces` lists the
+  chat's bot's open spaces (id, opened, view counts; no sandbox name), and every followed chat with that bot, and
+  no other bot's, gets `spaces.changed` with the whole list when a space opens or closes and when a view opens or
+  closes; a member's bot's list and event reach the app on the other gateway.
+- Live (2026-10-27), in the Mac app against the gateway VM: a space watched in the app's viewer. Through the
+  gateway's plain-HTTP LAN address the viewer fell back to PNG frames (not a secure page); through HTTPS, as the owner reported, it did not.
 - Live (2026-10-27), on the gateway VM with Cua 0.9.0: the checks in `docs/SPACES.md` (a space refuses calls
   without its token; viewer tickets are scoped; the viewer works under a path prefix, sandboxed, in WebKit and
   Chromium; control clicks reach the desktop and watch-only clicks do not), then this gateway's code on a Mac with

@@ -206,7 +206,17 @@ Design (as built):
 - **Ticket lifetime.** Ten minutes (`VIEW_TTL_S`). A connected viewer keeps going past it; Cua's viewer reconnects
   a dropped socket with the same ticket until it expires, then ends. The gateway's key opens new connections
   until the ticket expires and lives on while one of its sockets is open.
-- **App.** The `space` card with Watch and Take control, opening the path in a full-screen web view. Not built yet.
+- **The bot's open spaces stay in view.** A space is the bot's, not one chat's. `sessions.spaces` lists the chat's
+  bot's open spaces, and every followed chat with that bot gets `spaces.changed` with the whole list when a space
+  opens or closes or a view of one does (`Spaces.onChanged`, published to the bot's followed chats in
+  `src/app.ts`). It is a chat event, so a member's bot's list reaches this gateway over the link that already
+  carries that chat's events. The app pins each open space, with Watch and Control, at the top of Activity in every
+  chat with the bot, and drops it the moment it closes.
+- **App.** The `space` card with Watch and Take control, opening the path in a full-screen web view, and the pinned
+  spaces above.
+- **Secure page.** The viewer uses fast video (H.264 through WebCodecs), audio and the clipboard only on a secure
+  page. Through a gateway address on plain HTTP (not `localhost`) it falls back to PNG frames with no audio or
+  clipboard; through HTTPS (a reverse proxy) it gets all of them.
 
 Checks on the gateway VM (2026-10-27, Cua 0.9.0, a `linux` container space):
 
@@ -236,7 +246,9 @@ Checks on the gateway VM (2026-10-27, Cua 0.9.0, a `linux` container space):
 - [x] V0. The four checks under "Live viewer" on the gateway VM
 - [x] V1-V3, gateway side: `sessions.viewSpace` (watch and control), the pass-through route, the `space` card and
   `space_view`, watching skips idle deletion, a member's bot through its member, panel Watch and Take control
-- [ ] V4. App: the `space` card, Watch and Take control in a full-screen web view
+- [x] V4. App: the `space` card, Watch and Take control in a full-screen web view
+- [x] V5. A bot's open spaces pinned in every chat with it: `sessions.spaces`, `spaces.changed`, and the app's
+  pinned cards
 - [x] The bot is told when the owner has taken control: its input in the space is refused while a control view is
   open, and its reading calls say so
 - [ ] Later: VM spaces (image tools, network isolation), pools

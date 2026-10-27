@@ -68,6 +68,7 @@ export class Spaces {
 	private timers: NodeJS.Timeout[] = [];
 	private closed = false;
 	private readonly removedListeners = new Set<(id: string) => void>();
+	private readonly changedListeners = new Set<(bot: string) => void>();
 
 	constructor(options: SpacesOptions) {
 		this.options = options;
@@ -109,6 +110,7 @@ export class Spaces {
 			const t = this.now();
 			this.spaces.set(id, { id, name, bot, createdAt: t, lastUsed: t, inUse: 0, watching: 0, controlling: 0 });
 			log.info("space opened", { id, name, bot });
+			this.changed(bot);
 			return { id, name };
 		} finally {
 			this.pending.delete(id);
@@ -184,6 +186,7 @@ export class Spaces {
 		if (!space) return undefined;
 		space.watching++;
 		if (opts.control) space.controlling++;
+		this.changed(space.bot);
 		let done = false;
 		return () => {
 			if (done) return;
@@ -191,6 +194,7 @@ export class Spaces {
 			space.watching--;
 			if (opts.control) space.controlling--;
 			space.lastUsed = this.now();
+			if (this.spaces.get(space.id) === space) this.changed(space.bot);
 		};
 	}
 
@@ -202,6 +206,11 @@ export class Spaces {
 	/** Called with a space's id once it is deleted (closed, idle, or at shutdown). */
 	onRemoved(listener: (id: string) => void): void {
 		this.removedListeners.add(listener);
+	}
+
+	/** Called with a bot's name when its list of spaces changes: one opens or closes, or a view of one opens or closes. */
+	onChanged(listener: (bot: string) => void): void {
+		this.changedListeners.add(listener);
 	}
 
 	/** Deletes spaces unused for the idle time (never one a call is using or the owner is watching); returns their ids. */
@@ -254,6 +263,16 @@ export class Spaces {
 		for (const s of all) s.connection?.close();
 	}
 
+	private changed(bot: string): void {
+		for (const l of this.changedListeners) {
+			try {
+				l(bot);
+			} catch (e) {
+				log.warn("a space change listener failed", { error: String(e) });
+			}
+		}
+	}
+
 	private countFor(bot: string): number {
 		return [...this.spaces.values()].filter((s) => s.bot === bot).length + [...this.pending.values()].filter((b) => b === bot).length;
 	}
@@ -270,6 +289,7 @@ export class Spaces {
 		this.spaces.delete(space.id);
 		space.connection?.close();
 		for (const l of this.removedListeners) l(space.id);
+		this.changed(space.bot);
 		const r = await this.run(["sb", "rm", "-f", space.name]);
 		if (r.code !== 0) throw new Error(`Could not delete space ${space.id}: ${cuaProblem(r)}. It will be removed by the next cleanup.`);
 		log.info("space closed", { id: space.id, bot: space.bot });

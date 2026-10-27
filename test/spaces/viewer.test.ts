@@ -1,8 +1,8 @@
 // Live views of spaces (src/spaces/viewer.ts): the link behind a `space` card, served through the gateway with no
 // token, to a fake viewer standing in for the one inside a space (an HTTP server and a WebSocket on loopback).
 // Only the viewer's page, its gRPC calls and the media socket pass; cookies and the token never reach the space;
-// a watched space is not deleted as idle; a closed space ends its views; and the app on one gateway watches a
-// space on a member through that gateway.
+// a watched space is not deleted as idle; a closed space ends its views; every followed chat with the bot hears
+// about its spaces; and the app on one gateway lists and watches a space on a member through that gateway.
 import assert from "node:assert/strict";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -14,7 +14,7 @@ import type { BotConfig } from "../../src/config.ts";
 import type { CuaRun } from "../../src/spaces/cua.ts";
 import { parseViewLink } from "../../src/spaces/spaces.ts";
 import { type GatewayServer, startServer } from "../../src/server.ts";
-import { ApiCallError, http } from "../api/client.ts";
+import { ApiCallError, type ApiEvent, ApiSocketClient, http } from "../api/client.ts";
 import { TOKEN, tempDir, testConfig, testCore } from "../helpers.ts";
 
 type Seen = { method: string; url: string; headers: IncomingHttpHeaders };
@@ -110,6 +110,15 @@ function socket(url: string): Promise<WebSocket> {
 }
 const closed = (ws: WebSocket) => new Promise<void>((r) => (ws.readyState === WebSocket.CLOSED ? r() : ws.once("close", () => r())));
 const reply = (ws: WebSocket) => new Promise<string>((r) => ws.once("message", (m) => r(m.toString())));
+
+type Listed = { id: string; openedAt: number; watching: number; controlling: number };
+/** The chat's `n`th `spaces.changed`: its list, as id and the view counts. */
+async function changed(c: ApiSocketClient, sessionId: string, n: number): Promise<string[]> {
+	const nth = (e: ApiEvent) => e.event === "spaces.changed" && e.sessionId === sessionId && c.eventsOf("spaces.changed", sessionId).length >= n;
+	await c.waitEvent(nth);
+	const e = c.eventsOf("spaces.changed", sessionId)[n - 1]!;
+	return (e.data.spaces as Listed[]).map((x) => `${x.id} ${x.watching}/${x.controlling}`);
+}
 
 test("a view's link is made on request, watch only or with control, and only for the chat's bot's own space", async () => {
 	const s = await setup();
@@ -229,6 +238,43 @@ test("a watched space is not deleted as idle; closing a space ends its views", a
 	}
 });
 
+test("every followed chat with the bot is told when its spaces open, close and are watched; the list is asked for too", async () => {
+	const s = await setup();
+	const c = await ApiSocketClient.connect(s.port);
+	try {
+		const one = await s.core.sessions.create("main");
+		const two = await s.core.sessions.create("main");
+		const other = await s.core.sessions.create("other");
+		for (const id of [one.id, two.id, other.id]) await c.call("sessions.subscribe", { id });
+		const api = http(s.port);
+		assert.deepEqual(await api(`GET /sessions/${one.id}/spaces`), { spaces: [] });
+
+		const { id: first } = await s.core.spaces.open("main");
+		assert.deepEqual(await changed(c, one.id, 1), [`${first} 0/0`]);
+		assert.deepEqual(await changed(c, two.id, 1), [`${first} 0/0`], "a space is the bot's, so each of its chats hears");
+		const { id: second } = await s.core.spaces.open("main");
+		assert.deepEqual(await changed(c, one.id, 2), [`${first} 0/0`, `${second} 0/0`], "the whole list, oldest first");
+
+		const { view } = await api<View>(`POST /sessions/${one.id}/spaces/${second}/view`, { control: true });
+		const ws = await socket(`ws://127.0.0.1:${s.port}${keyed(view.path)}/media?ticket=M`);
+		assert.deepEqual(await changed(c, one.id, 3), [`${first} 0/0`, `${second} 1/1`]);
+		const listed = await api<{ spaces: Listed[] }>(`GET /sessions/${two.id}/spaces`);
+		assert.deepEqual(Object.keys(listed.spaces[0]!).sort(), ["controlling", "id", "openedAt", "watching"], "no sandbox name or idle clock");
+		assert.ok(listed.spaces[0]!.openedAt <= Date.now());
+		ws.close();
+		assert.deepEqual(await changed(c, one.id, 4), [`${first} 0/0`, `${second} 0/0`], "the view closing is told too");
+
+		await s.core.spaces.close("main", first);
+		assert.deepEqual(await changed(c, two.id, 5), [`${second} 0/0`]);
+		assert.deepEqual(c.eventsOf("spaces.changed", other.id), [], "another bot's chat hears nothing");
+		assert.deepEqual(await api(`GET /sessions/${other.id}/spaces`), { spaces: [] });
+		await assert.rejects(http(s.port, null)(`GET /sessions/${one.id}/spaces`), (e: ApiCallError) => e.status === 401);
+	} finally {
+		await c.close();
+		await s.close();
+	}
+});
+
 test("an expired view opens nothing new", async () => {
 	const s = await setup();
 	try {
@@ -257,13 +303,17 @@ test("the app on alpha watches a space of beta's bot through alpha", async () =>
 	const viewer = await fakeViewer();
 	const a = await gateway(t.dir, "alpha", [{ name: "main", default: true }], () => viewer.port);
 	const b = await gateway(t.dir, "beta", [{ name: "nasbot", default: true }, { name: "hidden", private: true }], () => viewer.port);
+	const c = await ApiSocketClient.connect(a.port);
 	try {
 		const { code } = a.core.members.invite();
 		await b.core.members.join(code);
 		await a.core.roster.sync();
 		const api = http(a.port);
 		const { session } = await api<{ session: { id: string } }>("POST /sessions", { botId: "nasbot-beta" });
+		await c.call("sessions.subscribe", { id: session.id });
 		const { id: space } = await b.core.spaces.open("nasbot");
+		assert.deepEqual(await changed(c, session.id, 1), [`${space} 0/0`], "beta's news of its bot's space reaches the app on alpha");
+		assert.deepEqual((await api<{ spaces: Listed[] }>(`GET /sessions/${session.id}/spaces`)).spaces.map((x) => x.id), [space]);
 
 		const { view } = await api<View>(`POST /sessions/${session.id}/spaces/${space}/view`, { control: true });
 		assert.match(view.path, /^\/spaces\/view\/[A-Za-z0-9_-]{24}\/viewer\/#ticket=T-1&clipboard=0$/, "a path on alpha, with beta's ticket");
@@ -294,6 +344,7 @@ test("the app on alpha watches a space of beta's bot through alpha", async () =>
 		const mine = await api<View>(`POST /sessions/${session.id}/spaces/${second}/view`);
 		assert.equal((await fetch(`${base(a.port)}${page(mine.view.path)}`)).status, 200);
 	} finally {
+		await c.close();
 		for (const g of [a, b]) {
 			await g.server.close();
 			await g.core.close();

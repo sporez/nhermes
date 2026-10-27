@@ -5,7 +5,8 @@
 // `events-card.jsonl` is a turn that reads a list and shows it as a card; `turns-card.json` holds that turn and
 // six more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
 // an `html` card, an `image` card (a screenshot, kept as an attachment) and a `space` card (a space to watch,
-// whose view `space-view.json` is; the space is a stand-in, its viewer never opened);
+// whose view `space-view.json` is; the space is a stand-in, its viewer never opened; `spaces.json` lists the
+// bot's open spaces and `event-spaces-changed.json` is the event the chat got when it opened);
 // `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
 // the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
 // typed reply taken as a question's answer.
@@ -169,6 +170,8 @@ try {
 	]);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
 	save("space-view.json", await a.api(`POST /sessions/${cardChat.id}/spaces/${space}/view`));
+	save("spaces.json", await a.api(`GET /sessions/${cardChat.id}/spaces`));
+	save("event-spaces-changed.json", app.eventsOf("spaces.changed", cardChat.id)[0]);
 
 	// A turn that asks the owner a question, waits for the answer, and carries on with it.
 	const questions = [

@@ -2,6 +2,7 @@
 // consumed by the API layers, the scheduler and delegation. Adapters translate; they never
 // produce agent state of their own.
 import type { Question } from "./questions.ts";
+import type { SpaceInfo } from "../spaces/spaces.ts";
 import type { RoomEvent } from "./room-plan.ts";
 import type { Turn, TurnItem, TurnUsage } from "./turns.ts";
 
@@ -61,7 +62,9 @@ export type SessionEvent =
 	| { type: "approval.requested"; request: ApprovalRequest }
 	| { type: "approval.resolved"; requestId: string; choice: string; reason: "answered" | "timeout" | "cancelled" }
 	/** `call`: the `delegate` call whose background task this notice is about (a task Stop ended). */
-	| { type: "notice"; message: string; call?: string };
+	| { type: "notice"; message: string; call?: string }
+	/** The chat's bot's open spaces, all of them, after one opened or closed or a view of one did. */
+	| { type: "spaces"; spaces: SpaceInfo[] };
 
 /** `sessionId`: the one session that changed, when there is one (a client then fetches just that row). */
 export type GlobalEvent =
@@ -95,6 +98,11 @@ export class Hub {
 			set.delete(listener);
 			if (set.size === 0) this.bySession.delete(sessionId);
 		};
+	}
+
+	/** The sessions something follows right now. */
+	followed(): string[] {
+		return [...this.bySession.keys()];
 	}
 
 	subscribeAll(listener: SessionListener): () => void {
