@@ -183,9 +183,10 @@ export function redactJson<T>(v: T): T {
  * The turns of a conversation, oldest first. `live`: the conversation is running now; its last turn is
  * running, and the reply streaming now is added from `partial`.
  */
-/** The card item of a successful `show` or `ask` call: its id, the result's time, and the card kept in its details. */
+/** The card item of a successful `show`, `ask` or `space_view` call: its id, the result's time, and the card kept in its details. */
 export function cardItem(callId: string, at: number, card: CardDetails): Extract<TurnItem, { type: "card" }> {
 	if (card.kind === "question") return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, data: card.data };
+	if (card.kind === "space") return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, data: card.data };
 	if (card.kind !== "result") return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, ...("source" in card && card.source ? { source: card.source } : {}), data: card.data };
 	return { type: "card", id: callId, at, kind: card.kind, caption: card.caption, source: card.source, data: card.data, ...(card.filtered ? { filtered: true as const } : {}) };
 }

@@ -67,15 +67,30 @@ async function statusScreen() {
 				await statusScreen();
 			}) } }, "Delete"))));
 
+	// The view opens in a new tab. The tab is opened before the request, while the click still counts as the
+	// user's, so browsers that block pop-ups after an await let it through.
+	const watch = (x, control) => run(async () => {
+		const tab = window.open("", "_blank");
+		try {
+			const r = await api("POST", `/spaces/${encodeURIComponent(x.id)}/view`, { control });
+			if (tab) { tab.opener = null; tab.location.href = r.path; } else location.href = r.path;
+		} catch (e) {
+			tab?.close();
+			throw e;
+		}
+	});
 	const spaceRow = (x) => h("tr", {},
 		h("td", { class: "mono" }, x.id), h("td", {}, badge(x.bot)),
 		h("td", {}, ago(x.createdAt).replace(/ ago$/, "")),
-		h("td", {}, h("div", {}, ago(x.lastUsed)), h("div", { class: "muted small" }, `deleted after ${x.idleMinutes} min unused`)),
-		h("td", {}, h("button", { class: "link danger", on: { click: () => run(async () => {
+		h("td", {}, h("div", {}, x.watching > 0 ? "being watched" : ago(x.lastUsed)), h("div", { class: "muted small" }, `deleted after ${x.idleMinutes} min unused`)),
+		h("td", {}, h("div", { class: "row" },
+			h("button", { class: "link", on: { click: () => watch(x, false) } }, "Watch"),
+			h("button", { class: "link", on: { click: () => watch(x, true) } }, "Take control"),
+			h("button", { class: "link danger", on: { click: () => run(async () => {
 			if (!await ask(`Delete space ${x.id} of ${x.bot}? Whatever is open in it is lost.`, "Delete")) return;
 			await api("DELETE", `/spaces/${encodeURIComponent(x.id)}`);
 			await statusScreen();
-		}) } }, "Delete")));
+		}) } }, "Delete"))));
 
 	show(h("h1", {}, "Status"),
 		h("div", { class: "card" }, h("strong", {}, String(s.running)), ` ${s.running === 1 ? "chat" : "chats"} running right now`),

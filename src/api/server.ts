@@ -18,6 +18,7 @@ import { manageOps } from "./ops/manage.ts";
 import { modelOps } from "./ops/models.ts";
 import { roomOps } from "./ops/rooms.ts";
 import { sessionOps } from "./ops/sessions.ts";
+import { spaceOps } from "./ops/spaces.ts";
 import { type Caller, OpTable } from "./ops.ts";
 import { ApiSocket, type GlobalFeed } from "./socket.ts";
 
@@ -40,6 +41,7 @@ export class ClientApi {
 		this.ops = new OpTable([
 			...gatewayOps,
 			...sessionOps,
+			...spaceOps,
 			...chatOps,
 			...attachmentOps,
 			...approvalOps,

@@ -15,6 +15,8 @@ import { UnknownSkill } from "../skills/skills.ts";
 import { HttpError } from "../http.ts";
 import { DeviceError } from "../notify/devices.ts";
 import { RemoteError } from "../remote/api-client.ts";
+import { CuaMissing } from "../spaces/cua.ts";
+import { SpaceGone } from "../spaces/spaces.ts";
 
 /** Every error code the API answers with, and its HTTP status. Codes are only ever added. */
 export const ERROR_STATUS = {
@@ -79,6 +81,8 @@ export function apiError(error: unknown): ApiError | undefined {
 	if (error instanceof FederationError) return new ApiError(error.status === 401 ? "member_offline" : codeOfStatus(error.status), error.message);
 	if (error instanceof UnknownSkill) return new ApiError("not_found", error.message);
 	if (error instanceof UnknownMcpServer) return new ApiError("not_found", error.message);
+	if (error instanceof SpaceGone) return new ApiError("not_found", error.message);
+	if (error instanceof CuaMissing) return new ApiError("not_available", "Spaces are not set up on this machine.");
 	// A member's answer keeps its own code; a lost link is the member being offline.
 	if (error instanceof RemoteError) return new ApiError(error.code in ERROR_STATUS ? (error.code as ErrorCode) : "member_offline", error.message);
 	if (error instanceof DeviceError) return new ApiError("invalid_params", error.message);

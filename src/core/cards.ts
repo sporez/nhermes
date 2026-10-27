@@ -3,7 +3,7 @@
 // owner sees with the `show` tool (src/tools/cards.ts), which looks the handle up in the chat's transcript, so
 // it works after a restart. This file owns the handle, the "cardable" line, narrowing a result to chosen ids,
 // and the text stand-in for places that cannot draw a card. A bot's question (`ask`) is a card too, of kind
-// "question" (src/core/questions.ts).
+// "question" (src/core/questions.ts), and so is a live view of one of its spaces (`space_view`, kind "space").
 import { createHash } from "node:crypto";
 import type { EntryRecord } from "../engine/engine.ts";
 import { type Answers, ASK_TOOL, type Question } from "./questions.ts";
@@ -29,11 +29,20 @@ export type QuestionCard = { kind: "question"; caption: string; data: { question
  */
 export type BuiltCard = { kind: BuiltKind; caption: string; data: Record<string, unknown>; source?: CardSource };
 
+/**
+ * What a `space_view` call keeps: the space the owner can watch, by id, and nothing else. The view's link is made
+ * when the owner opens the card (`sessions.viewSpace`), so no ticket is ever in the chat.
+ */
+export type SpaceCard = { kind: "space"; caption: string; data: { space: string } };
+
+/** The tool that offers the owner a live view of a space. */
+export const SPACE_VIEW_TOOL = "space_view";
+
 /** A card a call keeps in its result's details. */
-export type CardDetails = ResultCard | QuestionCard | BuiltCard;
+export type CardDetails = ResultCard | QuestionCard | BuiltCard | SpaceCard;
 
 /** The tools whose successful call is a card item rather than a tool item. */
-export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL]);
+export const CARD_TOOLS: ReadonlySet<string> = new Set([SHOW_TOOL, ASK_TOOL, SPACE_VIEW_TOOL]);
 
 /**
  * The MCP tools whose results the nHermes app draws as their own card (MacBridge's), by the tool's own name on any

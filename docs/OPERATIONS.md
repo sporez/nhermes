@@ -305,8 +305,13 @@ that tries to open a space is told the host needs it. A bot gets the tools from 
 (`spaces`, which also holds the desktop tools for use inside a space; `docs/COMPUTER_USE.md`). Work another
 machine's bot started cannot open a space, but your own chat relayed through a member can; in `manual` approval mode each space tool asks.
 
-The panel's Status tab lists the running spaces (bot, how long open, last used) with a Delete button for each;
-the section appears only while a space is open. The doctor (in the app, or the client API's `actions.start` with kind `doctor`) has a Spaces
+The panel's Status tab lists the running spaces (bot, how long open, last used or "being watched") with Watch,
+Take control and Delete buttons for each; Watch and Take control open the space's live desktop in a new tab. A bot
+offers the same view in a chat with `space_view`, and the app opens it through the gateway it is connected to,
+also for a member's bot (`docs/SPACES.md` "Live viewer"). The view is served on the main port under
+`/spaces/view/` without the gateway token (its link carries its own key and ticket, valid for new connections for
+ten minutes), so an HTTPS reverse proxy in front of the gateway needs to pass that path and WebSocket upgrades on it.
+The section appears only while a space is open. The doctor (in the app, or the client API's `actions.start` with kind `doctor`) has a Spaces
 section when `cua` is installed or a bot has the `spaces` tool group: it checks that `cua` runs, that containers
 use gVisor (a warning if they would use plain runc), and that the `nhermes-spaces-firewall` unit is active
 (on a host without systemd it says it cannot check). Each is a warning with what to do, never a failure.

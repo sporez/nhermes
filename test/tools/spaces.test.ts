@@ -110,6 +110,24 @@ test("space_open returns an id, space_shell runs in that space, space_list shows
 	}
 });
 
+test("space_view gives the owner a space card holding only the space's id, and the bot carries on", async () => {
+	const s = await setup();
+	try {
+		let r = await run(s, [ask(call("space_open", {}, "o"))]);
+		const id = opened(r.events, "o");
+		r = await run(s, [ask(call("space_view", { space: id, caption: "Signing in to the shop" }, "v")), ask(call("space_view", { space: "s-0000" }, "bad"))]);
+		assert.match(finished(r.events, "v").resultText, new RegExp(`card to watch space ${id} live`));
+		assert.match(finished(r.events, "bad").resultText, /no open space s-0000/);
+		const items = (await s.core.sessions.turns(r.session.id)).turns.at(-1)!.items;
+		const card = items.find((i) => i.type === "card");
+		assert.deepEqual(card && { kind: card.kind, caption: card.caption, data: card.data }, { kind: "space", caption: "Signing in to the shop", data: { space: id } });
+		assert.ok(!items.some((i) => i.type === "tool" && i.name === "space_view" && i.status !== "failed"), "a successful space_view is a card, not a tool step");
+		assert.equal(items.at(-1)?.type, "text", "the run went on to its reply");
+	} finally {
+		await s.cleanup();
+	}
+});
+
 test("the per-bot limit and a foreign or unknown id come back as plain tool errors", async () => {
 	const s = await setup({ spaces: { perBot: 1 }, tools: { main: ["spaces"], other: ["spaces"] } });
 	try {

@@ -1,7 +1,9 @@
 // The gateway's listeners. The main port serves the panel, the client API (`/api/v1`, src/api/), the admin
 // routes the CLI uses, and `/api/health` (no token) for installers and service checks. Everything else takes
-// the gateway token as `Authorization: Bearer`. Wrong or missing: 401 / close 4401. A second listener, the
-// encrypted port, serves only network members over TLS-PSK (src/federation/psk.ts): `/federation/*` and the
+// the gateway token as `Authorization: Bearer`. Wrong or missing: 401 / close 4401. Live views of spaces
+// (`/spaces/view/<key>/…`, src/spaces/viewer.ts) take no token: a browser opening a link cannot send one, so their
+// random key and Cua's ticket are the credential. A second listener, the encrypted port, serves only network
+// members over TLS-PSK (src/federation/psk.ts): `/federation/*` (with the views made for that member) and the
 // client API's socket, identified by the handshake.
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -18,6 +20,7 @@ import { manageRoutes } from "./federation/manage.ts";
 import { PSK_TLS } from "./federation/psk.ts";
 import { federationRoutes, KEY_CHANGING_PATHS, KEY_CHANGING_PREFIXES, OPEN_FEDERATION_PATHS } from "./federation/routes.ts";
 import { Panel } from "./panel/panel.ts";
+import { MEMBER_VIEW_PREFIX, VIEW_PREFIX } from "./spaces/viewer.ts";
 import { API_PREFIX, ClientApi, type ClientApiOptions } from "./api/server.ts";
 import { logger } from "./log.ts";
 import { HttpError, RawBody, readJson, type Router, sendJson, sendRaw } from "./http.ts";
@@ -64,6 +67,9 @@ export async function startServer(core: Core, opts: { host: string; port: number
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const method = req.method ?? "GET";
 		const encrypted = psk !== undefined;
+		const view = viewCaller(url.pathname, psk);
+		if (view === null) return sendJson(res, 401, { detail: "Unauthorized" });
+		if (view) return core.viewer.serve(req, res, url.pathname, url.search, view);
 		// The encrypted port is for members only.
 		if (!encrypted) {
 			// The web control panel has its own access rules (src/panel/panel.ts).
@@ -116,8 +122,19 @@ export async function startServer(core: Core, opts: { host: string; port: number
 		}
 	};
 
+	/** Whom a space view is for: the owner on the main port, a member on the encrypted one; null for a forgotten member; undefined when the path is no view. */
+	const viewCaller = (pathname: string, psk: string | undefined): { member?: string } | null | undefined => {
+		if (psk === undefined) return pathname.startsWith(VIEW_PREFIX) ? {} : undefined;
+		if (!pathname.startsWith(MEMBER_VIEW_PREFIX)) return undefined;
+		const member = core.members.pskMember(psk);
+		return member ? { member: member.node_id } : null;
+	};
+
 	const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer, psk?: string) => {
 		const url = new URL(req.url ?? "/", "http://localhost");
+		const view = viewCaller(url.pathname, psk);
+		if (view === null) return void socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n");
+		if (view) return core.viewer.upgrade(req, socket, head, url.pathname, url.search, view);
 		if (url.pathname === `${API_PREFIX}/ws`) {
 			return wss.handleUpgrade(req, socket, head, (ws) => {
 				if (psk !== undefined) {

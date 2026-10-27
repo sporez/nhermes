@@ -72,6 +72,10 @@ turn's notification, the iPad (installed, not yet opened).
 
 ## Security findings fixed during live testing
 
+- Found in design before release: the live viewer of a space is a page served from inside the space, and served
+  from the gateway's own origin a tampered space could script the panel → every view response is sandboxed to an
+  opaque origin and carries no cookies or token to the space (`test/spaces/viewer.test.ts`; checked live in WebKit
+  and Chromium, `docs/SPACES.md`).
 - Found in review before release: `space_copy` could send a sensitive file (an SSH key, `/etc`) into a space without
   asking, and a space's shell is not reviewed → sending one into a space asks (`test/tools/spaces.test.ts`).
 - A denied package install was retried by delegating to the trusted `ops` bot → delegation now never
@@ -239,6 +243,26 @@ Panel and doctor:
   (2026-10-25).
 - Live (2026-10-26): on the gateway VM after updating, the doctor reports cua 0.9.0, containers under gVisor and
   the firewall unit active. Not verified: the panel section on a gateway with a real space.
+
+Live viewer (`docs/SPACES.md` "Live viewer"):
+
+- Automated (`test/spaces/viewer.test.ts`, `test/tools/spaces.test.ts`, `test/panel/spaces.test.ts`, 2026-10-27),
+  against an in-memory cua and a fake viewer (HTTP and WebSocket on loopback): `sessions.viewSpace` asks cua for a
+  watch-only or a control view, only for the chat's bot's own open space (another bot's, an unknown one and no
+  token refused); the view's page, gRPC calls and media socket reach the space with the sandbox and CORS headers,
+  without cookies, the token or forwarding headers, and the space's own cookies and CORS headers are dropped;
+  process, file, screenshot, `/mcp`, `/files`, `/health`, `/tunnel`, unknown keys and expired views are 404s that
+  never reach the space; a watched space is not deleted as idle and its idle clock restarts when the viewer leaves;
+  closing the space closes its views; the app on one gateway watches a member's bot's space through it (page,
+  calls and media socket over TLS-PSK), and a view the member made for another member is refused. `space_view`
+  makes a `space` card holding only the space's id and the run carries on. The panel opens a view of a running
+  space and reports whether it is watched.
+- Live (2026-10-27), on the gateway VM with Cua 0.9.0: the checks in `docs/SPACES.md` (a space refuses calls
+  without its token; viewer tickets are scoped; the viewer works under a path prefix, sandboxed, in WebKit and
+  Chromium; control clicks reach the desktop and watch-only clicks do not), then this gateway's code on a Mac with
+  `cua` run on the VM over SSH: a real space watched and controlled through `/spaces/view/…` in WebKit and
+  Chromium, counted while watched, a 404 after it closed. Not verified: a bot using `space_view` with a real
+  model, the member path against a real member, the nHermes app (not built yet).
 
 ## Questions
 

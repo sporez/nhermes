@@ -77,7 +77,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   "api": 1,
   "gateway": {"id": "4f0c…", "name": "studio", "version": "0.1.0", "commit": "c67d427"},
   "bootId": "9b2e…",
-  "features": ["events.replay", "cards", "questions"],
+  "features": ["events.replay", "cards", "questions", "spaces.view"],
   "limits": {"toolResultChars": 65536, "imageBytes": 26214400, "fileBytes": 41943040},
   "caller": {"kind": "owner"}
 }
@@ -87,7 +87,8 @@ person can read; `details` is optional. Codes, with their HTTP status:
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
 - `features` lists optional capabilities by name: `events.replay` (see Following a chat), `cards` (see
-  Cards), `questions` (see Questions), `push.apns` (see Push notifications).
+  Cards), `questions` (see Questions), `spaces.view` (see Watching a space), `push.apns` (see Push
+  notifications).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
 
@@ -135,6 +136,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.toolResult` | `GET /sessions/:id/items/:itemId/result` | yes | A tool call's whole result: `{text, json?}` |
 | `sessions.attach` | `POST /sessions/:id/attachments` | yes | The bytes as the body; `X-Filename` (URL-encoded) or `name`, and `kind?` (`image`, `pdf`, `file`; by default what the bytes are). Over the socket: `name`, `kind?`, `data` (base64). `{attachment}` |
 | `sessions.detach` | `DELETE /sessions/:id/attachments/:attachmentId` | yes | Takes back an upload that has not gone with a message (its file is removed). `{withdrawn: true}`; `conflict` once sent |
+| `sessions.viewSpace` | `POST /sessions/:id/spaces/:space/view` | yes | `control?` (boolean, default false). `{view: {path, expiresAt}}`. See Watching a space |
 | `attachments.content` | `GET /sessions/:id/attachments/:attachmentId/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
 | `rooms.list` | `GET /rooms` | | `includeDisbanded?`, `limit?`, `cursor?`. `{items: [Room], nextCursor}`, most recently active first |
 | `rooms.create` | `POST /rooms` | | `name`, `members: [{botId, handle?, displayName?, id?}]` (2-6 bots, this gateway's or members'), `id?` (the same id again is the same room). `{room}` |
@@ -318,7 +320,8 @@ for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layo
 only. The gateway enforces one part: a built `list` or `links` card whose item titles repeat a result that offered
 a handle (at least 2 titles, and at least half) is refused with the handle to use. `show` takes exactly one of
 `from` and `card`. Fixtures: `turns-card.json` from `scripts/api-fixtures.ts` holds a result card, a `list`, a
-`schedule_list` result card, a `chart`, an `html` card and an `image` card.
+`schedule_list` result card, a `chart`, an `html` card, an `image` card and a `space` card; `space-view.json` is
+that space's `sessions.viewSpace` answer.
 
 ```json
 {"type": "card", "id": "call_show", "at": 1761139202000, "kind": "result",
@@ -361,14 +364,44 @@ a handle (at least 2 titles, and at least half) is refused with the handle to us
   In a member's chat the attachment is on that member, and `attachments.content` reaches it the same way.
 - `kind: "question"` is a question the bot asked with its `ask` tool, and the owner's answers (see Questions).
   It has no `source`.
+- `kind: "space"` is one of the bot's spaces (a disposable desktop) the owner can watch live and take control of,
+  offered with the bot's `space_view` tool. `data` is `{"space": "s-1a2b"}`, the space's id, and nothing else: open it
+  with `sessions.viewSpace` (see Watching a space). It has no `source`. The bot carries on after it, so it may sit
+  anywhere in a turn.
 - Future kinds may be added: skip a card whose `kind` you do not know (or show its caption).
 - The card is a turn item of its own, placed where the bot's `show` call was, usually after the reply text. The
   `show` call is not also a tool item. A `show` call that fails stays a tool item (named `show`, `status`
-  `failed`) with the reason in `result.text`.
+  `failed`) with the reason in `result.text`. The same holds for `ask` and `space_view`.
 - Live, a card arrives as `item.started` and `item.finished` back to back, both with the whole item, when the
   call finishes; no tool step for `show` is announced before it. Snapshots and `GET /sessions/:id/turns` hold the
   same item with the same `id`.
 - Only gateways that list `cards` in `features` send `card` items.
+
+## Watching a space
+
+A `space` card (see Cards) names a space the chat's bot has open. `sessions.viewSpace` with the chat's id and the
+space's id makes a view of it and answers `{view: {path, expiresAt}}`:
+
+```json
+{"view": {"path": "/spaces/view/tLFyVAD0KTFFCCTGQ93GAkxA/viewer/#ticket=…&clipboard=0", "expiresAt": 1793125639000}}
+```
+
+- `path` is relative to the gateway's address (the one the client already uses for the API, without `/api/v1`).
+  Open the whole of it, fragment included, in a web view or browser: it is a web page that shows the space's
+  desktop live. It needs no token; the path's key and the ticket in its fragment are the credential, so treat the
+  path as a secret: never log it, keep it, or share it. Make a new view each time the owner opens one.
+- `control: true` lets the owner's clicks, keys and clipboard reach the space (to sign in, solve a captcha, or
+  help); without it the view only watches. Files and the microphone are always off.
+- `expiresAt` (milliseconds) is when the view stops opening new connections, about 10 minutes on. A view already
+  showing carries on. A view that drops after that ends; make a new one.
+- While a view is open, the space is not deleted as unused. The bot's own `space_close` and the gateway stopping
+  still delete it; the page then shows that it ended, and `sessions.viewSpace` answers `not_found`.
+- A chat with a member's bot works the same: the view is made on the member and served through this gateway, so
+  the client only ever reaches the gateway it is connected to.
+- The page comes from inside the space and runs sandboxed (an opaque origin): it cannot read the client's cookies
+  or reach the gateway's other routes. A client that embeds it should not give it any other access either.
+- Errors: `not_found` (the space is closed, or is not the chat's bot's), `not_available` (spaces are not set up on
+  the machine that runs the bot), `member_offline`.
 
 ## Questions
 

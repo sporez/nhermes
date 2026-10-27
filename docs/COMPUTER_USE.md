@@ -54,13 +54,16 @@ isolation and limits in `docs/SPACES.md`), uses it and throws it away.
 | `space_list`, `space_close` | the bot's open spaces; delete one |
 | `space_shell {space, command, timeout?}` | runs a shell line in the space as the user `cua`; output is cut to the last 20,000 characters, the exit code is shown |
 | `space_copy {space, from, to, direction}` | copies one file (up to 100 MB) between the space and the bot's own machine, `to_space` or `from_space` |
+| `space_view {space, caption?}` | gives the owner a card to watch the space live and take control of it; the bot carries on |
 
 Every desktop tool takes an optional `space`. With it the tool acts inside that space, on its desktop (display
 `:1`) instead of the bot's own. The `spaces` group includes the desktop tools, so a bot with only `spaces`
 can drive its spaces; without a `space` argument such a bot (any bot without the `desktop` group) is refused,
 and never reaches the gateway host's own desktop. A screenshot taken in a space offers itself to `show` like any
-other, so the owner can be shown a picture of it. A space is deleted when the bot closes it, after
-`spaces.idleMinutes` unused (never while a call is using it), or when the gateway stops. Each bot has its own
+other, so the owner can be shown a picture of it, and `space_view` lets the owner watch it live, through the
+gateway the app is connected to, wherever the bot runs (`docs/API.md` "Watching a space"; the panel's Status tab
+has Watch and Take control too). A space is deleted when the bot closes it, after `spaces.idleMinutes` unused
+(never while a call is using it or the owner is watching it), or when the gateway stops. Each bot has its own
 spaces; the limits are `spaces.perBot` and `spaces.total`.
 
 ## Safety

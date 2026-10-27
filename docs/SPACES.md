@@ -2,7 +2,9 @@
 
 Status: in progress. Host setup and network isolation verified on the gateway VM (2026-10-25); the core
 (S1), picture cards (P), the bot tools (S2) and the panel and doctor (S3) are automated-tested; not yet
-tried by a bot on a real space.
+tried by a bot on a real space. The live viewer (V0-V3) is built: its checks passed on the gateway VM
+(2026-10-27), the gateway side is automated-tested and was tried live against a real space; the app's side is not
+built yet.
 
 ## Goal
 
@@ -42,7 +44,8 @@ Decided so far:
   sensitive file on the bot's machine, read the gateway's own files, or send a sensitive file into a space. Work
   a network member's bot started cannot open a space; the owner's own chat relayed from a member can (the app
   talks to one gateway at a time). Tool output goes through the same secret redaction as every tool's (the guard's `afterTool`).
-- No live viewer: bots show the owner screenshots (`show {from}`). A viewer is deferred (see "Later").
+- The owner watches a space live, or takes control of it, through Cua's own viewer served by the gateway (see "Live
+  viewer"). Bots can still show a screenshot (`show {from}`).
 
 ## Host setup
 
@@ -141,6 +144,82 @@ Cua facts worth knowing:
 - `cua daemon reap` ends VMs nobody uses and runs without a daemon, but does not touch containers.
 - The Spaces desktop app (shared cursor, Teleport) is macOS 26+ only and not part of this.
 
+## Live viewer
+
+The owner watches a space live and can take control of it, from the app or the panel, through the one gateway
+the app talks to, wherever the bot runs.
+
+What Cua gives (read in Cua's source at its 0.9.0 command spec, and checked on the gateway VM, 2026-10-27):
+
+- `cua sb view NAME --no-open --json [--view-only] [--ttl 15m] [--files none]` prints `{url, expires_at_unix}`:
+  `http://127.0.0.1:<port>/viewer/#ticket=…`, the HTML5 viewer served by cua-spacesd inside the space on its
+  `env` port (3211), published on the host's loopback.
+- The ticket is HMAC-signed, scoped and expiring (60 s to 24 h, default 1 h), in the fragment so browsers never
+  send it. `--view-only` is enforced by cua-spacesd (no input, clipboard, files or microphone). Deleting the
+  space ends every ticket; there is no per-ticket revoke.
+- The viewer is gRPC-web over `fetch` plus one WebSocket (`rcdp.v2`), every URL relative to the page's own
+  directory: no WebRTC, no UDP, and it works under any path prefix. H.264 where the browser decodes it, PNG
+  frames otherwise.
+- Cua's own sharing (`cua share`, `cua spaces share`, `sb url --public`) goes through Cua's relay and account,
+  which this setup does not use.
+
+Design:
+
+Design (as built):
+
+- **The bot never holds a link.** `space_view {space}` posts a `space` card that carries the space's id only, and
+  the bot carries on. Opening the card calls `sessions.viewSpace {id, space, control?}` (`docs/API.md` "Watching a
+  space"), which mints a fresh ticket each time, so no ticket reaches the model, the transcript or an event. The
+  answer is a path relative to the gateway.
+- **The gateway passes the viewer through** (`src/spaces/viewer.ts`). `Spaces.viewLink` asks `cua sb view` for the
+  link and accepts only a viewer on this host's loopback. The main port serves `/spaces/view/<key>/…` by
+  forwarding to that port, before any token check or JSON body handling: a browser opening a link cannot send the
+  gateway token, so the key (random, 144 bits) and Cua's ticket are the credential. Only the viewer page
+  (`GET /viewer…`), the gRPC methods a Cua viewer ticket may call, less the file ones, and the media socket
+  (`/media`) pass; everything else (`/mcp`, `/files`, `/tunnel`, process and screenshot calls) is a 404 that never
+  reaches the space. Only a short list of request headers passes: cookies, authorization and forwarding headers
+  never do. Paths are never logged (the media socket's query holds a ticket).
+- **The page runs sandboxed.** The viewer page comes from inside the space, which bots use freely (`sudo`,
+  untrusted pages), so a tampered space could serve its own script. Served from the gateway's origin, that script
+  could act as the panel. Every response carries `Content-Security-Policy: sandbox allow-scripts`, so the page
+  runs in an opaque origin: it cannot read the gateway's cookies, and its requests to the panel's routes fail
+  (the panel also refuses an `Origin: null` change). The viewer's own calls work through CORS headers the gateway
+  adds on the view's routes only.
+- **A member's bot, through the member.** For a chat with a member's bot, this gateway forwards
+  `sessions.viewSpace` over the member link (`src/federation/chats.ts`). The member makes the view for that
+  member, served as `/federation/spaces/view/<key>/…` on its encrypted port to that member only, and answers the
+  path; this gateway serves it under its own key, forwarding HTTP and the WebSocket over TLS-PSK. A member's
+  views close when it leaves. The app's link always points at the gateway it talks to.
+- **Who may watch.** The owner, through this gateway's token or the panel; a member, for the chats it relayed
+  (`sessions.viewSpace` is a chat's operation, so the usual chat rules decide).
+- **Watching keeps a space.** The gateway that holds the space counts open media sockets per space
+  (`Spaces.watch`). Idle deletion skips a space while one is open, and its idle clock restarts when the last
+  closes. The bot's own `space_close` and gateway shutdown still delete it, and close its views.
+- **Control.** `control: true` mints without `--view-only` and with `--files none`: mouse, keys and clipboard reach
+  the space; files and microphone stay off. A control ticket still cannot start processes, take screenshots or
+  read files: those methods are refused by cua-spacesd and are not on the gateway's list either.
+- **Ticket lifetime.** Ten minutes (`VIEW_TTL_S`). A connected viewer keeps going past it; Cua's viewer reconnects
+  a dropped socket with the same ticket until it expires, then ends. The gateway's key opens new connections
+  until the ticket expires and lives on while one of its sockets is open.
+- **App.** The `space` card with Watch and Take control, opening the path in a full-screen web view. Not built yet.
+
+Checks on the gateway VM (2026-10-27, Cua 0.9.0, a `linux` container space):
+
+1. A container space's cua-spacesd has a root token: every call without one, `Health` included, is refused
+   (`grpc-status 16`, "missing or invalid bearer token"); the media socket answers 401. A watch-only ticket calling
+   `Screenshot` or `CreateViewerTicket` is refused (`grpc-status 7`); the viewer page itself is open.
+2. `cua sb view --view-only --no-open --ttl 10m --json` answers `{"url": "http://127.0.0.1:<port>/viewer/#ticket=…
+   &clipboard=0", "expires_at_unix": …}`; without `--view-only`, the same without `clipboard=0`. Ports are
+   published on `127.0.0.1` only.
+3. Through a path prefix (`/spaces/view/<key>/`) with the sandbox header, WebKit (Safari's engine) and Chromium
+   show the live desktop (the media socket streams), the page's origin is `null`, `document.cookie` throws and a
+   fetch to `/panel/api/status` fails. With a watch-only ticket a click does nothing; with a control ticket a
+   click on the dock opened a terminal. The same then held through the real gateway code (`src/spaces/viewer.ts`)
+   with `cua` run on the VM over SSH: the viewer counted while open, 0 after, and a 404 once the space closed.
+4. CPU: a space nobody has watched idles at about 3% of a core. Once watched, cua-spacesd and PipeWire keep about
+   45-80% of a core busy after the viewer has gone (the media session, audio included, lives until its ticket
+   expires) and drop to 0.1% when it does. Hence the ten-minute ticket.
+
 ## Steps
 
 - [x] S0. Host setup, network isolation, spike (this document) (001ece9)
@@ -149,4 +228,9 @@ Cua facts worth knowing:
 - [x] S1. `src/spaces/`: open, close, list, limits, idle deletion, sweep; tests with a fake `cua` (94aeefe)
 - [x] S2. Desktop tools take `space`; `space_shell`, `space_copy` (no viewer card: bots show screenshots) (a0d4049, 95937c8)
 - [x] S3. Panel: running spaces with a delete button; `doctor` checks `cua`, the runtime and the firewall (6a83adb)
-- [ ] Later: VM spaces (image tools, network isolation), pools, a live viewer link card (access tickets are secrets)
+- [x] V0. The four checks under "Live viewer" on the gateway VM
+- [x] V1-V3, gateway side: `sessions.viewSpace` (watch and control), the pass-through route, the `space` card and
+  `space_view`, watching skips idle deletion, a member's bot through its member, panel Watch and Take control
+- [ ] V4. App: the `space` card, Watch and Take control in a full-screen web view
+- [ ] Later: tell the bot when the owner takes control (today it is not told)
+- [ ] Later: VM spaces (image tools, network isolation), pools

@@ -62,6 +62,11 @@ if (cmd === "create") {
 		child = spawn("sh", ["-c", argv.join(" ").replaceAll("/tmp/", `${dir(name)}/tmp/`)], { stdio: "inherit" });
 	}
 	child.on("exit", (code) => process.exit(code ?? 1));
+} else if (cmd === "view") {
+	// A viewer link to $FAKE_CUA_VIEW_PORT (nothing listens on the default), valid for ten minutes.
+	need(args[0]);
+	const port = process.env.FAKE_CUA_VIEW_PORT ?? "9";
+	console.log(JSON.stringify({ name: args[0], url: `http://127.0.0.1:${port}/viewer/#ticket=fake`, expires_at_unix: Math.floor(Date.now() / 1000) + 600 }));
 } else {
 	console.error(`fake cua: unsupported ${cmd}`);
 	process.exit(2);

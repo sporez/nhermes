@@ -27,6 +27,7 @@ import { logger } from "./log.ts";
 import { type ProviderCatalog, ProviderCatalogs } from "./models/catalogs.ts";
 import { HostEnvs, hostsExtension } from "./remote/hosts.ts";
 import { Spaces, type SpacesOptions } from "./spaces/spaces.ts";
+import { SpaceViewer } from "./spaces/viewer.ts";
 import { AppDb } from "./store/db.ts";
 import { MemoryStore } from "./memory/memory.ts";
 import type { Tuning } from "./mcp/connection.ts";
@@ -77,6 +78,8 @@ export type Core = {
 	hosts: HostEnvs;
 	/** Disposable desktops bots open on this host (src/spaces/). */
 	spaces: Spaces;
+	/** The owner's live views of spaces, here and on members (src/spaces/viewer.ts). */
+	viewer: SpaceViewer;
 	memory: MemoryStore;
 	skills: Skills;
 	scheduler: Scheduler;
@@ -206,6 +209,9 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 	secrets.onChange((name) => catalogs.keyChanged(name));
 	const hosts = new HostEnvs(config.dataDir, options.connectHost);
 	const spaces = new Spaces({ ...options.spaces, config: config.spaces, dataDir: config.dataDir });
+	const viewer = new SpaceViewer({ spaces, memberTarget: (nodeId) => members.target(nodeId) });
+	// A member's views close with its key, like its sockets (src/server.ts).
+	members.onRevoke(() => viewer.dropMember((nodeId) => members.get(nodeId) !== undefined));
 
 	let sessions: Sessions | undefined;
 	const toolGroups = coreToolGroups();
@@ -437,6 +443,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 		deps,
 		hosts,
 		spaces,
+		viewer,
 		memory,
 		skills,
 		scheduler,
@@ -476,6 +483,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			// down; it stays unfinished, so a restart applies Durable's replay rule to it.
 			await mcp.close();
 			hosts.close();
+			viewer.close();
 			await spaces.shutdown();
 			db.close();
 		},

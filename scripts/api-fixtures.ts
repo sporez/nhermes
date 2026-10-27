@@ -3,8 +3,9 @@
 // kept. Usage: node scripts/api-fixtures.ts <output folder>. One JSON file per answer, and `events.jsonl` with
 // the socket frames of a turn that streams, reasons, calls a tool, asks for an approval and finishes;
 // `events-card.jsonl` is a turn that reads a list and shows it as a card; `turns-card.json` holds that turn and
-// five more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
-// an `html` card and an `image` card (a screenshot, kept as an attachment);
+// six more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
+// an `html` card, an `image` card (a screenshot, kept as an attachment) and a `space` card (a space to watch,
+// whose view `space-view.json` is; the space is a stand-in, its viewer never opened);
 // `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
 // the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
 // typed reply taken as a question's answer.
@@ -17,6 +18,7 @@ import { DEFAULT_TOOL_GROUPS } from "../src/core/bots.ts";
 import { cardableLine, cardHandle, pictureLine } from "../src/core/cards.ts";
 import { setLogLevel } from "../src/log.ts";
 import { startServer } from "../src/server.ts";
+import type { CuaRun } from "../src/spaces/cua.ts";
 import { ApiSocketClient, http } from "../test/api/client.ts";
 import { pngBytes, TOKEN, tempDir, testConfig } from "../test/helpers.ts";
 
@@ -50,19 +52,29 @@ const screenshot = defineTool({
 	execute: async (_args, api) => ({ output: [{ type: "text", text: `Desktop 64x48.\n\n${pictureLine(api.callId)}` }, { type: "image", data: pngBytes(64, 48).toString("base64"), mimeType: "image/png" }] }),
 });
 
+// A cua that keeps sandboxes in memory, for one space to watch; its viewer is a documentation address.
+const boxes = new Set<string>();
+const cua: CuaRun = async (args) => {
+	if (args[1] === "create") boxes.add(args[args.indexOf("--name") + 1]!);
+	if (args[1] === "rm") boxes.delete(args.at(-1)!);
+	if (args[1] === "ls") return { code: 0, stdout: JSON.stringify([...boxes].map((name) => ({ name }))), stderr: "" };
+	if (args[1] === "view") return { code: 0, stdout: JSON.stringify({ url: "http://127.0.0.1:32773/viewer/#ticket=fixture-ticket&clipboard=0", expires_at_unix: 1793125639 }), stderr: "" };
+	return { code: 0, stdout: "{}", stderr: "" };
+};
+
 const { dir, cleanup } = await tempDir();
 const gateway = async (name: string, bots: Parameters<typeof testConfig>[1]) => {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", reasoning: true }, { id: "faux-2" }], tokensPerSecond: 400 });
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const d = join(dir, name);
-	const core = await createCore(testConfig(d, bots, { node: { name } }), { models, renderPdf: async () => [pngBytes(10, 14)], features: () => [{ groups: new Map([["reminders", [reminders, screenshot]]]) }] });
+	const core = await createCore(testConfig(d, bots, { node: { name } }), { models, renderPdf: async () => [pngBytes(10, 14)], spaces: { run: cua }, features: () => [{ groups: new Map([["reminders", [reminders, screenshot]]]) }] });
 	const server = await startServer(core, { host: "127.0.0.1", port: 0 });
 	return { core, server, faux, api: http(server.port) };
 };
 
 const a = await gateway("alpha", [
-	{ name: "main", displayName: "Main", default: true, description: "The everyday bot", instructions: "You are the main test bot.", tools: [...DEFAULT_TOOL_GROUPS, "reminders"] },
+	{ name: "main", displayName: "Main", default: true, description: "The everyday bot", instructions: "You are the main test bot.", tools: [...DEFAULT_TOOL_GROUPS, "reminders", "spaces"] },
 	{ name: "ops", displayName: "Ops", description: "Runs the servers", instructions: "You are the ops test bot.", trusted: true },
 ]);
 const b = await gateway("beta", [{ name: "nasbot", displayName: "Nasbot", default: true, description: "Runs on the NAS" }]);
@@ -150,7 +162,13 @@ try {
 		fauxAssistantMessage([fauxToolCall("desktop_screenshot", {}, { id: "call_shot" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxText("Here it is."), fauxToolCall("show", { from: cardHandle("call_shot"), caption: "The desktop" }, { id: "call_show" })], { stopReason: "toolUse" }),
 	]);
+	const { id: space } = await a.core.spaces.open("main");
+	await turn("Let me watch", "fixture-2f", [
+		fauxAssistantMessage([fauxToolCall("space_view", { space, caption: "Signing in to the shop" }, { id: "call_view" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("You can watch it now.")]),
+	]);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
+	save("space-view.json", await a.api(`POST /sessions/${cardChat.id}/spaces/${space}/view`));
 
 	// A turn that asks the owner a question, waits for the answer, and carries on with it.
 	const questions = [

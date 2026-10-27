@@ -1,5 +1,6 @@
 // The `spaces` tool group: open, list and close the bot's disposable desktops (src/spaces/), run a command in
-// one, and copy a file between one and the bot's own machine. The group also holds the desktop tools, which take
+// one, copy a file between one and the bot's own machine, and offer the owner a live view of one (a `space` card;
+// the link is made when the owner opens it, src/spaces/viewer.ts). The group also holds the desktop tools, which take
 // a `space` argument (src/tools/desktop.ts), so a bot with only this group can drive its spaces and never the
 // host's own desktop. Every call that uses a space goes through `Spaces.use`, which keeps the space from being
 // deleted as idle while the call runs. Spaces belong to one bot; a missing or foreign id is a plain error.
@@ -7,6 +8,8 @@ import { posix } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
 import type { Feature, LateServices } from "../app.ts";
+import { type SpaceCard, SPACE_VIEW_TOOL } from "../core/cards.ts";
+import { redactJson } from "../core/turns.ts";
 
 /** The largest file space_copy moves. */
 export const COPY_MAX_BYTES = 100 * 1024 * 1024;
@@ -28,7 +31,8 @@ export function spacesFeature(late: LateServices, desktop: ToolRegistration[]): 
 		name: "space_open",
 		description:
 			"Open a new disposable desktop (a space) and return its id. It takes several seconds. Use it with the desktop_* tools by giving space: \"<id>\", run commands in it with space_shell, move files with space_copy. " +
-			"Nothing in it is kept. Close it with space_close as soon as you are done; an unused space is deleted after a while. Take a screenshot in it and show the owner the picture with show.",
+			"Nothing in it is kept. Close it with space_close as soon as you are done; an unused space is deleted after a while. Take a screenshot in it and show the owner the picture with show, " +
+			"or let them watch it live with space_view.",
 		parameters: Type.Object({}),
 		execute: async (_a, api) => {
 			const { id } = await late.spaces().open(botOf(api).name);
@@ -136,6 +140,25 @@ export function spacesFeature(late: LateServices, desktop: ToolRegistration[]): 
 		},
 	});
 
-	const tools = [open, list, close, shell, copy] as ToolRegistration[];
+	const view = defineTool({
+		name: SPACE_VIEW_TOOL,
+		description:
+			"Give the owner a card that opens a live view of one of your spaces, so they can watch what you do there and take control of it when they choose (for a sign-in, a captcha, or to help). " +
+			"Use it when the owner asks to watch, or before something they may want to see or do themselves. You can keep working after it. A space being watched is not deleted as unused.",
+		parameters: Type.Object({
+			space: Type.String({ description: "The space id from space_open" }),
+			caption: Type.Optional(Type.String({ description: "One short line saying what is happening in it" })),
+		}),
+		replay: "safe",
+		execute: async (a, api) => {
+			const bot = botOf(api).name;
+			if (!late.spaces().list(bot).some((s) => s.id === a.space)) throw new Error(`You have no open space ${a.space}. Open one with space_open first.`);
+			const caption = (a.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || `Space ${a.space}`;
+			const card = redactJson<SpaceCard>({ kind: "space", caption, data: { space: a.space } });
+			return { output: [{ type: "text" as const, text: `The owner has a card to watch space ${a.space} live and can take control of it. Carry on; don't describe the screen to them.` }], details: { card } as never };
+		},
+	});
+
+	const tools = [open, list, close, shell, copy, view] as ToolRegistration[];
 	return { groups: new Map([["spaces", [...tools, ...desktop]]]) };
 }
