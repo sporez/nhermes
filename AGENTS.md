@@ -165,6 +165,23 @@ Each change lands as a tested commit, with its docs updated in the same commit:
 
 When review turns up work that should be deferred, report it and ask before adding it to the backlog.
 
+## App Parity
+
+The nHermes app for Mac, iPhone and iPad is the main client. It lives in its own repository, and the gateway
+and the app ship together: a feature a user can see or use here is not finished until the app has it too.
+
+- When a change adds or changes something a user can do or see through the client API (an operation, event,
+  field, error code or setting, or a new bot capability the app should show), make the matching app change in
+  the same task. Follow the app repository's own agent guide. Land the gateway side first, then build the app
+  against a gateway from that source.
+- Changes with no client-visible effect (refactors, engine fixes, tests, admin that lives only in the panel or
+  CLI) need no app change. When unsure, check what the app shows today.
+- When `scripts/api-fixtures.ts` changes, refresh the app's contract fixtures from it.
+- If the app repository is not available here, or the task is explicitly gateway-only, say so in the handoff
+  and list the app work left (screens, fields, events), so it can be scheduled. A gateway feature never ships
+  without either its app change or that list.
+- The app repository's location is in the local overlay. The same commit and push rules apply there.
+
 ## Commits
 
 Conventional Commits with a scope, one logical change each:
@@ -191,6 +208,7 @@ Before handing off a code change:
 - For security-relevant changes, confirm the approval, privilege and redaction rules above still hold,
   and name the test that shows it.
 - Docs updated as listed above.
+- App parity: the app change is made, or the handoff lists the app work left (see "App Parity").
 - Report what was verified, how (automated, panel-dev, live), what was not, and any decision left for the
   user.
 
