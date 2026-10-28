@@ -262,7 +262,10 @@ Live viewer (`docs/SPACES.md` "Live viewer"):
   `space_shell` and `space_list` say so, and after release its click works again. `sessions.spaces` lists the
   chat's bot's open spaces (id, opened, view counts; no sandbox name), and every followed chat with that bot, and
   no other bot's, gets `spaces.changed` with the whole list when a space opens or closes and when a view opens or
-  closes; a member's bot's list and event reach the app on the other gateway.
+  closes; a member's bot's list and event reach the app on the other gateway. `sessions.closeSpace` closes one of the
+  chat's bot's spaces (another bot's chat, no token and an already closed space refused), the followed chat hears
+  it, the bot using it afterwards is told the owner closed it, and the app on one gateway closes a member's bot's
+  space through it.
 - Live (2026-10-27), in the Mac app against the gateway VM: a space watched in the app's viewer. Through the
   gateway's plain-HTTP LAN address the viewer fell back to PNG frames (not a secure page); through HTTPS, as the owner reported, it did not.
 - Live (2026-10-27), on the gateway VM with Cua 0.9.0: the checks in `docs/SPACES.md` (a space refuses calls

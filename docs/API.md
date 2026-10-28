@@ -77,7 +77,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   "api": 1,
   "gateway": {"id": "4f0c…", "name": "studio", "version": "0.1.0", "commit": "c67d427"},
   "bootId": "9b2e…",
-  "features": ["events.replay", "cards", "questions", "spaces.view", "spaces.list"],
+  "features": ["events.replay", "cards", "questions", "spaces.view", "spaces.list", "spaces.close"],
   "limits": {"toolResultChars": 65536, "imageBytes": 26214400, "fileBytes": 41943040},
   "caller": {"kind": "owner"}
 }
@@ -87,7 +87,7 @@ person can read; `details` is optional. Codes, with their HTTP status:
   anything it kept in memory about live state is stale.
 - `caller` is `{"kind": "owner"}` or, for a network member, `{"kind": "member", "node": {"id", "name"}}`.
 - `features` lists optional capabilities by name: `events.replay` (see Following a chat), `cards` (see
-  Cards), `questions` (see Questions), `spaces.view` and `spaces.list` (see Watching a space), `push.apns` (see Push
+  Cards), `questions` (see Questions), `spaces.view`, `spaces.list` and `spaces.close` (see Watching a space), `push.apns` (see Push
   notifications).
 
 `GET /api/v1/ping` (operation `ping`) answers `{pong: true, at}`.
@@ -137,6 +137,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `sessions.attach` | `POST /sessions/:id/attachments` | yes | The bytes as the body; `X-Filename` (URL-encoded) or `name`, and `kind?` (`image`, `pdf`, `file`; by default what the bytes are). Over the socket: `name`, `kind?`, `data` (base64). `{attachment}` |
 | `sessions.detach` | `DELETE /sessions/:id/attachments/:attachmentId` | yes | Takes back an upload that has not gone with a message (its file is removed). `{withdrawn: true}`; `conflict` once sent |
 | `sessions.spaces` | `GET /sessions/:id/spaces` | yes | `{spaces: [space]}`: the chat's bot's open spaces, oldest first. See Watching a space |
+| `sessions.closeSpace` | `DELETE /sessions/:id/spaces/:space` | yes | `{}`: closes one of the chat's bot's spaces. See Watching a space |
 | `sessions.viewSpace` | `POST /sessions/:id/spaces/:space/view` | yes | `control?` (boolean, default false). `{view: {path, expiresAt}}`. See Watching a space |
 | `attachments.content` | `GET /sessions/:id/attachments/:attachmentId/content` | yes | The file's bytes with its type. Over the socket: `{name, mime, data}` (base64) |
 | `rooms.list` | `GET /rooms` | | `includeDisbanded?`, `limit?`, `cursor?`. `{items: [Room], nextCursor}`, most recently active first |
@@ -393,6 +394,9 @@ moment it closes. A space is:
   those with `control` (while it is above 0 the bot cannot click or type there).
 - Ask for the list after subscribing and after each reconnect; the event then keeps it current. A bot has at most
   a few spaces at once (the gateway's per-bot limit).
+- With feature `spaces.close`, `sessions.closeSpace` deletes one of them for good: the desktop and everything open
+  in it, and any view of it. Ask the owner first. If the bot uses that space again it is told the owner closed it.
+  `not_found` when it is already closed or not the chat's bot's.
 
 A `space` card (see Cards) names a space the chat's bot has open, where the bot wanted the owner to look. `sessions.viewSpace` with the chat's id and the
 space's id makes a view of it and answers `{view: {path, expiresAt}}`:

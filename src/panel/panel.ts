@@ -485,7 +485,7 @@ export class Panel {
 		r.on("DELETE", "/panel/api/spaces/:id", async (q) => {
 			const space = c.spaces.list().find((x) => x.id === q.params.id);
 			if (!space) throw new HttpError(404, "That space is already gone.");
-			await c.spaces.close(space.bot, space.id);
+			await c.spaces.close(space.bot, space.id, { byOwner: true });
 			return { deleted: true };
 		});
 		// A live view of a running space (src/spaces/viewer.ts): the path to open on this gateway.

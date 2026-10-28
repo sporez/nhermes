@@ -211,7 +211,8 @@ Design (as built):
   opens or closes or a view of one does (`Spaces.onChanged`, published to the bot's followed chats in
   `src/app.ts`). It is a chat event, so a member's bot's list reaches this gateway over the link that already
   carries that chat's events. The app pins each open space, with Watch and Control, at the top of Activity in every
-  chat with the bot, and drops it the moment it closes.
+  chat with the bot, and drops it the moment it closes. The owner can close one from there (`sessions.closeSpace`) or
+  from the panel; the bot, if it names that space again, is told the owner closed it.
 - **App.** The `space` card with Watch and Take control, opening the path in a full-screen web view, and the pinned
   spaces above.
 - **Secure page.** The viewer uses fast video (H.264 through WebCodecs), audio and the clipboard only on a secure
@@ -249,6 +250,7 @@ Checks on the gateway VM (2026-10-27, Cua 0.9.0, a `linux` container space):
 - [x] V4. App: the `space` card, Watch and Take control in a full-screen web view
 - [x] V5. A bot's open spaces pinned in every chat with it: `sessions.spaces`, `spaces.changed`, and the app's
   pinned cards
+- [x] V6. The owner closes a space from its pinned card (`sessions.closeSpace`); the bot is told who closed it
 - [x] The bot is told when the owner has taken control: its input in the space is refused while a control view is
   open, and its reading calls say so
 - [ ] Later: VM spaces (image tools, network isolation), pools

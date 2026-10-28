@@ -69,6 +69,8 @@ export class Spaces {
 	private closed = false;
 	private readonly removedListeners = new Set<(id: string) => void>();
 	private readonly changedListeners = new Set<(bot: string) => void>();
+	/** Spaces the owner closed lately, so the bot is told who closed one it still names. */
+	private readonly closedByOwner = new Set<string>();
 
 	constructor(options: SpacesOptions) {
 		this.options = options;
@@ -157,8 +159,14 @@ export class Spaces {
 		return space.envPromise;
 	}
 
-	async close(bot: string, id: string): Promise<void> {
-		await this.remove(this.owned(bot, id));
+	/** `byOwner`: the owner closed it (the app or the panel), which the bot is told if it uses the space again. */
+	async close(bot: string, id: string, opts: { byOwner?: boolean } = {}): Promise<void> {
+		const space = this.owned(bot, id);
+		if (opts.byOwner) {
+			this.closedByOwner.add(id);
+			if (this.closedByOwner.size > 100) this.closedByOwner.delete(this.closedByOwner.values().next().value!);
+		}
+		await this.remove(space);
 	}
 
 	/**
@@ -281,6 +289,7 @@ export class Spaces {
 		const space = this.spaces.get(id);
 		if (space && space.bot === bot) return space;
 		const mine = this.list(bot).map((s) => s.id);
+		if (this.closedByOwner.has(id)) throw new Error(`The owner closed space ${id}; whatever was open there is gone. Don't reopen it unasked: tell them what you still needed it for. ${mine.length ? `Your open spaces: ${mine.join(", ")}.` : "You have no open spaces."}`);
 		throw new Error(`You have no space ${id}. ${mine.length ? `Your open spaces: ${mine.join(", ")}.` : "You have no open spaces."}`);
 	}
 

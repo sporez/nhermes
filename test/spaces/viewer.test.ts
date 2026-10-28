@@ -275,6 +275,30 @@ test("every followed chat with the bot is told when its spaces open, close and a
 	}
 });
 
+test("the owner closes a space from any chat with its bot; the bot is told who closed it", async () => {
+	const s = await setup();
+	const c = await ApiSocketClient.connect(s.port);
+	try {
+		const chat = await s.core.sessions.create("main");
+		const other = await s.core.sessions.create("other");
+		await c.call("sessions.subscribe", { id: chat.id });
+		const { id: space } = await s.core.spaces.open("main");
+		const { id: kept } = await s.core.spaces.open("main");
+		const api = http(s.port);
+		await assert.rejects(api(`DELETE /sessions/${other.id}/spaces/${space}`), (e: ApiCallError) => e.code === "not_found", "not another bot's chat");
+		await assert.rejects(http(s.port, null)(`DELETE /sessions/${chat.id}/spaces/${space}`), (e: ApiCallError) => e.status === 401);
+
+		assert.deepEqual(await api(`DELETE /sessions/${chat.id}/spaces/${space}`), {});
+		assert.deepEqual(await changed(c, chat.id, 3), [`${kept} 0/0`]);
+		await assert.rejects(s.core.spaces.use("main", space, async () => 1), /The owner closed space .*Your open spaces: s-/);
+		await assert.rejects(api(`DELETE /sessions/${chat.id}/spaces/${space}`), (e: ApiCallError) => e.code === "not_found", "already closed");
+		assert.equal(s.core.spaces.list().length, 1);
+	} finally {
+		await c.close();
+		await s.close();
+	}
+});
+
 test("an expired view opens nothing new", async () => {
 	const s = await setup();
 	try {
@@ -343,6 +367,10 @@ test("the app on alpha watches a space of beta's bot through alpha", async () =>
 		assert.equal((await fetch(`${base(b.port)}${page(elsewhere.path)}`)).status, 404, "not on beta's main port");
 		const mine = await api<View>(`POST /sessions/${session.id}/spaces/${second}/view`);
 		assert.equal((await fetch(`${base(a.port)}${page(mine.view.path)}`)).status, 200);
+
+		// The owner closes beta's bot's space from alpha.
+		await api(`DELETE /sessions/${session.id}/spaces/${second}`);
+		assert.deepEqual(b.core.spaces.list(), []);
 	} finally {
 		await c.close();
 		for (const g of [a, b]) {

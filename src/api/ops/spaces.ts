@@ -1,7 +1,9 @@
 // A bot's open spaces and live views of them (docs/API.md "Watching a space"): the list a client pins in every chat
 // with the bot (`spaces.changed` keeps it current), and the link behind a `space` card, made when the owner opens
-// it. A member's bot's space is viewed through this gateway too: the member makes the view for this gateway and it
-// is served here (src/spaces/viewer.ts), so the app only ever talks to the gateway it is connected to.
+// it; the owner can also close one. A member's bot's space is viewed through this gateway too: the member makes the
+// view for this gateway and it is served here (src/spaces/viewer.ts), so the app only ever talks to the gateway it
+// is connected to.
+import { SpaceGone } from "../../spaces/spaces.ts";
 import { ApiError } from "../errors.ts";
 import { localSession } from "../lookup.ts";
 import type { Op } from "../ops.ts";
@@ -14,6 +16,19 @@ export const spaceOps: Op[] = [
 		members: true,
 		forward: true,
 		handle: (p, cx) => ({ spaces: cx.core.spaces.list(localSession(cx, p.str("id")).bot).map(spaceJson) }),
+	},
+	{
+		name: "sessions.closeSpace",
+		http: "DELETE /sessions/:id/spaces/:space",
+		members: true,
+		forward: true,
+		handle: async (p, cx) => {
+			const row = localSession(cx, p.str("id"));
+			const space = p.str("space");
+			if (!cx.core.spaces.list(row.bot).some((s) => s.id === space)) throw new SpaceGone(`Space ${space} is closed.`);
+			await cx.core.spaces.close(row.bot, space, { byOwner: true });
+			return {};
+		},
 	},
 	{
 		name: "sessions.viewSpace",
