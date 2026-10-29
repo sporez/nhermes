@@ -117,7 +117,8 @@ A bot can show the owner a card in the app instead of a wall of text. Every bot 
   "(The owner can be shown this as a Weather card: show {from: ...})". Any other tool's result gets such a line when its
   shape is a list (an object holding one list of items that each have an `id` and a `title` or `name`) or plain facts
   (an object of up to 30 short values); anything else gets no line, so the bot puts what matters in its reply.
-- **A card the bot builds** from what it found: a `chart` for numbers, then a `list`, `facts` or `links` card. A built
+- **A card the bot builds** from what it found: `weather` for the conditions or forecast somewhere (from any source,
+  so a bot without MacBridge can show weather too), a `chart` for numbers, then a `list`, `facts` or `links` card. A built
   list or links card that only repeats a result the bot could have shown as it is gets refused, with the handle to
   use instead.
 - **A small diagram or layout** as `html`, last. The gateway removes scripts, frames, forms and remote content from it

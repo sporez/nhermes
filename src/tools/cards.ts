@@ -1,6 +1,6 @@
 // The `show` tool: the bot decides what the owner is shown as a card in the app (docs/API.md "Cards"): a tool
 // result it names by handle (`from`; a picture in the result is kept as an attachment of the chat), or a card it builds
-// itself (`card`: list, facts, links, chart, html, or a picture file on its own machine). A handle is
+// itself (`card`: weather, list, facts, links, chart, html, or a picture file on its own machine). A handle is
 // resolved against the chat's transcript, so it works after a restart. The checked card is kept in the call's own
 // result details (the card item is projected from there, with no second lookup), and the call ends the run when it
 // was made together with the reply (Pi's `terminate`: no extra model call to say "done").
@@ -23,7 +23,7 @@ export function cardsFeature(late: LateServices): Feature {
 			"Show what the owner asked for, not the lookups you made along the way. The owner sees the card, so never restate what it shows; write only what it doesn't say. " +
 			"Give exactly one of from or card. Pick the most specific card there is: " +
 			"(1) from: a tool result whose last line offers it as a card and names the card, for example \"as a Weather card: show {from: ...}\". Always prefer this, and never rebuild by hand data that such a line offers. " +
-			"(2) card: build one from what you found, with the first kind that fits, in this order: chart (numbers that compare or change: bar, line, area, point, pie), " +
+			"(2) card: build one from what you found, with the first kind that fits, in this order: weather (the conditions or forecast for a place, from any source: always this for weather), chart (numbers that compare or change: bar, line, area, point, pie), " +
 			"then list (steps, things to buy), facts (labelled values: a status or summary) or links (search results, sources). " +
 			"(1b) a picture: from, when a result's line says \"can be shown this picture\" (a screenshot you took); or card {kind: image, path} for a picture file on your machine. The owner sees the picture itself. " +
 			"(3) html last, only for a diagram, timeline or layout none of those fits (never for numbers): a fragment with inline <style> and inline <svg>, no scripts or remote content; " +

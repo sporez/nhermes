@@ -3,10 +3,11 @@
 // kept. Usage: node scripts/api-fixtures.ts <output folder>. One JSON file per answer, and `events.jsonl` with
 // the socket frames of a turn that streams, reasons, calls a tool, asks for an approval and finishes;
 // `events-card.jsonl` is a turn that reads a list and shows it as a card; `turns-card.json` holds that turn and
-// six more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
-// an `html` card, an `image` card (a screenshot, kept as an attachment) and a `space` card (a space to watch,
+// seven more in the same chat: a card the bot built (`list`), a scheduler result shown (`schedule_list`), a `chart`,
+// an `html` card, an `image` card (a screenshot, kept as an attachment), a `space` card (a space to watch,
 // whose view `space-view.json` is; the space is a stand-in, its viewer never opened; `spaces.json` lists the
-// bot's open spaces and `event-spaces-changed.json` is the event the chat got when it opened);
+// bot's open spaces and `event-spaces-changed.json` is the event the chat got when it opened) and a `weather`
+// card the bot built;
 // `events-question.jsonl` and `turns-question.json` a turn that asks the owner a question and carries on with
 // the answer (`approvals-question.json`, `subscribe-question.json` while it waits), and `submit-answered.json` a
 // typed reply taken as a question's answer.
@@ -135,7 +136,8 @@ try {
 	await app.waitEvent((e) => e.event === "turn.finished" && e.sessionId === cardChat.id, 15000);
 	writeFileSync(join(out, "events-card.jsonl"), `${app.events.slice(before).filter((e) => e.sessionId === cardChat.id).map((e) => JSON.stringify(e)).join("\n")}\n`);
 
-	// More turns in the same chat: a card the bot builds, a scheduler result shown, a chart and an html card.
+	// More turns in the same chat: a card the bot builds, a scheduler result shown, a chart, an html card, a picture,
+	// a space and a weather card.
 	const finishedTurns = () => app.events.filter((e) => e.event === "turn.finished" && e.sessionId === cardChat.id).length;
 	const turn = async (text: string, requestId: string, responses: ReturnType<typeof fauxAssistantMessage>[]) => {
 		a.faux.setResponses(responses);
@@ -167,6 +169,31 @@ try {
 	await turn("Let me watch", "fixture-2f", [
 		fauxAssistantMessage([fauxToolCall("space_view", { space, caption: "Signing in to the shop" }, { id: "call_view" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxText("You can watch it now.")]),
+	]);
+	await turn("What's the weather in Lisbon?", "fixture-2g", [
+		shows(
+			"Mild and dry through Friday.",
+			{
+				kind: "weather",
+				place: "Lisbon",
+				timeZone: "Europe/Lisbon",
+				units: { temperature: "°C", windSpeed: "km/h" },
+				current: { condition: "Partly Cloudy", temperature: 19.2, feelsLike: 18.5, humidityPercent: 64, uvIndex: 3, wind: { speed: 14, direction: "NW" }, isDaylight: true, time: "2026-10-28T14:00" },
+				hourly: [
+					{ time: "2026-10-28T15:00", condition: "Partly Cloudy", temperature: 19.5, precipitationChancePercent: 5 },
+					{ time: "2026-10-28T16:00", condition: "Clear", temperature: 19 },
+					{ time: "2026-10-28T19:00", condition: "Clear", temperature: 16.5, isDaylight: false },
+				],
+				daily: [
+					{ date: "2026-10-28", condition: "Partly Cloudy", high: 20, low: 14, precipitationChancePercent: 10, sunrise: "2026-10-28T07:31", sunset: "2026-10-28T18:22" },
+					{ date: "2026-10-29", condition: "Rain", high: 18, low: 13, precipitationChancePercent: 70 },
+					{ date: "2026-10-30", condition: "Clear", high: 21, low: 12 },
+				],
+				alerts: [{ summary: "Yellow warning for coastal wind", severity: "moderate", detailsURL: "https://example.com/warnings" }],
+				source: { name: "Open-Meteo", url: "https://example.com/weather" },
+			},
+			"Partly cloudy and 19° in Lisbon",
+		),
 	]);
 	save("turns-card.json", await a.api(`GET /sessions/${cardChat.id}/turns`));
 	save("space-view.json", await a.api(`POST /sessions/${cardChat.id}/spaces/${space}/view`));

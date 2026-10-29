@@ -317,12 +317,12 @@ status, and, for an HTML page, what it says about itself (`<title>`, Open Graph 
 is an absolute http(s) address). Its card is "Page". A failed fetch keeps the data but gets no handle.
 
 The bot picks the most specific card there is: the tool's own card (`show {from}` on a result whose line names it),
-then the generic List or Facts card of a result's shape (also `from`), then a card it builds (`show {card}`: `chart`
-for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layout nothing else fits, else words
+then the generic List or Facts card of a result's shape (also `from`), then a card it builds (`show {card}`: `weather`
+for the conditions or forecast somewhere, `chart` for numbers, then `list`, `facts` or `links`), then `html` for a diagram or layout nothing else fits, else words
 only. The gateway enforces one part: a built `list` or `links` card whose item titles repeat a result that offered
 a handle (at least 2 titles, and at least half) is refused with the handle to use. `show` takes exactly one of
 `from` and `card`. Fixtures: `turns-card.json` from `scripts/api-fixtures.ts` holds a result card, a `list`, a
-`schedule_list` result card, a `chart`, an `html` card, an `image` card and a `space` card; `space-view.json` is
+`schedule_list` result card, a `chart`, an `html` card, an `image` card, a `space` card and a `weather` card; `space-view.json` is
 that space's `sessions.viewSpace` answer.
 
 ```json
@@ -337,10 +337,23 @@ that space's `sessions.viewSpace` answer.
   bot to some of the items; then `filtered` is `true`, and counts or "more" flags in `data` describe the whole
   result, not the card (absent when the result is whole). `caption` is one line written by the bot: show it where the client cannot draw the
   card (an unknown `source.name`, a notification, an accessibility label).
-- `kind: "list"`, `"facts"`, `"links"`, `"chart"` and `"html"` are cards the bot built itself with `show {card}` from what it found (a
+- `kind: "weather"`, `"list"`, `"facts"`, `"links"`, `"chart"` and `"html"` are cards the bot built itself with `show {card}` from what it found (a
   search, a command, several sources). They have no `source`; `data` is the card, without its kind. Strings are
   trimmed and cut (titles at 200 characters, everything else at 500); addresses are http(s) only. Text fallback:
   the caption, as for every card.
+  - `weather`: `{"place", "timeZone"?, "units": {"temperature", "windSpeed"?}, "current"?, "hourly"?, "daily"?,
+    "alerts"?, "source"?}`: the conditions and forecast for a place, from any source (a weather site, an API, a
+    search), so every bot can show weather, with or without MacBridge. At least one of `current`, `hourly` and
+    `daily`. The field names are MacBridge's (`mac_weather_get`), so one decoder reads both; only `place` (MacBridge
+    has a `location` object) and `source` (MacBridge's `attribution`) differ. `units.temperature` is `"°C"` or
+    `"°F"`; `timeZone` an IANA name. `current`: `{"condition", "temperature", "feelsLike"?, "humidityPercent"?,
+    "uvIndex"?, "wind"?: {"speed", "gust"?, "direction"?}, "isDaylight"?, "time"?}`. `hourly`: up to 48
+    `{"time", "condition", "temperature", "precipitationChancePercent"?, "isDaylight"?}`. `daily`: up to 15
+    `{"date", "condition", "high", "low", "precipitationChancePercent"?, "sunrise"?, "sunset"?}`. `alerts`: up to 5
+    `{"summary", "severity"?, "detailsURL"?}`. `source`: `{"name", "url"?}`, to be credited with the data.
+    `condition` is a few words ("Partly Cloudy", "Heavy Rain"). Times are RFC 3339 with an offset (the gateway turns
+    a local time the bot gave into one, with `timeZone`), dates `YYYY-MM-DD`, percentages whole numbers from 0 to
+    100, and a day's `high` is never below its `low`.
   - `list`: `{"title", "subtitle"?, "items": [{"title", "detail"?, "url"?, "done"?}]}`, 1 to 50 items. `done`
     (a boolean) shows a check state; absent for a plain list.
   - `facts`: `{"title", "subtitle"?, "rows": [{"label", "value"}]}`, 1 to 30 rows.

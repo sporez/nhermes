@@ -290,7 +290,7 @@ const shown = async (s: Awaited<ReturnType<typeof setup>>, steps: ReturnType<typ
 };
 const showMsg = (card: unknown, id = "call_show", extra: Record<string, unknown> = {}) => fauxAssistantMessage([fauxText("Here."), tool("show", { card, caption: "A card", ...extra } as never, id)], { stopReason: "toolUse" });
 
-test("show {card} builds a list, facts or links card with no source, and ends the run like from does", async () => {
+test("show {card} builds a list, facts, links or weather card with no source, and ends the run like from does", async () => {
 	const s = await setup();
 	try {
 		const list = { kind: "list", title: "Packing", items: [{ title: "Passport", done: true }, { title: "Charger", detail: "USB-C", url: "https://example.com/c" }] };
@@ -307,6 +307,9 @@ test("show {card} builds a list, facts or links card with no source, and ends th
 		assert.deepEqual((facts.items.find((i) => i.type === "card") as { kind: string; data: unknown }).data, { title: "Server", subtitle: "main", rows: [{ label: "Disk", value: "42% used" }] });
 		const links = await shown(s, [showMsg({ kind: "links", title: "Sources", items: [{ url: "https://example.com/a", title: "A", note: "first" }] })]);
 		assert.equal((links.items.find((i) => i.type === "card") as { kind: string }).kind, "links");
+		const weather = await shown(s, [showMsg({ kind: "weather", place: "Lisbon", timeZone: "Europe/Lisbon", units: { temperature: "°C" }, daily: [{ date: "2026-10-28", condition: "Clear", high: 20, low: 14, sunrise: "2026-10-28T07:31" }] })]);
+		const w = weather.items.find((i) => i.type === "card") as { kind: string; data: unknown };
+		assert.deepEqual([w.kind, w.data], ["weather", { place: "Lisbon", timeZone: "Europe/Lisbon", units: { temperature: "°C" }, daily: [{ date: "2026-10-28", condition: "Clear", high: 20, low: 14, sunrise: "2026-10-28T07:31:00+00:00" }] }]);
 	} finally {
 		await s.cleanup();
 	}
@@ -395,7 +398,7 @@ test("show {card} takes a chart and an html card; the html reaches the owner cle
 
 		const { cardsFeature } = await import("../../src/tools/cards.ts");
 		const description = (cardsFeature({} as never).always![0] as unknown as { description: string }).description;
-		for (const needle of ["prefer", "chart", "html last", "--nh-canvas", "--nh-surface", "--nh-text", "--nh-secondary", "--nh-accent", "--nh-stroke", "never rebuild"]) assert.match(description.toLowerCase(), new RegExp(needle.toLowerCase().replace(/-/g, "\\-")), needle);
+		for (const needle of ["prefer", "weather", "chart", "html last", "--nh-canvas", "--nh-surface", "--nh-text", "--nh-secondary", "--nh-accent", "--nh-stroke", "never rebuild"]) assert.match(description.toLowerCase(), new RegExp(needle.toLowerCase().replace(/-/g, "\\-")), needle);
 	} finally {
 		await s.cleanup();
 	}

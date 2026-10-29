@@ -212,6 +212,13 @@ cap, and inline `<style>` and `<svg>` surviving (`test/core/html-card.test.ts`).
 model (does it pick the right card and stop repeating it), and drawn in the app (the app's cards for these kinds are
 not built yet).
 
+Built weather cards, automated (2026-10-28), with the faux model: `show {card: {kind: "weather"}}` kept as a card item
+with no source (`test/tools/cards.test.ts`); the checks, rounding and clamping, high and low in order, local times
+turned RFC 3339 with the place's offset in summer, winter and on a daylight-saving day, and plain refusals
+(`test/core/weather-card.test.ts`). `scripts/api-fixtures.ts` adds a `weather` card to `turns-card.json`, which the app
+decodes and draws with the same Weather card as MacBridge's. Not verified: a real model building one from a weather
+site or API.
+
 Picture cards, automated (`test/tools/picture-cards.test.ts`, 2026-10-25), with the faux model and a fake MCP server:
 the handle line on a result that holds a picture (a tool's and an MCP server's); `show {from}` keeping the exact bytes
 as a chat attachment that `attachments.content` serves, refusing `only`, and a plain error when the picture is gone

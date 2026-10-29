@@ -16,15 +16,55 @@ export const MAX_SERIES = 6;
 export const MAX_POINTS = 300;
 export const CHART_TYPES = ["bar", "line", "area", "point", "pie"] as const;
 export const X_KINDS = ["category", "date", "number"] as const;
+export const MAX_HOURS = 48;
+export const MAX_DAYS = 15;
+export const MAX_ALERTS = 5;
+export const MAX_CONDITION = 60;
 
 /** The kinds a bot can build. */
-export const BUILT_KINDS = ["list", "facts", "links", "chart", "html", "image"] as const;
+export const BUILT_KINDS = ["weather", "list", "facts", "links", "chart", "html", "image"] as const;
 export type BuiltKind = (typeof BUILT_KINDS)[number];
 
 const str = (description: string) => Type.String({ description });
 const opt = (description: string) => Type.Optional(Type.String({ description }));
+const CONDITION = "Clear, Partly Cloudy, Cloudy, Fog, Drizzle, Rain, Heavy Rain, Thunderstorms, Snow, Sleet, Windy…; the same words in hourly and daily";
+const TIME = "RFC 3339, or local YYYY-MM-DDTHH:MM with timeZone; the same for every time";
 
 export const CARD_SCHEMA = Type.Union([
+	Type.Object(
+		{
+			kind: Type.Literal("weather"),
+			place: str("A town, city or park"),
+			timeZone: opt("IANA, for example Europe/Lisbon"),
+			units: Type.Object({ temperature: Type.Union([Type.Literal("°C"), Type.Literal("°F")]), windSpeed: opt("km/h, mph") }),
+			current: Type.Optional(
+				Type.Object({
+					condition: str(CONDITION),
+					temperature: Type.Number(),
+					feelsLike: Type.Optional(Type.Number()),
+					humidityPercent: Type.Optional(Type.Number()),
+					uvIndex: Type.Optional(Type.Number()),
+					wind: Type.Optional(Type.Object({ speed: Type.Number(), gust: Type.Optional(Type.Number()), direction: opt("N, SSW") })),
+					isDaylight: Type.Optional(Type.Boolean({ description: "false at night" })),
+					time: opt(TIME),
+				}),
+			),
+			hourly: Type.Optional(
+				Type.Array(Type.Object({ time: Type.String(), condition: Type.String(), temperature: Type.Number(), precipitationChancePercent: Type.Optional(Type.Number()), isDaylight: Type.Optional(Type.Boolean()) }), {
+					description: `From now, up to ${MAX_HOURS}`,
+				}),
+			),
+			daily: Type.Optional(
+				Type.Array(
+					Type.Object({ date: str("YYYY-MM-DD"), condition: Type.String(), high: Type.Number(), low: Type.Number(), precipitationChancePercent: Type.Optional(Type.Number()), sunrise: Type.Optional(Type.String()), sunset: Type.Optional(Type.String()) }),
+					{ description: `From today, up to ${MAX_DAYS}` },
+				),
+			),
+			alerts: Type.Optional(Type.Array(Type.Object({ summary: Type.String(), severity: Type.Optional(Type.String()), detailsURL: Type.Optional(Type.String()) }), { description: `Up to ${MAX_ALERTS}` })),
+			source: Type.Optional(Type.Object({ name: str("Who the forecast is from"), url: Type.Optional(Type.String()) })),
+		},
+		{ description: "The conditions and forecast for a place: current, hourly or daily, or several. Always this for weather" },
+	),
 	Type.Object(
 		{
 			kind: Type.Literal("list"),
@@ -64,7 +104,7 @@ export const CARD_SCHEMA = Type.Union([
 			}),
 			notes: opt("A line of caveats or the source"),
 		},
-		{ description: "Numbers that compare or change over time. Prefer it to html for anything that is numbers" },
+		{ description: "Numbers that compare or change over time (not weather: use weather). Prefer it to html for anything that is numbers" },
 	),
 	Type.Object(
 		{
@@ -128,6 +168,7 @@ function items(v: unknown, kind: string, max: number): Obj[] {
 export function buildCard(raw: unknown): { kind: BuiltKind; data: Obj } {
 	if (!isObj(raw)) throw new Error(`card must be an object with a kind: ${BUILT_KINDS.join(", ")}.`);
 	if (raw.kind === "html") return buildHtml(raw);
+	if (raw.kind === "weather") return { kind: "weather", data: buildWeather(raw) };
 	// The picture itself is read by the show tool (it needs the bot's machine); here only the path is checked.
 	if (raw.kind === "image") return { kind: "image", data: { path: required(raw.path, MAX_URL, "The picture's path") } };
 	const title = required(raw.title, MAX_TITLE, "The card's title");
@@ -221,6 +262,132 @@ function buildChart(raw: Obj, head: Obj): Obj {
 	});
 	const notes = text(raw.notes, MAX_TEXT);
 	return { ...head, type, x: { ...(xLabel ? { label: xLabel } : {}), kind: xKind }, y: { ...(yLabel ? { label: yLabel } : {}), ...(unit ? { unit } : {}) }, series, ...(notes ? { notes } : {}) };
+}
+
+/** An RFC 3339 time as written, or a local time at the place made one with the zone's offset then. */
+function instant(v: unknown, zone: string | undefined, where: string): string {
+	const s = typeof v === "string" ? v.trim() : "";
+	if (RFC3339.test(s) && Number.isFinite(Date.parse(s))) return s;
+	const local = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+	if (local && zone) {
+		const [y, mo, d, h, mi, sec] = local.slice(1).map((p) => Number(p ?? 0)) as [number, number, number, number, number, number];
+		const wall = Date.UTC(y, mo - 1, d, h, mi, sec);
+		if (Number.isFinite(wall)) {
+			// The zone's offset at that wall time: measured once at a first guess, then again at the corrected instant (a DST change in between).
+			const offset = (at: number) => {
+				const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(at).map((x) => [x.type, x.value]));
+				return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second)) - at;
+			};
+			const off = offset(wall - offset(wall));
+			const mins = Math.round(off / 60000);
+			const pad = (n: number) => String(n).padStart(2, "0");
+			return `${s.slice(0, 10)}T${pad(h)}:${pad(mi)}:${pad(sec)}${mins < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(mins) / 60))}:${pad(Math.abs(mins) % 60)}`;
+		}
+	}
+	throw new Error(`${where} must be an RFC 3339 time with its offset, like 2026-10-28T14:00:00+01:00${zone ? ", or a local time like 2026-10-28T14:00" : ", or give timeZone and write local times like 2026-10-28T14:00"}.`);
+}
+
+function number(v: unknown, where: string): number {
+	if (!finite(v)) throw new Error(`${where} must be a number.`);
+	return v;
+}
+
+/** A percentage rounded and kept to 0 to 100, or undefined when absent. */
+function percent(v: unknown, where: string): number | undefined {
+	if (v === undefined || v === null) return undefined;
+	return Math.min(100, Math.max(0, Math.round(number(v, where))));
+}
+
+function list(v: unknown, max: number, what: string): Obj[] {
+	if (v === undefined || v === null) return [];
+	if (!Array.isArray(v) || !v.every(isObj)) throw new Error(`A weather card's ${what} must be a list of objects.`);
+	if (v.length > max) throw new Error(`A weather card holds at most ${max} ${what}; you gave ${v.length}. Keep the first ${max}.`);
+	return v as Obj[];
+}
+
+const condition = (v: unknown, where: string) => required(v, MAX_CONDITION, `${where}'s condition`);
+const defined = (o: Obj): Obj => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+/** The conditions now and the forecast for a place; times end up RFC 3339, so a client reads them as it reads MacBridge's. */
+function buildWeather(raw: Obj): Obj {
+	const place = required(raw.place, MAX_TITLE, "The weather card's place");
+	let timeZone = text(raw.timeZone, 100);
+	if (timeZone) {
+		try {
+			timeZone = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions().timeZone;
+		} catch {
+			throw new Error(`"${timeZone}" is not a time zone. Use an IANA name like Europe/Lisbon, or leave timeZone out.`);
+		}
+	}
+	const unitsIn = isObj(raw.units) ? raw.units : {};
+	const t = typeof unitsIn.temperature === "string" ? unitsIn.temperature.replace(/[°º\s]/g, "").toUpperCase() : "";
+	const temperature = t === "C" || t === "CELSIUS" ? "°C" : t === "F" || t === "FAHRENHEIT" ? "°F" : undefined;
+	if (!temperature) throw new Error('A weather card needs units: {temperature: "°C" or "°F"}.');
+	const windSpeed = text(unitsIn.windSpeed, 20);
+
+	let current: Obj | undefined;
+	if (raw.current !== undefined && raw.current !== null) {
+		if (!isObj(raw.current)) throw new Error("current must be an object: {condition, temperature, …}.");
+		const c = raw.current;
+		const w = isObj(c.wind) ? c.wind : undefined;
+		current = defined({
+			time: c.time === undefined ? undefined : instant(c.time, timeZone, "current.time"),
+			condition: condition(c.condition, "current"),
+			isDaylight: typeof c.isDaylight === "boolean" ? c.isDaylight : undefined,
+			temperature: number(c.temperature, "current.temperature"),
+			feelsLike: c.feelsLike === undefined ? undefined : number(c.feelsLike, "current.feelsLike"),
+			humidityPercent: percent(c.humidityPercent, "current.humidityPercent"),
+			uvIndex: c.uvIndex === undefined ? undefined : Math.max(0, Math.round(number(c.uvIndex, "current.uvIndex"))),
+			wind: w ? defined({ speed: number(w.speed, "current.wind.speed"), gust: w.gust === undefined ? undefined : number(w.gust, "current.wind.gust"), direction: text(w.direction, 3) }) : undefined,
+		});
+	}
+	const hourly = list(raw.hourly, MAX_HOURS, "hours").map((h, i) =>
+		defined({
+			time: instant(h.time, timeZone, `Hour ${i + 1}'s time`),
+			condition: condition(h.condition, `Hour ${i + 1}`),
+			isDaylight: typeof h.isDaylight === "boolean" ? h.isDaylight : undefined,
+			temperature: number(h.temperature, `Hour ${i + 1}'s temperature`),
+			precipitationChancePercent: percent(h.precipitationChancePercent, `Hour ${i + 1}'s precipitationChancePercent`),
+		}),
+	);
+	const daily = list(raw.daily, MAX_DAYS, "days").map((d, i) => {
+		const at = `Day ${i + 1}`;
+		if (typeof d.date !== "string" || !DATE.test(d.date) || !Number.isFinite(Date.parse(d.date))) throw new Error(`${at}'s date must be YYYY-MM-DD.`);
+		const high = number(d.high, `${at}'s high`);
+		const low = number(d.low, `${at}'s low`);
+		return defined({
+			date: d.date,
+			condition: condition(d.condition, at),
+			high: Math.max(high, low),
+			low: Math.min(high, low),
+			precipitationChancePercent: percent(d.precipitationChancePercent, `${at}'s precipitationChancePercent`),
+			sunrise: d.sunrise === undefined ? undefined : instant(d.sunrise, timeZone, `${at}'s sunrise`),
+			sunset: d.sunset === undefined ? undefined : instant(d.sunset, timeZone, `${at}'s sunset`),
+		});
+	});
+	if (!current && hourly.length === 0 && daily.length === 0) throw new Error("A weather card needs current, hourly or daily: what it is like now, the next hours or the days ahead.");
+	const alerts = list(raw.alerts, MAX_ALERTS, "alerts").map((a, i) =>
+		defined({
+			summary: required(a.summary, MAX_TEXT, `Alert ${i + 1}'s summary`),
+			severity: text(a.severity, 20)?.toLowerCase(),
+			detailsURL: a.detailsURL === undefined || a.detailsURL === "" ? undefined : url(a.detailsURL, `Alert ${i + 1}'s detailsURL`),
+		}),
+	);
+	let source: Obj | undefined;
+	if (isObj(raw.source)) {
+		const name = text(raw.source.name, MAX_TITLE);
+		if (name) source = defined({ name, url: raw.source.url === undefined || raw.source.url === "" ? undefined : url(raw.source.url, "The source's url") });
+	}
+	return defined({
+		place,
+		timeZone,
+		units: defined({ temperature, windSpeed }),
+		current,
+		hourly: hourly.length ? hourly : undefined,
+		daily: daily.length ? daily : undefined,
+		alerts: alerts.length ? alerts : undefined,
+		source,
+	});
 }
 
 function buildHtml(raw: Obj): { kind: "html"; data: Obj } {
