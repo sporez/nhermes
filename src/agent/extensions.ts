@@ -8,6 +8,7 @@ import type { Bot } from "../core/bots.ts";
 import { decide, isConfigCall, needsTrust } from "../core/policy.ts";
 import type { JevReviewer, ReviewLog } from "../core/review.ts";
 import type { Sessions } from "../core/sessions.ts";
+import type { TranscriptRow } from "../core/transcript.ts";
 import { logger, redact } from "../log.ts";
 
 const log = logger("guard");
@@ -48,15 +49,21 @@ export type AgentDeps = {
 /** Messages in a chat that the gateway wrote, not the owner (delegation reports, scheduled prompts). */
 export const NOT_THE_OWNER = /^\[(Result from bot|[\w-]+ could not finish|Scheduled task)/;
 
-/** What the reviewer is told: the owner's recent words where the work started, and any delegated task texts. */
-async function reviewContext(sessions: Sessions, sessionId: string, attention: string, roomOwner?: (sessionId: string) => string[] | undefined): Promise<{ humanMessages: string[]; delegated: string[] }> {
+/** A short answer's meaning is usually near the end of the reply it answers. */
+const REPLY_FOR_REVIEW_CHARS = 4000;
+
+/**
+ * What the reviewer is told: the owner's recent words where the work started, any delegated task texts,
+ * and the bot's reply the owner's latest message answers. That reply comes from before the message, so
+ * the owner has seen it and a bot cannot write itself context for the call it is about to make.
+ */
+async function reviewContext(sessions: Sessions, sessionId: string, attention: string, roomOwner?: (sessionId: string) => string[] | undefined): Promise<{ humanMessages: string[]; delegated: string[]; previousBotReply?: string }> {
+	const chat = await sessions.rows(attention);
+	const isOwner = (r: TranscriptRow) => r.role === "user" && Boolean(r.text.trim()) && !NOT_THE_OWNER.test(r.text);
 	// In a group chat a turn's prompt carries other bots' words too: the owner's come from the room's log.
-	const humanMessages =
-		roomOwner?.(attention) ??
-		(await sessions.rows(attention))
-			.filter((r) => r.role === "user" && r.text.trim() && !NOT_THE_OWNER.test(r.text))
-			.map((r) => r.text)
-			.slice(-8);
+	const room = roomOwner?.(attention);
+	const humanMessages = room ?? chat.filter(isOwner).map((r) => r.text).slice(-8);
+	const reply = room ? undefined : chat.slice(0, chat.findLastIndex(isOwner) + 1).findLast((r) => r.role === "assistant" && r.text.trim())?.text.slice(-REPLY_FOR_REVIEW_CHARS);
 	const delegated: string[] = [];
 	let row = sessions.get(sessionId);
 	for (let i = 0; row && row.id !== attention && i < 20; i++) {
@@ -64,7 +71,7 @@ async function reviewContext(sessions: Sessions, sessionId: string, attention: s
 		if (first) delegated.unshift(first.text);
 		row = row.parent_id ? sessions.get(row.parent_id) : undefined;
 	}
-	return { humanMessages, delegated };
+	return { humanMessages, delegated, ...(reply ? { previousBotReply: reply } : {}) };
 }
 
 function today(tz: string): string {

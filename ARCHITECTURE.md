@@ -131,9 +131,12 @@ rules, the approval guard and the operating-system user are what keep it from th
 
 Jev permission review (`src/core/review.ts`): when the guard would ask and the reasons are all
 reviewable (not the destructive group, an owner ask rule or manual mode; not a job or another machine's
-work), Jev gets the owner's recent messages from the chat where the work started, the delegated task
-texts (marked as not the owner's), and the call. A confident allow runs; anything else is the card, with
-Jev's view. Reviews are logged in `app.sqlite` (`reviews`) and listed in the panel.
+work), Jev gets the owner's recent messages from the chat where the work started, the bot's reply just
+before the latest of them (so "yes, option 1" has a meaning; it authorizes nothing), the delegated task
+texts (marked as not the owner's), and the call. It judges what a call does rather than how it gets
+there: reaching machines is ordinary for trusted work (`trusted` is the whole delegation chain's), and it
+denies disasters. A confident allow runs; anything else is the card, with Jev's view. Reviews are logged
+in `app.sqlite` (`reviews`) and listed in the panel.
 
 Trust boundaries: bot instructions and configured hosts are owner-trusted. Tool output (web pages, files,
 logs, API responses) is untrusted content; it never changes policy, and approvals are keyed on what the

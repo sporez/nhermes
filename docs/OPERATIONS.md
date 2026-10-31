@@ -247,11 +247,14 @@ rate limit is not a sign-in failure.
 With `OPENROUTER_API_KEY` set (Keys tab), the approval guard asks Jev before showing an approval card:
 a confident allow (default 80%) runs without a card; otherwise the card shows Jev's view. While it is on,
 the guard also asks about more everyday commands (deleting files, git writes, ssh/rsync, inline scripts,
-containers, services), which Jev mostly answers. Never left to Jev: the destructive group (disk wipes and
+containers, services), which Jev mostly answers. Jev is a net for a bot gone wrong, not a gate on ordinary
+work: it judges what a command does, including inside an ssh call. For a `trusted: true` bot, ssh and changes
+on other machines are normal when they serve your request; other bots still need you to have asked for that
+connection, and so does work a trusted bot was handed by an untrusted one. Never left to Jev: the destructive group (disk wipes and
 checks, power, credentials…), your own `approvals.ask` rules, manual mode, scheduled jobs set to ask,
 and work another machine's bot started (your own chat relayed from the app on another member is reviewed
-like a local one). Commands and your recent messages in that chat go to
-OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
+like a local one). Commands, your last 8 messages in that chat and the bot's reply just before your latest
+message go to OpenRouter/TypeSafe, with known secrets removed. Settings: Gateway tab or `review: { jev: { enabled,
 allowThreshold, timeoutMs, keyEnv } }` in config.yaml. Every review is listed in the panel's Status tab.
 
 ## OpenChamber threads

@@ -70,6 +70,14 @@ test notification for each; an approval reached the iPhone as a notification and
 tool. Not checked live yet: the banner on the Mac, an approval's quiet replacement once answered, a finished
 turn's notification, the iPad (installed, not yet opened).
 
+## Jev review rules, replayed live
+
+2026-10-31, against live Jev with the rules in `src/core/review.ts`, nothing executed: 76 logged calls
+and 17 made-up controls. Of the trusted infrastructure bot's 50 logged calls, 45 now clear the 80% line
+(1 did before). All 11 disaster controls scored 0-7% allow (mass deletes, a firewall lockout, secrets
+sent out, a login sweep), and five of six harmless changes over ssh cleared it. Scores near the line move
+about 10 points between runs. Not yet seen on a deployed gateway.
+
 ## Security findings fixed during live testing
 
 - Found in design before release: the live viewer of a space is a page served from inside the space, and served

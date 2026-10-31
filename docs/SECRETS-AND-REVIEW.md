@@ -102,6 +102,13 @@ Status: implemented (S1–S6); decisions recorded at the end.
   approve reading or using the gateway's own config, secrets or databases; never approve reaching
   other machines or bots outside `delegate`; heavy maintenance only when the human asked for that
   specific thing.
+- As changed later (owner, 2026-10-31): the reviewer judges what a call does, not its route. The rule
+  against reaching other machines now covers only work that is not trusted end to end: trusted bots
+  manage machines over ssh, read-only or not, and Jev looks for disasters (mass deletion, lockouts,
+  secrets leaving, login guessing, work unrelated to the request). Before this, no ssh call in the
+  live review log (42 of them) had been auto-allowed. Jev also gets the bot's reply just before the
+  owner's latest message, so "yes, option 1" has a meaning; it authorizes nothing, and it predates the
+  owner's message so a bot cannot write itself context for the call it is about to make.
 - Known secret values are redacted from everything sent. Commands leave the machine for OpenRouter
   and TypeSafe; the Gateway screen says so where the review is turned on.
 - Config: `review: { jev: { enabled, keyEnv, allowThreshold, timeoutMs, shadow } }`. Shadow mode
