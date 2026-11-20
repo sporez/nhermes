@@ -79,12 +79,17 @@ class Link {
 		this.subscribed.clear();
 		// Whoever followed these chats may have missed events: they subscribe again.
 		for (const id of lost) this.o.chats.stale(id);
+		this.reconnect();
+	}
+
+	/** Tries again, backing off, for as long as something here needs the member. */
+	private reconnect(): void {
 		if (this.closed || !this.o.chats.needsLink(this.o.nodeId)) return;
 		const delay = Math.min(30_000, 500 * 2 ** Math.min(this.failures++, 6));
 		this.retry = setTimeout(() => {
 			this.connect().then(
 				() => this.o.chats.relink(this.o.nodeId),
-				() => this.onClose(c),
+				() => this.reconnect(),
 			);
 		}, delay);
 		this.retry.unref();
@@ -148,8 +153,9 @@ export class MemberChats {
 		}
 		if (op === "sessions.subscribe") this.link(row.remote_node!).subscribed.add(row.id);
 		// The member's own model and reasoning for the chat (it may have chosen its own), for this gateway's answers.
-		const s = r.session as { model?: { provider?: unknown; id?: unknown }; thinking?: unknown } | undefined;
+		const s = r.session as { model?: { provider?: unknown; id?: unknown }; thinking?: unknown; running?: unknown } | undefined;
 		if (s && typeof s === "object") {
+			if (typeof s.running === "boolean") this.setRunning(row.id, s.running);
 			const { provider, id } = s.model ?? {};
 			const model = typeof provider === "string" && provider && typeof id === "string" && id ? `${provider}/${id}`.slice(0, 200) : undefined;
 			this.d.sessions().recordRemote(row.id, { model, thinking: thinkingLevel(s.thinking) });
@@ -171,9 +177,12 @@ export class MemberChats {
 			.catch((e: unknown) => log.warn("could not delete the chat on the member", { session: row.id, error: String(e) }));
 	}
 
-	/** Follows a chat's events (a client has it open). The member side is subscribed by the snapshot call. */
+	/**
+	 * Follows a chat's events (a client has it open). The member side is subscribed by the snapshot call, and stays
+	 * subscribed until the running turn ends even after the last client leaves: its end is what clears `running`,
+	 * keeps the reply as the preview and sends the notification.
+	 */
 	follow(id: string, fn: Listener): () => void {
-		const nodeId = this.d.sessions().get(id)?.remote_node ?? "";
 		let set = this.listeners.get(id);
 		if (!set) this.listeners.set(id, (set = new Set()));
 		set.add(fn);
@@ -181,9 +190,14 @@ export class MemberChats {
 			set.delete(fn);
 			if (set.size > 0) return;
 			this.listeners.delete(id);
-			const link = this.links.get(nodeId);
-			if (link?.subscribed.delete(id)) void link.call("sessions.unsubscribe", { id }).catch(() => undefined);
+			this.release(id);
 		};
+	}
+
+	/** Unsubscribes from a chat on the member once nobody here follows it and no turn is running in it. */
+	private release(id: string): void {
+		if (this.listeners.has(id) || this.running.has(id)) return;
+		for (const link of this.links.values()) if (link.subscribed.delete(id)) void link.call("sessions.unsubscribe", { id }).catch(() => undefined);
 	}
 
 	/** Whether this gateway still needs the member's socket: a chat there is followed here, or running. */
@@ -240,8 +254,11 @@ export class MemberChats {
 				break;
 			}
 			case "session.updated": {
-				const title = (e.data.session as { title?: unknown }).title;
+				// The member sends these whether or not the chat is subscribed, so they also correct `running` when a
+				// turn's end was missed.
+				const { title, running } = e.data.session as { title?: unknown; running?: unknown };
 				if (typeof title === "string" && title && title !== row.title) sessions.recordRemote(id, { title });
+				if (typeof running === "boolean") this.setRunning(id, running);
 				return;
 			}
 			case "session.deleted":
@@ -257,7 +274,10 @@ export class MemberChats {
 	private setRunning(id: string, running: boolean): void {
 		if (running === this.running.has(id)) return;
 		if (running) this.running.add(id);
-		else this.running.delete(id);
+		else {
+			this.running.delete(id);
+			this.release(id);
+		}
 		const row = this.d.sessions().get(id);
 		if (row) this.d.hub.publishGlobal({ type: "sessions.changed", bot: row.bot, sessionId: id });
 	}

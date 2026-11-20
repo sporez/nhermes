@@ -166,6 +166,70 @@ test("uploads into a chat with beta's bot are kept on beta and open through alph
 	}
 });
 
+/** Resolves once alpha says whether the chat with beta's bot is running, as the app's list would show it. */
+function runningOnAlpha(g: Gw, sid: string, want: boolean): Promise<void> {
+	return new Promise((resolve) => {
+		if (g.core.sessions.isRunning(sid) === want) return resolve();
+		const off = g.core.hub.onGlobal((e) => {
+			if (e.type !== "sessions.changed" || e.sessionId !== sid || g.core.sessions.isRunning(sid) !== want) return;
+			off();
+			resolve();
+		});
+	});
+}
+
+test("a reply in a chat with beta's bot ends on alpha after the app that started it has left", async () => {
+	const n = await network();
+	const phone = await ApiSocketClient.connect(n.a.port);
+	const mac = await ApiSocketClient.connect(n.a.port);
+	try {
+		const { session } = await phone.call<{ session: Session }>("sessions.create", { botId: "nasbot-beta" });
+		const sid = session.id;
+		await phone.call("sessions.subscribe", { id: sid });
+		n.b.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "sudo apt-get install -y cowsay" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Left cowsay alone.")]),
+		]);
+		await phone.call("sessions.submit", { id: sid, text: "Install cowsay" });
+		const ask = await mac.waitEvent("approval.requested", 10000);
+		await runningOnAlpha(n.a, sid, true);
+
+		// The phone goes to the background mid-reply: nothing on alpha follows the chat any more.
+		await phone.close();
+		await mac.call("approvals.answer", { id: (ask.data.approval as { id: string }).id, choice: "deny" });
+		await runningOnAlpha(n.a, sid, false);
+		const row = n.a.core.sessions.get(sid)!;
+		assert.equal(row.preview, "Left cowsay alone.", "the reply that ended unseen is the chat's preview");
+	} finally {
+		await phone.close().catch(() => undefined);
+		await mac.close();
+		await n.close();
+	}
+});
+
+test("alpha learns that a reply in a chat with beta's bot ended even when it missed the turn's end", async () => {
+	const n = await network();
+	const app = await ApiSocketClient.connect(n.a.port);
+	try {
+		const { session } = await app.call<{ session: Session }>("sessions.create", { botId: "nasbot-beta" });
+		const sid = session.id;
+		n.b.faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("bash", { command: "sudo apt-get install -y cowsay" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Left cowsay alone.")]),
+		]);
+		await app.call("sessions.submit", { id: sid, text: "Install cowsay" });
+		const ask = await app.waitEvent("approval.requested", 10000);
+		await runningOnAlpha(n.a, sid, true);
+		// Beta stops sending the chat's events to alpha, as when a subscription is lost: only its session updates remain.
+		await n.a.core.memberChats.forward(n.a.core.sessions.require(sid), "sessions.unsubscribe", {});
+		await app.call("approvals.answer", { id: (ask.data.approval as { id: string }).id, choice: "deny" });
+		await runningOnAlpha(n.a, sid, false);
+	} finally {
+		await app.close();
+		await n.close();
+	}
+});
+
 test("a dropped link tells the app to subscribe again; an offline member is reported", async () => {
 	const n = await network();
 	const app = await ApiSocketClient.connect(n.a.port);
