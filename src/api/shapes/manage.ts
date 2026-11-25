@@ -1,6 +1,7 @@
 // Wire shapes of the gateway upkeep resources (docs/API.md "Gateway"): settings, keys, scheduled tasks,
 // workspace files, software and actions. Times leave as Unix milliseconds. No key value is in any of them,
 // only whether it is set and the last characters that tell keys apart.
+import { builtInGroundRules } from "../../agent/extensions.ts";
 import type { Core } from "../../app.ts";
 import type { ActionRecord } from "../../core/actions.ts";
 import { ms } from "../../core/job-shapes.ts";
@@ -11,11 +12,13 @@ import { VERSION } from "../../version.ts";
 export function gatewaySettingsJson(core: Core) {
 	const c = core.config;
 	return {
+		node: core.members.self().name,
 		timeZone: c.timezone,
 		defaults: { model: c.defaults.model, thinking: c.defaults.thinking, approvals: c.defaults.approvals, approvalTimeoutS: c.defaults.approvalTimeoutS, questionTimeoutS: c.defaults.questionTimeoutS },
 		hiddenModelProviders: c.modelLists.hide,
-		groundRules: c.groundRules ?? null,
-		review: { enabled: c.review.enabled, allowThreshold: c.review.allowThreshold, timeoutMs: c.review.timeoutMs, keyEnv: c.review.keyEnv },
+		addedRules: c.addedRules ?? null,
+		builtInGroundRules: builtInGroundRules(c),
+		review: { enabled: c.review.enabled, allowThreshold: c.review.allowThreshold, timeoutMs: c.review.timeoutMs, keyEnv: c.review.keyEnv, keySet: Boolean(c.review.keyEnv && process.env[c.review.keyEnv]) },
 	};
 }
 

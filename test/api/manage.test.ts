@@ -72,17 +72,19 @@ test("gateway settings: read, change, restart-only ones reported, bad values ref
 		assert.equal(s.timeZone, "America/New_York");
 		assert.deepEqual(s.defaults, { model: "faux/faux-1", thinking: "medium", approvals: "smart", approvalTimeoutS: 30, questionTimeoutS: 30 });
 		assert.deepEqual(s.hiddenModelProviders, ["openrouter"]);
-		assert.equal(s.groundRules, null);
+		assert.equal(s.addedRules, null);
+		assert.match(s.builtInGroundRules, /^Ground rules/);
+		assert.equal(s.review.keySet, false);
 
-		const r = await g.call<Obj>("PATCH /gateway/settings", { defaults: { thinking: "high", model: "faux/faux-2" }, groundRules: "Be brief.", hiddenModelProviders: ["openrouter", "other"], review: { allowThreshold: 0.9 }, timeZone: "Europe/London" });
+		const r = await g.call<Obj>("PATCH /gateway/settings", { defaults: { thinking: "high", model: "faux/faux-2" }, addedRules: "Be brief.", hiddenModelProviders: ["openrouter", "other"], review: { allowThreshold: 0.9 }, timeZone: "Europe/London" });
 		assert.equal(r.settings.defaults.thinking, "high");
 		assert.equal(r.settings.defaults.model, "faux/faux-2");
-		assert.equal(r.settings.groundRules, "Be brief.");
+		assert.equal(r.settings.addedRules, "Be brief.");
 		assert.deepEqual(r.settings.hiddenModelProviders, ["openrouter", "other"]);
 		assert.equal(r.settings.review.allowThreshold, 0.9);
 		assert.ok(r.restartNeeded.includes("timezone"), "the time zone applies after a restart");
 		assert.deepEqual((await g.call<Obj>("GET /gateway/settings")).defaults.thinking, "high");
-		assert.equal((await g.call<Obj>("PATCH /gateway/settings", { groundRules: null })).settings.groundRules, null);
+		assert.equal((await g.call<Obj>("PATCH /gateway/settings", { addedRules: null })).settings.addedRules, null);
 		// How long a bot's question waits applies at once.
 		const q = await g.call<Obj>("PATCH /gateway/settings", { defaults: { questionTimeoutS: 3600 } });
 		assert.equal(q.settings.defaults.questionTimeoutS, 3600);

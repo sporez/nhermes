@@ -3,6 +3,7 @@
 // bot's files (sessions.file) open for the member that started the chat. Keys never come back: a value goes
 // in, and only whether it is set and its last characters come out.
 import { randomUUID } from "node:crypto";
+import type { Core } from "../../app.ts";
 import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { THINKING_LEVELS, type ThinkingLevel } from "../../config.ts";
@@ -12,6 +13,7 @@ import { jobJson, ms, runJson } from "../../core/job-shapes.ts";
 import { type JobInput, type NotifyPolicy } from "../../core/scheduler.ts";
 import { usageReport } from "../../core/usage.ts";
 import { FILE_MAX, insideWorkspace, mimeOf, workspaceRoots } from "../../core/workspaces.ts";
+import { manageCall } from "../../federation/manage-client.ts";
 import { RawBody } from "../../http.ts";
 import { recentLogs } from "../../log.ts";
 import { ApiError } from "../errors.ts";
@@ -34,7 +36,16 @@ const owner = (fn: (p: Params, cx: OpContext) => unknown | Promise<unknown>) => 
 
 // ---- Settings ----
 
-function settingsPatch(p: Params, cx: OpContext): GatewayPatch {
+/** The network member a settings call names with `node`; none (or this gateway's own name) is this gateway. */
+function settingsNode(p: Params, cx: OpContext): string | undefined {
+	const node = p.optStr("node")?.trim();
+	if (!node || node === cx.core.members.self().name) return undefined;
+	if (!cx.core.members.byName(node)) throw new ApiError("not_found", `There is no machine named ${node} in this gateway's network.`);
+	return node;
+}
+
+/** A settings change as the client API sends it, checked against this gateway (a member's runs it on its own). */
+export function settingsPatch(p: Params, core: Core): GatewayPatch {
 	const patch: GatewayPatch = {};
 	const tz = p.optStr("timeZone");
 	if (tz !== undefined) patch.timezone = tz;
@@ -44,7 +55,7 @@ function settingsPatch(p: Params, cx: OpContext): GatewayPatch {
 		if (d.model !== undefined) {
 			const ref = String(d.model);
 			const i = ref.indexOf("/");
-			if (i <= 0 || !cx.core.models.getModel(ref.slice(0, i), ref.slice(i + 1))) throw new ApiError("invalid_params", `There is no model ${ref} on this gateway (use provider/model).`);
+			if (i <= 0 || !core.models.getModel(ref.slice(0, i), ref.slice(i + 1))) throw new ApiError("invalid_params", `There is no model ${ref} on this gateway (use provider/model).`);
 			defaults.model = ref;
 		}
 		if (d.thinking !== undefined) {
@@ -67,8 +78,8 @@ function settingsPatch(p: Params, cx: OpContext): GatewayPatch {
 	}
 	const hide = p.optList("hiddenModelProviders");
 	if (hide) patch.modelLists = { hide };
-	if (p.raw.groundRules === null) patch.groundRules = null;
-	else if (p.has("groundRules")) patch.groundRules = p.optStr("groundRules")!;
+	if (p.raw.addedRules === null) patch.addedRules = null;
+	else if (p.has("addedRules")) patch.addedRules = p.optStr("addedRules")!;
 	const r = p.optObject("review");
 	if (r) {
 		const review: NonNullable<GatewayPatch["review"]> = {};
@@ -198,12 +209,25 @@ function startAction(p: Params, cx: OpContext) {
 }
 
 export const manageOps: Op[] = [
-	{ name: "gateway.settings", http: "GET /gateway/settings", handle: owner((_p, cx) => gatewaySettingsJson(cx.core)) },
+	{
+		name: "gateway.settings",
+		http: "GET /gateway/settings",
+		handle: owner(async (p, cx) => {
+			const node = settingsNode(p, cx);
+			if (node) return manageCall(cx.core, node, "GET", "/federation/manage/settings", undefined, 10_000);
+			return gatewaySettingsJson(cx.core);
+		}),
+	},
 	{
 		name: "gateway.updateSettings",
 		http: "PATCH /gateway/settings",
-		handle: owner((p, cx) => {
-			const { restartNeeded } = cx.core.settings.setGateway(settingsPatch(p, cx));
+		handle: owner(async (p, cx) => {
+			const node = settingsNode(p, cx);
+			if (node) {
+				const { node: _n, ...body } = p.raw;
+				return manageCall(cx.core, node, "PATCH", "/federation/manage/settings", body);
+			}
+			const { restartNeeded } = cx.core.settings.setGateway(settingsPatch(p, cx.core));
 			return { settings: gatewaySettingsJson(cx.core), restartNeeded };
 		}),
 	},

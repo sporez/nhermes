@@ -22,15 +22,28 @@ async function networkScreen() {
 		try { await api("PATCH", "/network/settings", { acceptLogins: logins.checked }); toast("Saved"); }
 		catch (e) { logins.checked = !logins.checked; throw e; }
 	}));
+	// Each switch lists exactly what it lets the other machines in this network do here.
+	const allows = (intro, items, after) => h("div", { class: "hint" }, intro, h("ul", { class: "allows" }, ...items.map((t) => h("li", {}, t))), after);
 	const acceptCard = h("div", { class: "card" },
 		h("label", {}, accept, " ", h("strong", {}, "Accept keys from other machines")),
-		h("div", { class: "hint" }, "Lets members of this network set keys in this machine's secrets.env. Keys travel encrypted."),
+		allows("Other machines can:", [
+			"set keys in this machine's secrets.env (the values travel encrypted; they are never sent back)",
+		]),
 		h("div", { class: "field" }),
-		h("label", {}, edits, " ", h("strong", {}, "Let other machines edit this machine's bots")),
-		h("div", { class: "hint" }, "Their panels can then create, edit and remove this machine's bots (private ones included), change their skills and read their system prompts, as this panel can. Hosts, workspaces and keys stay editable only here."),
+		h("label", {}, edits, " ", h("strong", {}, "Let other machines manage this machine")),
+		allows("Other machines' panels and apps can:", [
+			"create, edit and remove this machine's bots, private ones included: name, description, model, reasoning, tools, memory spaces, recent chats, approvals, Trusted, Private, Default and instructions",
+			"turn its bots' skills on and off",
+			"read the system prompts of all its bots, private ones included",
+			"add, edit, remove and test its MCP servers",
+			"in your own chats with its bots from another machine's app, let a bot change its own settings (the self tools), asking you first as here",
+			"change its gateway settings: default model, reasoning and approvals, how long approvals and questions wait, time zone, hidden model providers, the permission review, and the rules added for every bot",
+		], "Only this machine can change its bots' hosts, workspaces, SOUL files and key names, and its address and port; the built-in ground rules come with nHermes. Without this switch, other machines can still chat with its shared bots, read their skills and system prompts, and list and test its MCP servers."),
 		h("div", { class: "field" }),
 		h("label", {}, logins, " ", h("strong", {}, "Let other machines sign this machine in to model providers")),
-		h("div", { class: "hint" }, "Their panels can start and answer sign-ins here (Logins tab). The sign-in is saved on this machine; no tokens are sent to them."));
+		allows("Other machines' panels can:", [
+			"start and answer sign-ins to model providers here (Logins tab); the sign-in is saved on this machine and no tokens are sent to them",
+		]));
 	const act = (fn) => () => run(async () => { await fn(); await reload(); });
 	const out = h("div");
 

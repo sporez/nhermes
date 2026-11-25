@@ -59,6 +59,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 label.field { display: block; margin-bottom: .8rem; }
 label.field > span { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .2rem; }
 .hint { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
+.hint ul.allows { margin: .2rem 0 .3rem; padding-left: 1.1rem; }
 .checks { display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
 .checks label { display: flex; gap: .35rem; align-items: center; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }

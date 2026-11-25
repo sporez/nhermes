@@ -20,8 +20,8 @@ export type GatewayPatch = {
 	server?: { host?: string; port?: number; name?: string };
 	defaults?: { model?: string; thinking?: ThinkingLevel; approvals?: ApprovalMode; approvalTimeoutS?: number; questionTimeoutS?: number };
 	timezone?: string;
-	/** The ground rules for every bot; null goes back to the built-in rules. */
-	groundRules?: string | null;
+	/** The owner's rules added after the built-in ground rules; null or empty removes them. */
+	addedRules?: string | null;
 	/** Model providers to leave out of model pickers. */
 	modelLists?: { hide?: string[] };
 	/** Jev permission review settings. */
@@ -238,8 +238,8 @@ export class Settings {
 			if (patch.timezone !== undefined) doc.set("timezone", patch.timezone);
 			if (patch.modelLists?.hide !== undefined) doc.setIn(["models", "hide"], doc.createNode(patch.modelLists.hide, { flow: true }));
 			for (const [k, v] of Object.entries(patch.review ?? {})) if (v !== undefined) doc.setIn(["review", "jev", k], v);
-			if (patch.groundRules === null || patch.groundRules?.trim() === "") doc.delete("groundRules");
-			else if (patch.groundRules !== undefined) doc.set("groundRules", doc.createNode(`${patch.groundRules.trim()}\n`));
+			if (patch.addedRules === null || patch.addedRules?.trim() === "") doc.delete("addedRules");
+			else if (patch.addedRules !== undefined) doc.set("addedRules", doc.createNode(`${patch.addedRules.trim()}\n`));
 		});
 	}
 
@@ -285,7 +285,7 @@ export class Settings {
 		const changed = [...after.keys()].filter((n) => before.has(n) && before.get(n) !== after.get(n));
 		const restartNeeded = RESTART_ONLY.filter(([, get]) => JSON.stringify(get(config)) !== JSON.stringify(get(next))).map(([k]) => k);
 		config.bots = next.bots;
-		config.groundRules = next.groundRules;
+		config.addedRules = next.addedRules;
 		config.review = next.review;
 		config.modelLists = next.modelLists;
 		config.defaults = { ...next.defaults, approvalTimeoutS: config.defaults.approvalTimeoutS };

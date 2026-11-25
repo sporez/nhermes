@@ -196,7 +196,7 @@ test("a member's bot is edited on its own machine, once that machine allows it",
 
 		// Off by default on beta: every edit and the editor's settings are refused with beta's own message. What a
 		// client shows for a bot it chats with (skills, prompt, MCP servers) can still be read.
-		await fails(a.api(`PATCH /bots/${id}`, { description: "Changed" }), "not_allowed", /beta does not accept bot edits/);
+		await fails(a.api(`PATCH /bots/${id}`, { description: "Changed" }), "not_allowed", /beta doesn't let other machines manage it/);
 		await fails(a.api(`GET /bots/${id}/settings`), "not_allowed");
 		await fails(a.api(`PUT /bots/${id}/skills/anything`, { enabled: true }), "not_allowed");
 		assert.ok(Array.isArray((await a.api<{ items: unknown[] }>(`GET /bots/${id}/skills`)).items));
@@ -209,9 +209,20 @@ test("a member's bot is edited on its own machine, once that machine allows it",
 		assert.equal(b.core.bots.get("nasbot")!.description, "Runs on the NAS");
 
 		await fails(a.api("GET /bot-choices", { node: "beta" }), "not_allowed");
+		await fails(a.api("GET /gateway/settings", { node: "beta" }), "not_allowed");
+		await fails(a.api("PATCH /gateway/settings", { node: "beta", addedRules: "x" }), "not_allowed");
+		await fails(a.api("GET /gateway/settings", { node: "gamma" }), "not_found");
 		await fails(a.api("POST /bots", { name: "newbie", node: "beta" }), "not_allowed");
 
 		b.core.members.setAcceptsBotEdits(true);
+		// Beta's gateway settings, read and changed from here; this gateway's own name is this gateway.
+		assert.equal((await a.api<{ node: string }>("GET /gateway/settings", { node: "beta" })).node, "beta");
+		assert.equal((await a.api<{ node: string }>("GET /gateway/settings", { node: "alpha" })).node, "alpha");
+		const set = await a.api<{ settings: { node: string; addedRules: string }; restartNeeded: string[] }>("PATCH /gateway/settings", { node: "beta", addedRules: "Be quiet at night." });
+		assert.deepEqual([set.settings.node, set.settings.addedRules, set.restartNeeded], ["beta", "Be quiet at night.", []]);
+		assert.equal(b.core.config.addedRules, "Be quiet at night.");
+		assert.equal(a.core.config.addedRules, undefined);
+		await fails(a.api("PATCH /gateway/settings", { node: "beta", defaults: { model: "nope/none" } }), "invalid_params");
 		// A new bot on beta: made there, with beta's choices, and listed here as beta's.
 		const there = await a.api<{ node: string; machines: { name: string; self: boolean }[]; models: string[]; defaults: { tools: string[] }; editableKeys: string[] }>("GET /bot-choices", { node: "beta" });
 		assert.deepEqual([there.node, there.machines.map((m) => [m.name, m.self])], ["beta", [["alpha", true], ["beta", false]]]);

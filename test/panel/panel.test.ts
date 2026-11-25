@@ -96,18 +96,23 @@ test("the panel is open without a password, and only its own page can change thi
 		assert.equal((await panel("PATCH", "/bots/ops", { recentChats: null })).status, 200);
 		assert.equal((await effectiveOf("ops")).recentChats, 5);
 
-		// The system prompt: shown in parts; the ground rules are editable for every bot and resettable.
-		const prompt = (await panel("GET", "/bots/main/prompt")).json as { groundRules: string; groundRulesCustom: boolean; full: string; identity: string };
+		// The system prompt: shown in parts; the built-in ground rules stay, and the owner's added rules follow them.
+		type Prompt = { groundRules: string; builtInGroundRules: string; addedRules: string | null; full: string; identity: string };
+		const prompt = (await panel("GET", "/bots/main/prompt")).json as Prompt;
 		assert.match(prompt.groundRules, /do not fake a capability you were not given/);
-		assert.equal(prompt.groundRulesCustom, false);
+		assert.equal(prompt.addedRules, null);
+		assert.equal(prompt.groundRules, prompt.builtInGroundRules);
 		assert.ok(prompt.full.includes(prompt.identity) && prompt.full.includes(prompt.groundRules));
-		assert.equal((await panel("PATCH", "/gateway", { groundRules: "Never touch the router.\nAsk before buying anything." })).status, 200);
-		assert.match(readFileSync(path, "utf8"), /groundRules: \|\n\s+Never touch the router\.\n\s+Ask before buying anything\./);
-		const custom = (await panel("GET", "/bots/ops/prompt")).json as { groundRules: string; groundRulesCustom: boolean };
-		assert.deepEqual([custom.groundRules, custom.groundRulesCustom], ["Never touch the router.\nAsk before buying anything.", true]);
-		assert.equal((await panel("PATCH", "/gateway", { groundRules: null })).status, 200);
-		assert.equal(((await panel("GET", "/bots/ops/prompt")).json as { groundRulesCustom: boolean }).groundRulesCustom, false);
-		assert.doesNotMatch(readFileSync(path, "utf8"), /groundRules/);
+		assert.equal((await panel("PATCH", "/gateway", { addedRules: "Never touch the router.\nAsk before buying anything." })).status, 200);
+		assert.match(readFileSync(path, "utf8"), /addedRules: \|\n\s+Never touch the router\.\n\s+Ask before buying anything\./);
+		const added = (await panel("GET", "/bots/ops/prompt")).json as Prompt;
+		assert.equal(added.addedRules, "Never touch the router.\nAsk before buying anything.");
+		assert.ok(added.groundRules.startsWith(added.builtInGroundRules), "the built-in rules stay first");
+		assert.ok(added.groundRules.endsWith("Never touch the router.\nAsk before buying anything."));
+		assert.ok(added.full.includes("Never touch the router."));
+		assert.equal((await panel("PATCH", "/gateway", { addedRules: null })).status, 200);
+		assert.equal(((await panel("GET", "/bots/ops/prompt")).json as Prompt).addedRules, null);
+		assert.doesNotMatch(readFileSync(path, "utf8"), /addedRules/);
 	} finally {
 		await server.close();
 		await core.close();

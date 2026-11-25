@@ -76,7 +76,7 @@ async function botsScreen(refresh = true) {
 function readOnlyBot(b, member) {
 	const why = !member || !member.reachable
 		? `${b.node} is offline; its bots can be edited here again when it is back.`
-		: `${b.node} does not accept bot edits from other machines. Turn on "Let other machines edit this machine's bots" in ${b.node}'s panel (Network) to manage its bots from here.`;
+		: `${b.node} doesn't let other machines manage it. Turn on "Let other machines manage this machine" in ${b.node}'s panel (Network) to manage its bots from here.`;
 	return h("div", { class: "card" },
 		h("div", { class: "row" }, h("h3", {}, b.displayName || b.name), h("span", { class: "muted small" }, b.name), !b.reachable && badge("offline", "bad"), badge(b.model)),
 		b.description && h("p", { class: "muted" }, b.description),
@@ -236,33 +236,30 @@ const SECTION_HINTS = {
 	"About you and nHermes": "Generated for bots with the self tool group.",
 };
 
-/** The bot's system prompt as a new chat gets it, loaded when opened; this machine's ground rules are edited here too. */
+/** The bot's system prompt as a new chat gets it, loaded when opened; the rules added for every bot on its machine are edited here too. */
 function promptCard(bot, ctx) {
 	const body = h("div");
 	const load = () => run(async () => {
 		const p = await api("GET", `${ctx.base}/bots/${encodeURIComponent(bot.name)}/prompt`);
 		const block = (title, text, hint) => h("div", { class: "field" }, h("span", {}, title), h("pre", { class: "mono pre-wrap prompt" }, text), hint && h("div", { class: "hint" }, hint));
-		let rulesPart;
-		if (ctx.node) {
-			// Ground rules are a gateway setting: each machine's own panel edits its own.
-			rulesPart = [block("3. Ground rules", p.groundRules, `Shared by every bot on ${ctx.node}${p.groundRulesCustom ? " (its own text)" : " (built-in text)"}; edit them in ${ctx.node}'s panel.`)];
-		} else {
-			const rules = h("textarea", { class: "mono tall", value: p.groundRules });
-			const saveRules = () => run(async () => {
-				if (rules.value.trim() === p.groundRules) return toast("Nothing changed");
-				restartNote(await api("PATCH", "/gateway", { groundRules: rules.value.trim() }));
-				await load();
-			});
-			const reset = () => run(async () => {
-				if (!await ask("Go back to the built-in ground rules for every bot?")) return;
-				restartNote(await api("PATCH", "/gateway", { groundRules: null }));
-				await load();
-			});
-			rulesPart = [
-				field("3. Ground rules", rules, `Shared by every bot on this machine${p.groundRulesCustom ? " (your own text, saved in config.yaml)" : " (built-in text)"}.`),
-				h("div", { class: "row" }, h("button", { class: "primary", on: { click: saveRules } }, "Save ground rules"), p.groundRulesCustom && h("button", { on: { click: reset } }, "Use the built-in rules")),
-			];
-		}
+		// The built-in ground rules come with nHermes and update with it; the owner adds rules after them, on
+		// this machine or (with its "Let other machines manage this machine" switch on) on a member.
+		const where = ctx.node ? ctx.node : "this machine";
+		const settingsPath = ctx.node ? `/remote/${encodeURIComponent(ctx.node)}/settings` : "/gateway";
+		const added = h("textarea", { class: "mono", rows: 6, placeholder: "Rules of your own, one per line", value: p.addedRules ?? "" });
+		const saveAdded = () => run(async () => {
+			const text = added.value.trim();
+			if (text === (p.addedRules ?? "")) return toast("Nothing changed");
+			const r = await api("PATCH", settingsPath, { addedRules: text || null });
+			if (!ctx.node) restartNote(r);
+			toast("Saved");
+			await load();
+		});
+		const rulesPart = [
+			block("3. Ground rules (built-in)", p.builtInGroundRules, `Come with nHermes and update with it on ${where}; they can't be edited.`),
+			field("Your added rules", added, `Told to every bot on ${where}, after the built-in rules (addedRules in its config.yaml).${ctx.node ? ` Saving needs "Let other machines manage this machine" on in ${ctx.node}'s panel (Network).` : ""}`),
+			h("div", { class: "row" }, h("button", { class: "primary", on: { click: saveAdded } }, "Save added rules")),
+		];
 		body.replaceChildren(
 			block("1. Instructions", p.instructions || "(none)", "This bot's own text; edit it in Instructions above."),
 			block("2. Identity", p.identity, "Generated."),

@@ -112,7 +112,7 @@ test("a member's MCP servers are managed from another panel and from the client 
 		// Off by default: refused, and the client API's toggle for the member's bot too.
 		const refused = await panel(a, "GET", "/remote/beta/mcp");
 		assert.equal(refused.status, 403);
-		assert.match(refused.json.detail, /does not accept bot edits/);
+		assert.match(refused.json.detail, /doesn't let other machines manage it/);
 		await assert.rejects(api(a)("PUT /mcp/servers/cal/bots/nasbot-beta", { enabled: false }), (e: { status: number }) => e.status === 403);
 		// Reading and testing need no switch: the client shows the member's servers either way.
 		const read = await api(a)<{ items: { name: string; enabledForBot: boolean }[] }>("GET /mcp/servers", { botId: "nasbot-beta" });

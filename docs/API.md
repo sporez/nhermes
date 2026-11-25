@@ -153,7 +153,7 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `bots.choices` | `GET /bot-choices` | | `node?` (a network member's name). What a new bot's editor needs for that machine (this gateway without `node`): see Bot settings |
 | `bots.skills` | `GET /bots/:id/skills` | | `{items: [{name, description, source, active, usage}], toolGroupOn, allGlobal}` |
 | `bots.setSkill` | `PUT /bots/:id/skills/:name` | | `enabled`. `{skill}` |
-| `bots.prompt` | `GET /bots/:id/prompt` | | The system prompt in parts: `{prompt: {instructions, identity, groundRules, generated, groundRulesCustom, builtInGroundRules, tools, full}}` |
+| `bots.prompt` | `GET /bots/:id/prompt` | | The system prompt in parts: `{prompt: {instructions, identity, groundRules, generated, addedRules, builtInGroundRules, tools, full}}` (`groundRules` is what the bot is told: the built-in rules, then `addedRules`) |
 | `bots.rules` | `GET /bots/:id/rules` | | The bot's "always allowed" approval rules: `{items: [{rule}]}`. A member's bot answers `not_available` (its rules are kept on its machine) |
 | `bots.addRule` | `POST /bots/:id/rules` | | `rule`. `{rule: {rule}}` |
 | `bots.removeRule` | `DELETE /bots/:id/rules` | | `rule`. `{deleted}` |
@@ -165,8 +165,8 @@ parameters and a JSON body are merged into one parameter object; over the socket
 | `mcp.delete` | `DELETE /mcp/servers/:name` | | Removes it, and its tool group from every bot. `{deleted: true}` |
 | `mcp.action` | `POST /mcp/servers/:name/:action` | | `test`: `{ok, error?, state, toolCount, tools}`; `reconnect`, `refresh`: `{ok: true, server}` |
 | `mcp.setForBot` | `PUT /mcp/servers/:name/bots/:botId` | | `enabled`: gives the bot the server's tools or takes them away. `{server}` |
-| `gateway.settings` | `GET /gateway/settings` | | See Gateway settings |
-| `gateway.updateSettings` | `PATCH /gateway/settings` | | The same fields, all optional. `{settings, restartNeeded}` |
+| `gateway.settings` | `GET /gateway/settings` | | `node?`. See Gateway settings |
+| `gateway.updateSettings` | `PATCH /gateway/settings` | | `node?`, the same fields (but `node`, `builtInGroundRules`, `keySet`), all optional. `{settings, restartNeeded}` |
 | `gateway.logs` | `GET /gateway/logs` | | `lines?` (200, at most 500). `{lines}`: what this process logged |
 | `gateway.usage` | `GET /gateway/usage` | | `days?` (30, at most 366), `botId?`. See Usage analytics |
 | `keys.list` | `GET /keys` | | `{items: [{name, set, description, usedBy, hint}]}`. Never a value |
@@ -613,9 +613,13 @@ literal, or `null` when its name looks like a credential; no key is ever returne
 
 ## Gateway settings
 
-`{timeZone, defaults: {model, thinking, approvals, approvalTimeoutS, questionTimeoutS}, hiddenModelProviders,
-groundRules, review: {enabled, allowThreshold, timeoutMs, keyEnv}}`. `groundRules` is `null` for the built-in
-rules (send `null` to go back to them). `questionTimeoutS` is how long a bot's question waits (a day by default;
+`{node, timeZone, defaults: {model, thinking, approvals, approvalTimeoutS, questionTimeoutS},
+hiddenModelProviders, addedRules, builtInGroundRules, review: {enabled, allowThreshold, timeoutMs, keyEnv,
+keySet}}`. `node` is the machine the settings are for. `builtInGroundRules` come with the software and cannot be
+changed; `addedRules` is the owner's text told to every bot after them (`null` for none; send `null` or "" to
+remove it). `keySet` is whether the review's key is set on that machine. Both calls take `node` to read or
+change a network member's settings instead, which needs that machine's "Let other machines manage this
+machine" switch (`not_allowed` until it is on); its answer, `restartNeeded` included, is that machine's. `questionTimeoutS` is how long a bot's question waits (a day by default;
 it applies at once). `restartNeeded` names the settings that take effect only after a restart (time zone,
 approval timeout); until then the answer shows the values in force.
 

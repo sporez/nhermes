@@ -385,9 +385,14 @@ Every machine runs the same gateway; together they form one network of equals (`
   encrypted: a machine on a version without the encrypted port must be updated before it can join, and
   a member the panel marks "No encrypted link" must be removed and joined again.
 - A gateway that moves (another port or IP) tells the other members by itself on its next tick.
-- "Let other machines edit this machine's bots" (Network tab, off by default) lets the other members'
-  panels, and the app connected to them, change this machine's bots (`docs/REMOTE-BOT-EDITS.md`) and its MCP
-  servers (the MCP tab's "Other machines"; key values stay here, see `docs/MCP.md`).
+- "Let other machines manage this machine" (Network tab, off by default; `federation.acceptBotEdits`) lets
+  the other members' panels, and the app connected to them: create, edit and remove this machine's bots,
+  private ones included (`docs/REMOTE-BOT-EDITS.md`); turn their skills on and off; read every bot's system
+  prompt; add, edit, remove and test its MCP servers (key values stay here, see `docs/MCP.md`); change its
+  gateway settings (defaults, time zone, hidden model providers, permission review, added rules); and, in
+  the owner's chat relayed from a member, let a bot's `self_*` tools ask as in a local chat. The panel lists
+  exactly these under the switch. Hosts, workspaces, SOUL files, key names, the address and port stay
+  editable only here, and the built-in ground rules come with the software.
 - "Let other machines sign this machine in to model providers" (Network tab, off by default) lets the other
   members' panels and `nhermes auth --machine` start, answer and cancel provider sign-ins here, and sign
   this machine out (`docs/LOGINS.md`). The sign-in is saved on this machine; no token is sent to them.

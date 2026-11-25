@@ -1,10 +1,14 @@
 // Editing this gateway's bots from another member's panel or client. Only when this gateway's owner allowed it
-// (Network: "Let other machines edit this machine's bots"). The member sends the same edits this gateway's own
+// (Network: "Let other machines manage this machine"). The member sends the same edits this gateway's own
 // panel would, and they run through the same services here: this machine's config.yaml is written by this
 // machine. Settings that point at this machine's files, hosts or credentials stay local. A member's client
 // may read a shared bot's skills and prompt, and this machine's MCP servers, without that switch
 // (`/federation/read/*`).
 import type { Core } from "../app.ts";
+import { ApiError } from "../api/errors.ts";
+import { settingsPatch } from "../api/ops/manage.ts";
+import { Params } from "../api/params.ts";
+import { gatewaySettingsJson } from "../api/shapes/manage.ts";
 import { type BotConfig, ConfigError } from "../config.ts";
 import type { Bot } from "../core/bots.ts";
 import type { BotPatch } from "../core/settings.ts";
@@ -43,7 +47,7 @@ export function manageRoutes(core: Core): Router {
 	const r = new Router();
 	const allowed = (q: Req): MemberRow => {
 		if (!q.member) throw new HttpError(401, "Unauthorized");
-		if (!core.members.acceptsBotEdits()) throw new HttpError(403, `${core.members.self().name} does not accept bot edits from other machines; turn that on in its panel (Network)`);
+		if (!core.members.acceptsBotEdits()) throw new HttpError(403, `${core.members.self().name} doesn't let other machines manage it; turn on "Let other machines manage this machine" in its panel (Network)`);
 		return q.member;
 	};
 	const bot = (name: string): Bot => {
@@ -104,6 +108,23 @@ export function manageRoutes(core: Core): Router {
 	// This machine's MCP servers (src/mcp/manage.ts), under the same switch. Key values never travel: headers
 	// name keys as {{secret:NAME}}, set on this machine (or copied with the Keys tab, under its own switch).
 	const mcpChanged = (q: Req, what: string, name: string) => log.info(`mcp server ${what} by a member`, { server: name, by: q.member!.name });
+	// This machine's gateway settings (defaults, time zone, model lists, review, added rules), as its own client API
+	// reads and changes them. Ports, addresses, keys and the built-in ground rules stay as they are here.
+	r.on("GET", "/federation/manage/settings", (q) => (allowed(q), gatewaySettingsJson(core)));
+	r.on("PATCH", "/federation/manage/settings", (q) => {
+		allowed(q);
+		const patch = settingsCall(() => {
+			try {
+				return settingsPatch(new Params(obj(q.body)), core);
+			} catch (error) {
+				if (error instanceof ApiError) throw new HttpError(error.status, error.message);
+				throw error;
+			}
+		});
+		const { restartNeeded } = settingsCall(() => core.settings.setGateway(patch));
+		log.info("gateway settings changed by a member", { fields: Object.keys(patch), by: q.member!.name });
+		return { settings: gatewaySettingsJson(core), restartNeeded };
+	});
 	r.on("GET", "/federation/manage/mcp", (q) => (allowed(q), { node: core.members.self().name, ...mcpList(core) }));
 	r.on("GET", "/federation/manage/mcp/:name", (q) => (allowed(q), mcpCall(() => mcpDetail(core, q.params.name!))));
 	r.on("POST", "/federation/manage/mcp", (q) => {

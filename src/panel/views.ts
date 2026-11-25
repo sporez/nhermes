@@ -2,7 +2,7 @@
 // (through /federation/manage): the editor data, the models it may pick from, a bot's skills and its
 // system prompt in parts.
 import { configView } from "../admin.ts";
-import { groundRules, personaParts, personaText } from "../agent/extensions.ts";
+import { builtInGroundRules, personaParts, personaText } from "../agent/extensions.ts";
 import type { Core } from "../app.ts";
 import { type Bot, DEFAULT_TOOL_GROUPS } from "../core/bots.ts";
 
@@ -53,8 +53,8 @@ export async function promptView(c: Core, bot: Bot) {
 	const p = await personaParts(c.deps, bot, "");
 	return {
 		...p,
-		groundRulesCustom: c.config.groundRules !== undefined,
-		builtInGroundRules: groundRules([...new Set([c.config.configDir, c.config.dataDir])]),
+		addedRules: c.config.addedRules ?? null,
+		builtInGroundRules: builtInGroundRules(c.config),
 		tools: bot.toolGroups,
 		full: await personaText(c.deps, bot, ""),
 	};

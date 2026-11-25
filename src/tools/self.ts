@@ -91,14 +91,14 @@ function gatewayPatchOf(raw: Record<string, unknown>): GatewayPatch {
 		if (bad.length > 0) throw new Error(`${where}.${bad.join(", ")} cannot be changed here`);
 		return v as Record<string, unknown>;
 	};
-	const bad = Object.keys(raw).filter((k) => !["defaults", "timezone", "groundRules", "modelLists", "review"].includes(k));
-	if (bad.length > 0) throw new Error(`gateway setting ${bad.join(", ")} cannot be changed here (allowed: defaults, timezone, groundRules, modelLists, review)`);
+	const bad = Object.keys(raw).filter((k) => !["defaults", "timezone", "addedRules", "modelLists", "review"].includes(k));
+	if (bad.length > 0) throw new Error(`gateway setting ${bad.join(", ")} cannot be changed here (allowed: defaults, timezone, addedRules, modelLists, review)`);
 	const out: GatewayPatch = {};
 	if (raw.defaults !== undefined) out.defaults = rec(raw.defaults, ["model", "thinking", "approvals"], "defaults") as GatewayPatch["defaults"];
 	if (raw.review !== undefined) out.review = rec(raw.review, ["enabled", "allowThreshold", "timeoutMs"], "review") as GatewayPatch["review"];
 	if (raw.modelLists !== undefined) out.modelLists = rec(raw.modelLists, ["hide"], "modelLists") as GatewayPatch["modelLists"];
 	if (raw.timezone !== undefined) out.timezone = raw.timezone as string;
-	if (raw.groundRules !== undefined) out.groundRules = raw.groundRules as string | null;
+	if (raw.addedRules !== undefined) out.addedRules = raw.addedRules as string | null;
 	return out;
 }
 
@@ -195,7 +195,7 @@ export function describeConfigCall(services: SelfServices, bot: Bot, name: strin
 		const lines: string[] = [];
 		for (const [k, v] of Object.entries((args.patch ?? {}) as Record<string, unknown>)) {
 			if (v !== null && typeof v === "object" && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v)) lines.push(fieldChange(`${k}.${k2}`, (c[k] as Record<string, unknown> | undefined)?.[k2], v2));
-			else lines.push(fieldChange(k, k === "groundRules" ? c.groundRules : c[k], v));
+			else lines.push(fieldChange(k, c[k], v));
 		}
 		return ["Change the gateway's settings:", ...lines].join("\n");
 	}
@@ -382,7 +382,7 @@ export function selfFeature(late: LateServices, services: SelfServices): Feature
 	});
 	const gwUpdate = defineTool({
 		name: "gateway_update",
-		description: "Change gateway settings: patch with defaults {model, thinking, approvals}, timezone, groundRules (null restores the built-in rules), modelLists {hide}, review {enabled, allowThreshold, timeoutMs}. The owner is asked to approve.",
+		description: "Change gateway settings: patch with defaults {model, thinking, approvals}, timezone, addedRules (the owner's rules added after the built-in ground rules, which cannot be changed; null removes them), modelLists {hide}, review {enabled, allowThreshold, timeoutMs}. The owner is asked to approve.",
 		parameters: Type.Object({ patch: Obj }),
 		replay: "safe",
 		execute: async (args, api) => {

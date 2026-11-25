@@ -138,7 +138,7 @@ Everything else below is an nHermes design choice.
      its bots call it.
    - Other machines reach it by delegating to such a bot, the path that exists today.
    - Any panel (and the app, with `botId` set to a member's bot) can manage a member's servers under that member's
-     "Let other machines edit this machine's bots" switch. Listing, reading and testing a member's servers
+     "Let other machines manage this machine" switch. Listing, reading and testing a member's servers
      needs no switch (`/federation/read/mcp`). Key values never travel that way.
 9. **Work another machine started** uses MCP tools exactly like other tools on that path, as
    described in "Where we start": never trusted, no Jev, asks relayed to the owner through the

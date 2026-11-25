@@ -273,6 +273,8 @@ export class Panel {
 		r.on("PATCH", "/panel/api/remote/:node/mcp/:name", (q) => this.remoteWrite(q.params.node!, "PATCH", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}`, obj(q.body)));
 		r.on("DELETE", "/panel/api/remote/:node/mcp/:name", (q) => this.remoteWrite(q.params.node!, "DELETE", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}`, {}));
 		r.on("POST", "/panel/api/remote/:node/mcp/:name/:action", (q) => this.remote(q.params.node!, "POST", `/federation/manage/mcp/${encodeURIComponent(q.params.name!)}/${encodeURIComponent(q.params.action!)}`, {}, 20_000));
+		r.on("GET", "/panel/api/remote/:node/settings", (q) => this.remote(q.params.node!, "GET", "/federation/manage/settings"));
+		r.on("PATCH", "/panel/api/remote/:node/settings", (q) => this.remote(q.params.node!, "PATCH", "/federation/manage/settings", obj(q.body)));
 		r.on("GET", "/panel/api/remote/:node/bots/:name/prompt", (q) => this.remote(q.params.node!, "GET", `/federation/manage/bots/${encodeURIComponent(q.params.name!)}/prompt`));
 
 		// Network

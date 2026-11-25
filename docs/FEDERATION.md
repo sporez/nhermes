@@ -203,7 +203,7 @@ Screens:
 - **Bots**: local bots (default, private, trusted badges) with an editor for display name, description,
   model and thinking, tool groups, approval mode, private, trusted, default, shared memory spaces and
   instructions; a Skills section with per-bot toggles and "Every global skill"; the bot's system prompt
-  (ground rules editable there); create and remove bots; reload config.yaml. Members' bots are listed per machine
+  (the built-in ground rules shown, and the rules added for every bot editable there, on this machine or a member that allows it); create and remove bots; reload config.yaml. Members' bots are listed per machine
   under Remote bots with the same editor when that machine allows edits from other machines
   (`docs/REMOTE-BOT-EDITS.md`), otherwise view only, with an offline mark.
 - **Network**: this machine and the members with reachability and last seen; invite (shows the code),
@@ -240,7 +240,7 @@ sessions, memory and approvals.
 - Configuration changes (`self_*`, `gateway_*`) are refused in work a member started, with one exception:
   the owner's own chat relayed from their client on a member (`sessions.create` with `relay: true`, which
   only this gateway's own chat link to the member sends, `src/federation/chats.ts`; source `member:<node>:owner`). There the `self_*` tools ask the owner as in a
-  local chat when this machine has "Let other machines edit this machine's bots" on; `gateway_*` tools
+  local chat when this machine has "Let other machines manage this machine" on; `gateway_*` tools
   still need trust and stay refused. Delegated work (source `member:<node>`) is always refused. The mark
   is the member's word, the same trust the switch already gives it.
 - Provider sign-ins on a member (`/federation/logins`, `src/federation/logins.ts`) are opt-in on the

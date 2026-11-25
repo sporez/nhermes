@@ -50,7 +50,7 @@ test("a member's bots are edited from another panel once that machine allows it"
 		let [beta] = await members(a);
 		assert.equal(beta!.editable, false);
 		assert.equal(beta!.reachable, true);
-		assert.match(beta!.error!, /beta does not accept bot edits/);
+		assert.match(beta!.error!, /beta doesn't let other machines manage it/);
 		const refused = await panel(a, "PATCH", "/remote/beta/bots/nasbot", { description: "Changed" });
 		assert.equal(refused.status, 403);
 		assert.equal(b.core.bots.get("nasbot")!.description, "Runs on the NAS");
@@ -112,9 +112,24 @@ test("a member's bots are edited from another panel once that machine allows it"
 		assert.equal(prompt.instructions, "Be brief.");
 		assert.ok(prompt.full.includes("Be brief."));
 
+		// Gateway settings: beta's own, read and changed there (its rules added after its built-in ones).
+		const settings = (await panel(a, "GET", "/remote/beta/settings")).json as { node: string; addedRules: string | null; builtInGroundRules: string };
+		assert.deepEqual([settings.node, settings.addedRules], ["beta", null]);
+		assert.ok(settings.builtInGroundRules.includes(b.dir), "beta's built-in rules name beta's own folders");
+		const changed = await panel(a, "PATCH", "/remote/beta/settings", { addedRules: "Keep the NAS quiet at night." });
+		assert.equal(changed.status, 200);
+		assert.equal((changed.json.settings as { addedRules: string }).addedRules, "Keep the NAS quiet at night.");
+		assert.equal(b.core.config.addedRules, "Keep the NAS quiet at night.");
+		assert.match(readFileSync(b.path, "utf8"), /addedRules: \|\n\s+Keep the NAS quiet at night\./);
+		assert.equal(a.core.config.addedRules, undefined, "nothing changes on alpha");
+		assert.equal((await panel(a, "PATCH", "/remote/beta/settings", { defaults: { thinking: "max" } })).status, 400);
+		assert.equal((await panel(a, "PATCH", "/remote/beta/settings", { addedRules: null })).status, 200);
+		assert.equal(b.core.config.addedRules, undefined);
+
 		// Turned off again: refused.
 		assert.equal((await panel(b, "PATCH", "/network/settings", { acceptBotEdits: false })).status, 200);
 		assert.equal((await panel(a, "PATCH", "/remote/beta/bots/nasbot", { description: "x" })).status, 403);
+		assert.equal((await panel(a, "PATCH", "/remote/beta/settings", { addedRules: "x" })).status, 403);
 
 		// Offline: listed as unreachable, not editable.
 		await b.server.close();

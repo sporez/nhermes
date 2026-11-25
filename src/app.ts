@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { type AgentDeps, groundRules, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
+import { type AgentDeps, fullGroundRules, guardExtension, personaExtension, type PromptPart } from "./agent/extensions.ts";
 import { type Config, scrubbedShellEnv } from "./config.ts";
 import { Approvals } from "./core/approvals.ts";
 import { Attachments, type PdfRenderer } from "./core/attachments.ts";
@@ -340,7 +340,7 @@ export async function createCore(config: Config, options: CoreOptions = {}): Pro
 			return out;
 		},
 		unattendedPolicy: (sessionId) => scheduler?.approvalsFor(sessionId) ?? "ask",
-		groundRules: () => config.groundRules ?? groundRules([...new Set([config.configDir, config.dataDir])]),
+		groundRules: () => fullGroundRules(config),
 		reviewer,
 		reviewLog,
 		describeConfig: (bot, name, args) => describeConfigCall(selfServices, bot, name, args),

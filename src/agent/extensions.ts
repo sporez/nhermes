@@ -3,6 +3,7 @@
 // applies to all its sessions on their next request.
 import type { Context } from "@earendil-works/chord/context";
 import { defineExtension, type Extension, hook, section, ToolTask } from "@earendil-works/pi-durable";
+import type { Config } from "../config.ts";
 import type { Approvals } from "../core/approvals.ts";
 import type { Bot } from "../core/bots.ts";
 import { decide, isConfigCall, needsTrust } from "../core/policy.ts";
@@ -27,7 +28,7 @@ export type AgentDeps = {
 	delegationChain: (sessionId: string) => Bot[];
 	/** Session kinds with no client to ask (jobs): how a needed approval is answered. */
 	unattendedPolicy: (sessionId: string) => "deny" | "allow" | "ask";
-	/** The ground rules every bot gets: the owner's text from config.yaml, or the built-in rules. */
+	/** The ground rules every bot gets: the built-in rules, then the owner's added rules from config.yaml. */
 	groundRules: () => string;
 	/** Jev permission review (answers "ask" decisions it may answer) and its log. */
 	reviewer?: JevReviewer;
@@ -36,7 +37,7 @@ export type AgentDeps = {
 	gatewayFiles?: RegExp;
 	/** The change a config tool call would make, shown on its approval card (diffs). */
 	describeConfig?: (bot: Bot, name: string, args: Record<string, unknown>) => string | undefined;
-	/** Whether other machines may edit this machine's bots (federation.acceptBotEdits). */
+	/** Whether other machines may manage this machine: its bots, MCP servers and gateway settings (federation.acceptBotEdits). */
 	acceptsBotEdits?: () => boolean;
 	/** The owner's own messages in a group chat, for a member's room session (src/core/rooms.ts). */
 	roomOwnerMessages?: (sessionId: string) => string[] | undefined;
@@ -95,6 +96,17 @@ export function groundRules(gatewayPaths: readonly string[]): string {
 		"- Do not run, or ask another bot to run, disk checks or repairs, filesystem verification, stress tests, benchmarks or other heavy maintenance (anything that can freeze, slow down or restart a machine) unless the owner asked for that specific thing. \"Read-only\" does not make them safe: verifying a startup disk freezes a Mac.",
 		"- When you are unsure whether something is allowed, ask the owner first, then act on the answer. These rules protect the gateway, other bots and the machine; they are not a reason to turn down the owner's ordinary requests or to treat them as tests.",
 	].join("\n");
+}
+
+/** This gateway's built-in ground rules, as they come with the software. */
+export function builtInGroundRules(config: Pick<Config, "configDir" | "dataDir">): string {
+	return groundRules([...new Set([config.configDir, config.dataDir])]);
+}
+
+/** The ground rules a bot is told: the built-in ones, then the owner's added rules (`addedRules`), if any. */
+export function fullGroundRules(config: Pick<Config, "configDir" | "dataDir" | "addedRules">): string {
+	const added = config.addedRules?.trim();
+	return added ? `${builtInGroundRules(config)}\n\nThe owner's own rules (these always apply too):\n${added}` : builtInGroundRules(config);
 }
 
 /**
